@@ -418,7 +418,7 @@ void bgp_path_info_mpath_update(struct bgp *bgp, struct bgp_dest *dest,
 				uint32_t num_candidates, struct bgp_maxpaths_cfg *mpath_cfg)
 {
 	uint16_t maxpaths, mpath_count, old_mpath_count;
-	uint32_t bwval;
+	uint64_t bwval;
 	uint64_t cum_bw, old_cum_bw;
 	struct bgp_path_info *cur_iterator = NULL;
 	bool mpath_changed, debug;
