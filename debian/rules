@@ -113,7 +113,7 @@ override_dh_auto_configure:
 		--enable-cumulus=yes \
 		--enable-csmgr=yes \
 		--enable-datacenter=yes \
-		--enable-bfdd=no \
+		--enable-bfdd=yes \
 		--enable-sharpd=yes \
 		--enable-grpc=yes \
 		--enable-bgp-lttng=yes \
