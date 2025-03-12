@@ -604,6 +604,8 @@ struct bgp {
 	struct as_confed *confed_peers;
 	int confed_peers_cnt;
 
+	struct event *clearing_end;
+
 	uint32_t v_maxmed_onstartup; /* Duration of max-med on start-up */
 #define BGP_MAXMED_ONSTARTUP_UNCONFIGURED  0 /* 0 means off, its the default */
 	uint32_t maxmed_onstartup_value;     /* Max-med value when active on
@@ -3110,6 +3112,10 @@ bool bgp_clearing_batch_dests_present(struct bgp_clearing_info *cinfo);
 struct bgp_dest *bgp_clearing_batch_next_dest(struct bgp_clearing_info *cinfo);
 /* Done with a peer clearing batch; deal with refcounts, free memory */
 void bgp_clearing_batch_completed(struct bgp_clearing_info *cinfo);
+/* Start a new batch of peers to clear */
+void bgp_clearing_batch_begin(struct bgp *bgp);
+/* End a new batch of peers to clear */
+void bgp_clearing_batch_end_event_start(struct bgp *bgp);
 
 extern void bgp_session_reset_safe(struct peer *peer, struct listnode **nnode);
 
