@@ -4673,6 +4673,15 @@ DEFUN (zebra_show_routing_tables_summary,
 	return CMD_SUCCESS;
 }
 
+/* Display Zebra MetaQ counters */
+DEFUN(show_zebra_metaq_counters, show_zebra_metaq_counters_cmd, "show zebra metaq [json]",
+      SHOW_STR ZEBRA_STR "Zebra MetaQ counters\n" JSON_STR)
+{
+	bool uj = use_json(argc, argv);
+
+	return zebra_show_metaq_counter(vty, uj);
+}
+
 /* Table configuration write function. */
 static int config_write_table(struct vty *vty)
 {
@@ -5030,6 +5039,7 @@ void zebra_vty_init(void)
 
 	install_element(CONFIG_NODE, &zebra_dplane_queue_limit_cmd);
 	install_element(CONFIG_NODE, &no_zebra_dplane_queue_limit_cmd);
+	install_element(VIEW_NODE, &show_zebra_metaq_counters_cmd);
 
 	install_element(CONFIG_NODE, &zebra_gre_use_nhg_cmd);
 
