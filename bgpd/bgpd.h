@@ -1028,6 +1028,10 @@ struct bgp {
 	/* per source nhg advertise bgp routes delay timer*/
 	int per_src_nhg_start_adv_delay_timer;
 
+	/* Custom SOO source IP for per-source NHG */
+	struct in_addr soo_source_ip;
+	bool soo_source_ip_set;
+
 	/* BGP Conditional advertisement */
 	uint32_t condition_check_period;
 	uint32_t condition_filter_count;

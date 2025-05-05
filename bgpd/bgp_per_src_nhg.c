@@ -1909,9 +1909,13 @@ void bgp_per_src_nhg_handle_router_id_update(struct bgp *bgp, const struct in_ad
 	char addrbuf[BUFSIZ];
 	afi_t afi;
 	safi_t safi;
+	const struct in_addr *soo_ip;
 
-	if (id->s_addr != INADDR_ANY) {
-		snprintf(soo, sizeof(soo), "%s:%X", inet_ntoa(*id),
+	/* Use custom SOO source IP if set, otherwise use router ID */
+	soo_ip = bgp->soo_source_ip_set ? &bgp->soo_source_ip : id;
+
+	if (soo_ip->s_addr != INADDR_ANY) {
+		snprintf(soo, sizeof(soo), "%s:%X", inet_ntoa(*soo_ip),
 			 SOO_LOCAL_ADMINISTRATOR_VALUE_PER_SOURCE_NHG);
 		ecomm_soo = ecommunity_str2com(soo, ECOMMUNITY_SITE_ORIGIN, 0);
 		if (!ecomm_soo)
@@ -1931,7 +1935,7 @@ void bgp_per_src_nhg_handle_router_id_update(struct bgp *bgp, const struct in_ad
 					       BGP_INVALID_LABEL_INDEX, 0, NULL, NULL, NULL, NULL,
 					       true, false);
 				bgp_static_set(NULL, bgp, false,
-					       ipaddr_afi_to_str(id, addrbuf, BUFSIZ, afi), NULL,
+					       ipaddr_afi_to_str(soo_ip, addrbuf, BUFSIZ, afi), NULL,
 					       NULL, afi, safi, NULL, 0, BGP_INVALID_LABEL_INDEX, 0,
 					       NULL, NULL, NULL, NULL, true, false);
 			}
