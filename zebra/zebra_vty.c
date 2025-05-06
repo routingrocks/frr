@@ -1213,12 +1213,16 @@ static void show_nexthop_group_out(struct vty *vty, struct nhg_hash_entry *nhe,
 	json_object *json_backup_nexthop_array = NULL;
 	json_object *json_backup_nexthops = NULL;
 	time_t epoch_tbuf;
+	uint16_t nexthop_count = 0;
+
 
 	uptime2str(nhe->uptime, up_str, sizeof(up_str));
 	epoch_tbuf = time(NULL) - (monotime(NULL) - (UPTIMESECS(nhe->uptime)));
 
 	if (json_nhe_hdr)
 		json = json_object_new_object();
+
+	nexthop_count = nexthop_group_nexthop_num_no_recurse(&nhe->nhg);
 
 	if (json) {
 		if (!brief) {
@@ -1234,6 +1238,8 @@ static void show_nexthop_group_out(struct vty *vty, struct nhg_hash_entry *nhe,
 		json_object_string_add(json, "vrf", vrf_id_to_name(nhe->vrf_id));
 		json_object_int_add(json, "nhGrpUptimeEstablishedEpoch", epoch_tbuf);
 		json_object_string_add(json, "afi", zebra_nhg_afi2str(nhe));
+		json_object_int_add(json, "nexthopCount", nexthop_count);
+
 	} else {
 		vty_out(vty, "ID: %u (%s)\n", nhe->id,
 			zebra_route_string(nhe->type));
@@ -1248,6 +1254,7 @@ static void show_nexthop_group_out(struct vty *vty, struct nhg_hash_entry *nhe,
 		vty_out(vty, "     Uptime: %s\n", up_str);
 		vty_out(vty, "     VRF: %s(%s)\n", vrf_id_to_name(nhe->vrf_id),
 			zebra_nhg_afi2str(nhe));
+		vty_out(vty, "     Nexthop Count: %u\n", nexthop_count);
 	}
 
 	if (CHECK_FLAG(nhe->flags, NEXTHOP_GROUP_VALID)) {
