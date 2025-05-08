@@ -1625,12 +1625,14 @@ static void nexthop_cli_show(struct vty *vty, const struct lyd_node *route,
 		if (yang_dnode_get_bool(bfd_dnode, "multi-hop")) {
 			vty_out(vty, " bfd multi-hop");
 
-			if (yang_dnode_exists(bfd_dnode, "source"))
-				vty_out(vty, " source %s",
-					yang_dnode_get_string(bfd_dnode,
-							      "./source"));
+
 		} else
 			vty_out(vty, " bfd");
+
+		if (yang_dnode_exists(bfd_dnode, "source"))
+			vty_out(vty, " source %s",
+				yang_dnode_get_string(bfd_dnode,
+						      "./source"));
 
 		if (yang_dnode_exists(bfd_dnode, "profile"))
 			vty_out(vty, " profile %s",
