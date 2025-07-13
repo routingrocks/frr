@@ -83,9 +83,8 @@ service Northbound {
   rpc UnlockConfig(UnlockConfigRequest) returns (UnlockConfigResponse) {}
 
   // Send Data
-  rpc SubscriptionCache(SubscriptionCacheRequest) returns (stream SubscriptionCacheResponse)
-  {
-  }
+  rpc SubscriptionCache(SubscriptionCacheRequest) returns (SubscriptionCacheResponse);
+
 
   // Execute a YANG RPC.
   rpc Execute(ExecuteRequest) returns (ExecuteResponse) {}

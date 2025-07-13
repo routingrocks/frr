@@ -576,6 +576,7 @@ bool HandleStreamingSubscriptionCache(
 			grpc_debug("Data %s", dt_str);
 		}
 	}
+	grpc_debug("HandleStreamingSubscriptionCache");
 	if (mypathps->empty()) {
 		tag->async_responder.Finish(grpc::Status::OK, tag);
 		return false;
@@ -1207,7 +1208,6 @@ static void *grpc_pthread_start(void *arg)
 	/* Schedule streaming RPC handlers */
 	REQUEST_NEWRPC_STREAMING(Get);
 	REQUEST_NEWRPC_STREAMING(ListTransactions);
-	REQUEST_NEWRPC_STREAMING(SubscriptionCache);
 
 	zlog_notice("gRPC server listening on %s",
 		    server_address.str().c_str());
@@ -1285,16 +1285,18 @@ static int frr_grpc_notification_send(const char *xpath, struct list *arguments)
 	grpc_debug("Attempting to connect to gRPC service at %s", vrf_address.c_str());
 	auto channel = grpc::CreateCustomChannel(vrf_address, grpc::InsecureChannelCredentials(),
 						 args);
-	auto stub = frr::Northbound::NewStub(channel);
 	if (!channel) {
 		zlog_err("Failed to create gRPC channel to %s", vrf_address.c_str());
+		return -1;
 	}
+	auto stub = frr::Northbound::NewStub(channel);
 	if (!stub) {
 		zlog_err("Failed to create gRPC stub for %s", vrf_address.c_str());
+		return -1;
 	}
 	frr::SubscriptionCacheRequest cache;
 	cache.add_path(nb_node->xpath); // Add the XPath to the request
-
+	frr::SubscriptionCacheResponse resp;
 	auto *dt = cache.mutable_data();
 	dt->set_encoding(frr::JSON);
 
@@ -1303,14 +1305,39 @@ static int frr_grpc_notification_send(const char *xpath, struct list *arguments)
 		zlog_err("%s: failed to populate DataTree for path: %s", __func__, xpath);
 		return -1;
 	}
-	grpc_debug("GRPC notification send for Xpath %s", xpath);
-	std::unique_ptr<grpc::ClientReader<frr::SubscriptionCacheResponse> > stream(
-		stub->SubscriptionCache(&context, cache)); // Pass both arguments
-	if (!stream) {
-		zlog_err("Failed to open gRPC stream for SubscriptionCache");
-		return -1;
+	grpc::CompletionQueue cq;
+	auto rpc = stub->AsyncSubscriptionCache(&context, cache, &cq);
+	zlog_debug("Telemetry data sucessfully sent via gRPC");
+	// Send request and register a tag
+	void *tag = (void *)(1);
+	rpc->Finish(&resp, &status, tag);
+
+	/* Wait for the RPC to complete */
+	void *got_tag;
+	bool ok = false;
+
+	/* Timeout for the completion queue to break on an event */
+	auto deadline = std::chrono::system_clock::now() + std::chrono::milliseconds(100);
+	grpc::CompletionQueue::NextStatus cq_status = cq.AsyncNext(&got_tag, &ok, deadline);
+	if (ok && got_tag == tag) {
+		switch (cq_status) {
+		case grpc::CompletionQueue::NextStatus::GOT_EVENT:
+			grpc_debug("CQ GOT_EVENT");
+			break;
+		case grpc::CompletionQueue::NextStatus::TIMEOUT:
+			grpc_debug("CQ TIMEOUT_EVENT");
+			break;
+		case grpc::CompletionQueue::NextStatus::SHUTDOWN:
+			grpc_debug("CQ SHUTDOWN_EVENT");
+			break;
+		}
 	}
-	grpc_debug("Telemetry data sucessfully sent via gRPC");
+	//Stop new events on this cq
+	cq.Shutdown();
+	// Drain any remaining events
+	while (cq.Next(&got_tag, &ok))
+		grpc_debug("Draining CQ");
+	zlog_debug("gRPC call completed and shutdown the CQ.");
 	return 0;
 }
 
