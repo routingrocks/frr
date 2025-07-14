@@ -5,6 +5,7 @@ After=networking.service systemd-sysctl.service csmgrd.service
 Before=lttng-sessiond.service
 OnFailure=heartbeat-failed@%n
 Before=routing_telemetry.service
+Wants=routing_telemetry.service
 
 [Service]
 Nice=-5
