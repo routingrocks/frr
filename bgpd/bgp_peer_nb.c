@@ -67,6 +67,17 @@ const void *lib_vrf_lookup_entry(struct nb_cb_lookup_entry_args *args)
 }
 
 /*
+ * XPath: /frr-bgp-peer:lib/gshut
+ * Streams global graceful shutdown status
+ * Ref Nvim config command : nv set router bgp graceful-shutdown on 
+ * Ref Nvue show command : nv show router bgp
+ */
+struct yang_data *lib_gshut_get_elem(struct nb_cb_get_elem_args *args)
+{
+	return yang_data_new_bool(args->xpath, CHECK_FLAG(bm->flags, BM_FLAG_GRACEFUL_SHUTDOWN));
+}
+
+/*
  * XPath: /frr-bgp-peer:lib/vrf/id
  */
 struct yang_data *lib_vrf_id_get_elem(struct nb_cb_get_elem_args *args)
@@ -435,6 +446,9 @@ lib_vrf_peer_messages_received_last_notification_error_code_get_elem(struct nb_c
 }
 /*
  *  * XPath: /frr-bgp-peer:lib/vrf/peer/gshut
+ *  Streams peer graceful shutdown status
+ *  Ref Nvue config command : nv set vrf default router bgp neighbor swp1s1 graceful-shutdown on
+ *  Ref Nvue show command : nv show vrf default router bgp neighbor swp1s1
  *   */
 struct yang_data *lib_vrf_peer_gshut_get_elem(struct nb_cb_get_elem_args *args){
 	struct peer *peer;
@@ -553,6 +567,12 @@ struct yang_data *lib_vrf_peer_afi_safi_safi_get_elem(struct nb_cb_get_elem_args
 const struct frr_yang_module_info frr_bgp_peer_info = {
 	.name = "frr-bgp-peer",
 	.nodes = {
+		{
+			.xpath = "/frr-bgp-peer:lib/gshut",
+			.cbs = {
+				.get_elem = lib_gshut_get_elem,
+			}
+		},
 		{
 			.xpath = "/frr-bgp-peer:lib/vrf",
 			.cbs = {

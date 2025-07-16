@@ -25,6 +25,12 @@ module frr-bgp-peer {
   }
 
   container lib {
+     leaf gshut{
+        config false;
+        type boolean;
+        description
+          "This leaf indicates whether the gshut is enabled globally";
+     }
      list vrf {
        config false;
        key "id";
@@ -184,7 +190,7 @@ module frr-bgp-peer {
             config false;
             type boolean;
             description
-                "This leaf indicates whether the gshut is enbaled for the peer";
+                "This leaf indicates whether the gshut is enabled for the peer";
           }
       }
     }
