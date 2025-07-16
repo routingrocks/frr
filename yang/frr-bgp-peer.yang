@@ -180,6 +180,12 @@ module frr-bgp-peer {
             description
                "Total messages recieved";
           }
+          leaf gshut {
+            config false;
+            type boolean;
+            description
+                "This leaf indicates whether the gshut is enbaled for the peer";
+          }
       }
     }
   }
