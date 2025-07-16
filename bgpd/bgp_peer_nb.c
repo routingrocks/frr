@@ -74,6 +74,9 @@ const void *lib_vrf_lookup_entry(struct nb_cb_lookup_entry_args *args)
  */
 struct yang_data *lib_gshut_get_elem(struct nb_cb_get_elem_args *args)
 {
+	if (!bm)
+		return yang_data_new_bool(args->xpath, false);
+
 	return yang_data_new_bool(args->xpath, CHECK_FLAG(bm->flags, BM_FLAG_GRACEFUL_SHUTDOWN));
 }
 
