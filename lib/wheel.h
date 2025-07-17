@@ -86,6 +86,18 @@ void wheel_delete(struct timer_wheel *);
 int wheel_add_item(struct timer_wheel *wheel, void *item);
 
 /*
+ * wheel - The Timer wheel being modified
+ * item - The generic data structure that will be searched
+ *        in wheel timer for its presence.
+ *
+ * Returns - True if item is already present in wheel timer, otherwise
+ *           returns false
+ *
+ * Check if an item is already present in a wheel timer or not
+ */
+bool wheel_check_item_present(struct timer_wheel *wheel, void *item);
+
+/*
  * wheel - The Timer wheel being modified.
  * item - The item to remove from one of the slots in
  *        the timer wheel.

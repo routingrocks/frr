@@ -1422,6 +1422,11 @@ static void rtadv_start_interface_events(struct zebra_vrf *zvrf,
 		rtadv_event(zvrf, RTADV_START, 0);
 
 	rtadv_send_packet(zvrf->rtadv.sock, zif->ifp, RA_ENABLE);
+	if (wheel_check_item_present(zrouter.ra_wheel, zif->ifp)) {
+		zlog_err("wheel timer already has entry for interface: %s ptr :%p", zif->ifp->name, zif->ifp);
+		return;
+	}
+
 	wheel_add_item(zrouter.ra_wheel, zif->ifp);
 }
 
