@@ -6373,7 +6373,7 @@ static void zebra_vxlan_sg_do_deref(struct zebra_vrf *zvrf,
 		struct in_addr sip, struct in_addr mcast_grp)
 {
 	struct zebra_vxlan_sg *vxlan_sg;
-	struct prefix_sg sg;
+	struct prefix_sg sg = { 0 };
 
 	sg.family = AF_INET;
 	sg.prefixlen = IPV4_MAX_BYTELEN;
@@ -6395,7 +6395,7 @@ static struct zebra_vxlan_sg *zebra_vxlan_sg_do_ref(struct zebra_vrf *zvrf,
 						    struct in_addr mcast_grp)
 {
 	struct zebra_vxlan_sg *vxlan_sg;
-	struct prefix_sg sg;
+	struct prefix_sg sg = { 0 };
 
 	sg.family = AF_INET;
 	sg.prefixlen = IPV4_MAX_BYTELEN;
