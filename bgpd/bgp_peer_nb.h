@@ -47,7 +47,9 @@ lib_vrf_peer_group_get_elem(struct nb_cb_get_elem_args *args);
 struct yang_data *
 lib_vrf_peer_type_get_elem(struct nb_cb_get_elem_args *args);
 struct yang_data *
-lib_vrf_peer_gshut_get_elem(struct nb_cb_get_elem_args *args);
+lib_vrf_peer_graceful_shutdown_get_elem(struct nb_cb_get_elem_args *args);
+struct yang_data *
+lib_graceful_shutdown_get_elem(struct nb_cb_get_elem_args *args);
 int lib_vrf_peer_afi_safi_get_keys(struct nb_cb_get_keys_args *args);
 const void *lib_vrf_peer_afi_safi_lookup_entry(struct nb_cb_lookup_entry_args *args);
 const void *lib_vrf_peer_afi_safi_get_next(struct nb_cb_get_next_args *args);
