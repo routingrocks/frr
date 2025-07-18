@@ -978,6 +978,58 @@ def bgp_delete_nbr_remote_as_line(lines_to_add):
     for ctx_keys, line in lines_to_del_from_add:
         lines_to_add.remove((ctx_keys, line))
 
+def bgp_cleanup_redundant_neighbor_deletions(lines_to_del, neighbors_with_remote_as):
+    """
+    Clean up redundant neighbor configuration deletion commands.
+
+    When a neighbor's remote-as is being removed (which deletes the entire neighbor),
+    remove all other 'neighbor X ...' and 'no neighbor X ...' config deletion lines
+    for that same neighbor from lines_to_del to avoid redundant commands.
+
+    Args:
+        lines_to_del: List of commands to be deleted
+        neighbors_with_remote_as: List of neighbor remote-as commands being removed
+    """
+    lines_to_del_to_del = []
+    neighbor_set = set()
+
+    # Build set of neighbors with remote-as being removed
+    for ctx_keys, line in neighbors_with_remote_as:
+        if (
+            ctx_keys[0].startswith("router bgp")
+            and line
+            and line.startswith("neighbor ")
+        ):
+            # Check for neighbor remote-as lines being removed
+            re_remote_as = re.search(r"neighbor (\S+) .*remote-as", line)
+            if re_remote_as:
+                neighbor_name = re_remote_as.group(1)
+                neighbor_set.add((ctx_keys[0], neighbor_name))
+
+    # Find other neighbor configs for neighbors that have remote-as removal
+    for ctx_keys, line in lines_to_del:
+        if (
+            ctx_keys[0].startswith("router bgp")
+            and line
+            and (line.startswith("neighbor ") or line.startswith("no neighbor "))
+        ):
+            # Extract neighbor name from 'neighbor X ...' or 'no neighbor X ...' commands
+            re_neighbor = re.search(r"no neighbor (\S+)", line)
+            if not re_neighbor:
+                re_neighbor = re.search(r"neighbor (\S+)", line)
+
+            if re_neighbor:
+                neighbor_name = re_neighbor.group(1)
+                # If this neighbor has a remote-as line in neighbors_with_remote_as,
+                # and this is NOT the remote-as line itself, mark for removal
+                if (ctx_keys[0], neighbor_name) in neighbor_set:
+                    # Remove other neighbor configs but keep the remote-as line
+                    if not re.search(r"neighbor \S+ .*remote-as", line):
+                        lines_to_del_to_del.append((ctx_keys, line))
+
+    # Remove the identified lines
+    for ctx_keys, line in lines_to_del_to_del:
+        lines_to_del.remove((ctx_keys, line))
 
 def bgp_remove_neighbor_cfg(lines_to_del, del_nbr_dict):
     # This method handles deletion of bgp neighbor configs,
@@ -1146,6 +1198,8 @@ def bgp_delete_move_lines(lines_to_add, lines_to_del):
         bgp_delete_inst_move_line(lines_to_del)
         if del_nbr_dict:
             bgp_remove_neighbor_cfg(lines_to_del, del_nbr_dict)
+        if lines_to_del_to_app:
+            bgp_cleanup_redundant_neighbor_deletions(lines_to_del, lines_to_del_to_app)
         return (lines_to_add, lines_to_del)
 
     # {'router bgp 65001': {'PG': ['10.1.1.2'], 'PG1': ['10.1.1.21']},
@@ -1197,6 +1251,8 @@ def bgp_delete_move_lines(lines_to_add, lines_to_del):
 
     bgp_delete_inst_move_line(lines_to_del)
 
+    if lines_to_del_to_app:
+        bgp_cleanup_redundant_neighbor_deletions(lines_to_del, lines_to_del_to_app)
     return (lines_to_add, lines_to_del)
 
 
