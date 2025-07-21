@@ -2663,6 +2663,10 @@ if __name__ == "__main__":
 
         # We will not be able to do anything, go ahead and exit(1)
         if not vtysh.is_config_available() or not reload_ok:
+            if not vtysh.is_config_available():
+                log.error("vtysh configuration is not available (VTY may be locked by another session)")
+            if not reload_ok:
+                log.error("Configuration reload failed due to previous errors")
             sys.exit(1)
 
         log.debug("New Frr Config\n%s", newconf.get_lines())
@@ -2870,4 +2874,5 @@ if __name__ == "__main__":
             vtysh("write")
 
     if not reload_ok:
+        log.error("FRR configuration reload failed")
         sys.exit(1)

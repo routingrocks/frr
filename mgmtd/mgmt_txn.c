@@ -584,8 +584,8 @@ static void mgmt_txn_process_set_cfg(struct event *thread)
 			assert(txn_req->req.set_cfg->dst_ds_ctx);
 
 			/* We expect the user to have locked the DST DS */
-			if (!mgmt_ds_is_locked(txn_req->req.set_cfg->dst_ds_ctx,
-					       txn->session_id)) {
+			if (!mgmt_ds_is_locked_by_session(txn_req->req.set_cfg->dst_ds_ctx,
+							  txn->session_id)) {
 				__log_err("DS %u not locked for implicit commit txn-id: %" PRIu64
 					  " session-id: %" PRIu64 " err: %s",
 					  txn_req->req.set_cfg->dst_ds_id,

@@ -222,10 +222,22 @@ bool mgmt_ds_is_config(struct mgmt_ds_ctx *ds_ctx)
 	return ds_ctx->config_ds;
 }
 
-bool mgmt_ds_is_locked(struct mgmt_ds_ctx *ds_ctx, uint64_t session_id)
+bool mgmt_ds_is_locked_by_session(struct mgmt_ds_ctx *ds_ctx, uint64_t session_id)
 {
 	assert(ds_ctx);
 	return (ds_ctx->locked && ds_ctx->vty_session_id == session_id);
+}
+
+uint64_t mgmt_ds_get_lock_session_id(struct mgmt_ds_ctx *ds_ctx)
+{
+	assert(ds_ctx);
+	return ds_ctx->vty_session_id;
+}
+
+bool mgmt_ds_is_locked(struct mgmt_ds_ctx *ds_ctx)
+{
+	assert(ds_ctx);
+	return ds_ctx->locked;
 }
 
 int mgmt_ds_lock(struct mgmt_ds_ctx *ds_ctx, uint64_t session_id)
@@ -506,15 +518,25 @@ void mgmt_ds_dump_tree(struct vty *vty, struct mgmt_ds_ctx *ds_ctx,
 
 void mgmt_ds_status_write_one(struct vty *vty, struct mgmt_ds_ctx *ds_ctx)
 {
+	uint64_t session_id;
+	bool locked;
+
 	if (!ds_ctx) {
 		vty_out(vty, "    >>>>> Datastore Not Initialized!\n");
 		return;
 	}
 
+	session_id = 0;
+	locked = mgmt_ds_is_locked(ds_ctx);
+	if (locked)
+		session_id = mgmt_ds_get_lock_session_id(ds_ctx);
+
 	vty_out(vty, "  DS: %s\n", mgmt_ds_id2name(ds_ctx->ds_id));
 	vty_out(vty, "    DS-Hndl: \t\t\t%p\n", ds_ctx);
 	vty_out(vty, "    Config: \t\t\t%s\n",
 		ds_ctx->config_ds ? "True" : "False");
+	vty_out(vty, "    Locked: \t\t\t%s Session-ID: %llu\n", locked ? "True" : "False",
+		session_id);
 }
 
 void mgmt_ds_status_write(struct vty *vty)
