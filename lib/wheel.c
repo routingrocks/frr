@@ -121,3 +121,16 @@ int wheel_remove_item(struct timer_wheel *wheel, void *item)
 
 	return 0;
 }
+
+
+bool wheel_check_item_present(struct timer_wheel *wheel, void *item)
+{
+	long long slot;
+
+	slot = (*wheel->slot_key)(item);
+	if (listnode_lookup(wheel->wheel_slot_lists[slot % wheel->slots], item) != NULL) {
+		return true;
+	}
+
+	return false;
+}

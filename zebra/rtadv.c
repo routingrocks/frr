@@ -1388,6 +1388,14 @@ static void rtadv_start_interface_events(struct zebra_vrf *zvrf,
 {
 	struct adv_if *adv_if = NULL;
 
+	if (!if_is_operative(zif->ifp)) {
+		if (IS_ZEBRA_DEBUG_EVENT)
+			zlog_debug(
+				"%s(%s) is not up an yet, delaying until it is up",
+				zif->ifp->name, zvrf->vrf->name);
+		return;
+	}
+
 	if (zif->ifp->ifindex == IFINDEX_INTERNAL) {
 		if (IS_ZEBRA_DEBUG_EVENT)
 			zlog_debug(
@@ -1414,6 +1422,11 @@ static void rtadv_start_interface_events(struct zebra_vrf *zvrf,
 		rtadv_event(zvrf, RTADV_START, 0);
 
 	rtadv_send_packet(zvrf->rtadv.sock, zif->ifp, RA_ENABLE);
+	if (wheel_check_item_present(zrouter.ra_wheel, zif->ifp)) {
+		zlog_err("wheel timer already has entry for interface: %s ptr :%p", zif->ifp->name, zif->ifp);
+		return;
+	}
+
 	wheel_add_item(zrouter.ra_wheel, zif->ifp);
 }
 
