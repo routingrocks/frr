@@ -67,20 +67,6 @@ const void *lib_vrf_lookup_entry(struct nb_cb_lookup_entry_args *args)
 }
 
 /*
- * XPath: /frr-bgp-peer:lib/gshut
- * Streams global graceful shutdown status
- * Ref Nvim config command : nv set router bgp graceful-shutdown on 
- * Ref Nvue show command : nv show router bgp
- */
-struct yang_data *lib_graceful_shutdown_get_elem(struct nb_cb_get_elem_args *args)
-{
-	if (!bm)
-		return yang_data_new_bool(args->xpath, false);
-
-	return yang_data_new_bool(args->xpath, CHECK_FLAG(bm->flags, BM_FLAG_GRACEFUL_SHUTDOWN));
-}
-
-/*
  * XPath: /frr-bgp-peer:lib/vrf/id
  */
 struct yang_data *lib_vrf_id_get_elem(struct nb_cb_get_elem_args *args)
@@ -458,7 +444,7 @@ struct yang_data *lib_vrf_peer_graceful_shutdown_get_elem(struct nb_cb_get_elem_
 	if (!args || !args->list_entry)
 		return NULL;
 	peer = (struct peer *)args->list_entry;
-	return yang_data_new_bool(args->xpath, CHECK_FLAG(peer->flags, PEER_FLAG_GRACEFUL_SHUTDOWN));
+	return yang_data_new_bool(args->xpath, bgp_in_graceful_shutdown(peer->bgp) || CHECK_FLAG(peer->flags, PEER_FLAG_GRACEFUL_SHUTDOWN));
 }
 /*
  *  * XPath: /frr-bgp-peer:lib/vrf/peer/afi-safi
@@ -570,12 +556,6 @@ struct yang_data *lib_vrf_peer_afi_safi_safi_get_elem(struct nb_cb_get_elem_args
 const struct frr_yang_module_info frr_bgp_peer_info = {
 	.name = "frr-bgp-peer",
 	.nodes = {
-		{
-			.xpath = "/frr-bgp-peer:lib/graceful-shutdown",
-			.cbs = {
-				.get_elem = lib_graceful_shutdown_get_elem,
-			}
-		},
 		{
 			.xpath = "/frr-bgp-peer:lib/vrf",
 			.cbs = {
