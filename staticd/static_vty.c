@@ -184,49 +184,37 @@ static int static_route_nb_run(struct vty *vty, struct static_route_args *args)
 	static_get_nh_type(type, buf_nh_type, sizeof(buf_nh_type));
 	if (!args->delete) {
 		if (args->source)
-			snprintf(ab_xpath, sizeof(ab_xpath), FRR_DEL_S_ROUTE_SRC_NH_KEY_XPATH,
-				 "frr-staticd:staticd", "staticd", args->vrf, buf_prefix,
-				 yang_afi_safi_value2identity(args->afi, args->safi),
-				 buf_src_prefix, table_id, distance, buf_nh_type, args->nexthop_vrf,
-				 buf_gate_str, args->interface_name);
-		else
-			snprintf(ab_xpath, sizeof(ab_xpath), FRR_DEL_S_ROUTE_NH_KEY_XPATH,
-				 "frr-staticd:staticd", "staticd", args->vrf, buf_prefix,
-				 yang_afi_safi_value2identity(args->afi, args->safi), table_id,
-				 distance, buf_nh_type, args->nexthop_vrf, buf_gate_str,
+			snprintf(ab_xpath, sizeof(ab_xpath),
+				 FRR_DEL_S_ROUTE_SRC_NH_KEY_NO_DISTANCE_XPATH,
+				 "frr-staticd:staticd", "staticd", args->vrf,
+				 buf_prefix,
+				 yang_afi_safi_value2identity(args->afi,
+							      args->safi),
+				 buf_src_prefix, table_id, buf_nh_type,
+				 args->nexthop_vrf, buf_gate_str,
 				 args->interface_name);
+		else
+			snprintf(ab_xpath, sizeof(ab_xpath),
+				 FRR_DEL_S_ROUTE_NH_KEY_NO_DISTANCE_XPATH,
+				 "frr-staticd:staticd", "staticd", args->vrf,
+				 buf_prefix,
+				 yang_afi_safi_value2identity(args->afi,
+							      args->safi),
+				 table_id, buf_nh_type, args->nexthop_vrf,
+				 buf_gate_str, args->interface_name);
 
 		/*
 		 * If there's already the same nexthop but with a different
 		 * distance, then remove it for the replacement.
-		 * We need to search for any existing route with the same prefix and nexthop,
-		 * regardless of distance, to handle distance changes properly.
 		 */
-		char search_xpath[XPATH_MAXLEN];
-		const struct lyd_node *existing_dnode = NULL;
+		dnode = yang_dnode_get(vty->candidate_config->dnode, ab_xpath);
+		if (dnode) {
+			dnode = yang_get_subtree_with_no_sibling(dnode);
+			assert(dnode);
+			yang_dnode_get_path(dnode, ab_xpath, XPATH_MAXLEN);
 
-		/* Search for existing route with same prefix and nexthop but any distance */
-		if (args->source) {
-			snprintf(search_xpath, sizeof(search_xpath),
-				 FRR_DEL_S_ROUTE_SRC_NH_KEY_NO_DISTANCE_XPATH,
-				 "frr-staticd:staticd", "staticd", args->vrf, buf_prefix,
-				 yang_afi_safi_value2identity(args->afi, args->safi),
-				 buf_src_prefix, table_id, buf_nh_type, args->nexthop_vrf,
-				 buf_gate_str, args->interface_name);
-		} else {
-			snprintf(search_xpath, sizeof(search_xpath),
-				 FRR_DEL_S_ROUTE_NH_KEY_NO_DISTANCE_XPATH, "frr-staticd:staticd",
-				 "staticd", args->vrf, buf_prefix,
-				 yang_afi_safi_value2identity(args->afi, args->safi), table_id,
-				 buf_nh_type, args->nexthop_vrf, buf_gate_str, args->interface_name);
-		}
-
-		existing_dnode = yang_dnode_get(vty->candidate_config->dnode, search_xpath);
-		if (existing_dnode) {
-			/* Delete only the conflicting nexthop entry, keeping siblings intact */
-			char delete_xpath[XPATH_MAXLEN];
-			yang_dnode_get_path(existing_dnode, delete_xpath, sizeof(delete_xpath));
-			nb_cli_enqueue_change(vty, delete_xpath, NB_OP_DESTROY, NULL);
+			nb_cli_enqueue_change(vty, ab_xpath, NB_OP_DESTROY,
+					      NULL);
 		}
 
 		/* route + path procesing */
@@ -425,28 +413,63 @@ static int static_route_nb_run(struct vty *vty, struct static_route_args *args)
 			XFREE(MTYPE_TMP, orig_seg);
 	} else {
 		if (args->source) {
-			snprintf(ab_xpath, sizeof(ab_xpath), FRR_S_ROUTE_SRC_INFO_KEY_XPATH,
-				 "frr-staticd:staticd", "staticd", args->vrf, buf_prefix,
-				 yang_afi_safi_value2identity(args->afi, args->safi),
-				 buf_src_prefix, table_id, distance);
+			if (args->distance)
+				snprintf(ab_xpath, sizeof(ab_xpath),
+					 FRR_DEL_S_ROUTE_SRC_NH_KEY_XPATH,
+					 "frr-staticd:staticd", "staticd",
+					 args->vrf, buf_prefix,
+					 yang_afi_safi_value2identity(
+						 args->afi, args->safi),
+					 buf_src_prefix, table_id, distance,
+					 buf_nh_type, args->nexthop_vrf,
+					 buf_gate_str, args->interface_name);
+			else
+				snprintf(
+					ab_xpath, sizeof(ab_xpath),
+					FRR_DEL_S_ROUTE_SRC_NH_KEY_NO_DISTANCE_XPATH,
+					"frr-staticd:staticd", "staticd",
+					args->vrf, buf_prefix,
+					yang_afi_safi_value2identity(
+						args->afi, args->safi),
+					buf_src_prefix, table_id, buf_nh_type,
+					args->nexthop_vrf, buf_gate_str,
+					args->interface_name);
 		} else {
-			snprintf(ab_xpath, sizeof(ab_xpath), FRR_STATIC_ROUTE_INFO_KEY_XPATH,
-				 "frr-staticd:staticd", "staticd", args->vrf, buf_prefix,
-				 yang_afi_safi_value2identity(args->afi, args->safi), table_id,
-				 distance);
+			if (args->distance)
+				snprintf(ab_xpath, sizeof(ab_xpath),
+					 FRR_DEL_S_ROUTE_NH_KEY_XPATH,
+					 "frr-staticd:staticd", "staticd",
+					 args->vrf, buf_prefix,
+					 yang_afi_safi_value2identity(
+						 args->afi, args->safi),
+					 table_id, distance, buf_nh_type,
+					 args->nexthop_vrf, buf_gate_str,
+					 args->interface_name);
+			else
+				snprintf(
+					ab_xpath, sizeof(ab_xpath),
+					FRR_DEL_S_ROUTE_NH_KEY_NO_DISTANCE_XPATH,
+					"frr-staticd:staticd", "staticd",
+					args->vrf, buf_prefix,
+					yang_afi_safi_value2identity(
+						args->afi, args->safi),
+					table_id, buf_nh_type,
+					args->nexthop_vrf, buf_gate_str,
+					args->interface_name);
 		}
 
 		dnode = yang_dnode_get(vty->candidate_config->dnode, ab_xpath);
 		if (!dnode) {
-			vty_out(vty, "%% Refusing to remove a non-existent route\n");
+			vty_out(vty,
+				"%% Refusing to remove a non-existent route\n");
 			return CMD_SUCCESS;
 		}
 
-		/* Delete only the specific nexthop entry, keeping siblings intact */
-		char delete_xpath[XPATH_MAXLEN];
-		yang_dnode_get_path(dnode, delete_xpath, sizeof(delete_xpath));
-		nb_cli_enqueue_change(vty, delete_xpath, NB_OP_DESTROY, NULL);
+		dnode = yang_get_subtree_with_no_sibling(dnode);
+		assert(dnode);
+		yang_dnode_get_path(dnode, ab_xpath, XPATH_MAXLEN);
 
+		nb_cli_enqueue_change(vty, ab_xpath, NB_OP_DESTROY, NULL);
 		ret = nb_cli_apply_changes(vty, "%s", ab_xpath);
 	}
 
