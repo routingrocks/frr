@@ -295,11 +295,18 @@ extern struct zebra_router zrouter;
 extern uint32_t rcvbufsize;
 
 struct zebra_gr_ctx {
-	struct route_node *rn;
-	struct route_entry *re;
+	/* Fields for looking up the last route */
+	struct prefix dest_pfx;
+	struct prefix src_pfx;
+	afi_t afi;
+	safi_t safi;
+	vrf_id_t vrf_id;
+	uint32_t table_id;
+	/* Fields for tracking the number of routes installed 	*/
 	uint32_t af_installed_count[AFI_MAX];
 	uint32_t total_queued_rt;
 	uint32_t total_processed_rt;
+
 	/* L2vpn counts */
 	uint32_t rmac_cnt;
 	uint32_t rneigh_cnt;
