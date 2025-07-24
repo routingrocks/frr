@@ -2051,7 +2051,18 @@ static void zebra_gr_reinstall_last_route(void)
 
 	rn = rib_find_rn_from_gr_ctx();
 	if (rn == NULL) {
-		zlog_info("GR %s: Route node lookup failed", __func__);
+		char dst_pfx_buf[PREFIX_STRLEN];
+
+		prefix2str(&z_gr_ctx.dest_pfx, dst_pfx_buf, sizeof(dst_pfx_buf));
+		if (IS_ZEBRA_DEBUG_EVENT)
+			zlog_debug("GR %s: Route node lookup failed for %s with vrf %s, afi %u, safi %u, table-id %u",
+				   __func__, dst_pfx_buf, vrf_id_to_name(z_gr_ctx.vrf_id),
+				   z_gr_ctx.afi, z_gr_ctx.safi, z_gr_ctx.table_id);
+
+		frrtrace(6, frr_zebra, gr_last_rn_lookup_failed, z_gr_ctx.vrf_id,
+			 vrf_id_to_name(z_gr_ctx.vrf_id), z_gr_ctx.afi, z_gr_ctx.safi,
+			 z_gr_ctx.table_id, dst_pfx_buf);
+
 		goto done;
 	}
 
@@ -2061,8 +2072,12 @@ static void zebra_gr_reinstall_last_route(void)
 	prefix2str(&rn->p, trace_pfx_buf, sizeof(trace_pfx_buf));
 
 	if (IS_ZEBRA_DEBUG_EVENT)
-		zlog_debug("GR %s: Reinstalling last route %pRN %u:%u", __func__, rn,
-			   z_gr_ctx.vrf_id, z_gr_ctx.table_id);
+		zlog_debug("GR %s: Reinstalling last route %pRN %s:%u", __func__, rn,
+			   vrf_id_to_name(z_gr_ctx.vrf_id), z_gr_ctx.table_id);
+
+	frrtrace(6, frr_zebra, gr_last_rn_lookup_success, z_gr_ctx.vrf_id,
+		 vrf_id_to_name(z_gr_ctx.vrf_id), z_gr_ctx.afi, z_gr_ctx.safi, z_gr_ctx.table_id,
+		 trace_pfx_buf);
 
 	/*
 	 * Get the destination info from the route node. This contains the list
