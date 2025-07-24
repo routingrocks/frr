@@ -688,6 +688,8 @@ static void bgp_pcount_adjust(struct bgp_dest *dest, struct bgp_path_info *pi)
     if (flag != BGP_PATH_SELECTED && flag != BGP_PATH_MULTIPATH)
         return;
 
+	/* NOTE: suppressing as its filling log file. */
+#if 0
     /* Log all the info needed to debug the install count */
     if (bgp_debug_zebra(NULL)) {
 	    if (peer->conf_if)
@@ -700,6 +702,8 @@ static void bgp_pcount_adjust(struct bgp_dest *dest, struct bgp_path_info *pi)
 		       bgp_dest_get_prefix(pi->net), flag, pi->flags, set,
 		       (CHECK_FLAG(pi->flags, BGP_PATH_INSTALL_COUNTED)));
     }
+#endif
+
     /* If the flag is set for bestpath or multipath and we haven't counted
      * until now based on the 'BGP_PATH_INSTALL_COUNTED', increment count and set
      * 'BGP_PATH_INSTALL_COUNTED' flag */
@@ -716,9 +720,12 @@ static void bgp_pcount_adjust(struct bgp_dest *dest, struct bgp_path_info *pi)
 		    UNSET_FLAG(pi->flags, BGP_PATH_INSTALL_COUNTED);
 	    }
     }
+	/* NOTE: suppressing as its filling log file. */
+#if 0
     if (bgp_debug_zebra(NULL))
 	    zlog_debug("Peer installed count is %d",
-		       pi->peer->pinstalledcnt[table->afi][table->safi]);
+	       pi->peer->pinstalledcnt[table->afi][table->safi]);
+#endif
     return;
 }
 
