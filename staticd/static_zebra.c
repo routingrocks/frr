@@ -1957,6 +1957,12 @@ static int static_zebra_srv6_sid_notify(ZAPI_CALLBACK_ARGS)
 
 		UNSET_FLAG(sid->flags, STATIC_FLAG_SRV6_SID_VALID);
 
+		if (STATIC_SRV6_UN_UA_FEATURE_ENABLED(sid) &&
+		    CHECK_FLAG(sid->flags, STATIC_FLAG_SRV6_SID_SENT_TO_ZEBRA)) {
+			static_zebra_srv6_sid_uninstall(sid);
+			UNSET_FLAG(sid->flags, STATIC_FLAG_SRV6_SID_SENT_TO_ZEBRA);
+		}
+
 		break;
 	case ZAPI_SRV6_SID_FAIL_ALLOC:
 		zlog_err("SRv6 SID %pI6 %s: Failed to allocate", &sid_addr,

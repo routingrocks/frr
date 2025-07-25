@@ -64,6 +64,31 @@ struct static_route_args {
 	const char *bfd_profile;
 };
 
+static void get_route_deletion_xpath(struct vty *vty, const struct lyd_node *dnode, char *ab_xpath)
+{
+	/* Check if there are SRv6 configurations in the default VRF that should be preserved */
+	char srv6_xpath[XPATH_MAXLEN];
+	snprintf(srv6_xpath, sizeof(srv6_xpath), FRR_STATIC_SRV6_INFO_KEY_XPATH,
+		 "frr-staticd:staticd", "staticd", VRF_DEFAULT_NAME);
+
+	if (yang_dnode_get(vty->candidate_config->dnode, srv6_xpath) != NULL) {
+		/* SRv6 exists - find route-specific parent */
+		const struct lyd_node *parent = yang_dnode_get_parent(dnode, "path-list");
+		if (!parent)
+			parent = yang_dnode_get_parent(dnode, "route-list");
+
+		if (parent)
+			yang_dnode_get_path(parent, ab_xpath, XPATH_MAXLEN);
+		else
+			yang_dnode_get_path(dnode, ab_xpath, XPATH_MAXLEN);
+	} else {
+		/* No SRv6 - use original climbing behavior */
+		dnode = yang_get_subtree_with_no_sibling(dnode);
+		assert(dnode);
+		yang_dnode_get_path(dnode, ab_xpath, XPATH_MAXLEN);
+	}
+}
+
 static int static_route_nb_run(struct vty *vty, struct static_route_args *args)
 {
 	int ret;
@@ -209,10 +234,7 @@ static int static_route_nb_run(struct vty *vty, struct static_route_args *args)
 		 */
 		dnode = yang_dnode_get(vty->candidate_config->dnode, ab_xpath);
 		if (dnode) {
-			dnode = yang_get_subtree_with_no_sibling(dnode);
-			assert(dnode);
-			yang_dnode_get_path(dnode, ab_xpath, XPATH_MAXLEN);
-
+			get_route_deletion_xpath(vty, dnode, ab_xpath);
 			nb_cli_enqueue_change(vty, ab_xpath, NB_OP_DESTROY,
 					      NULL);
 		}
@@ -465,9 +487,7 @@ static int static_route_nb_run(struct vty *vty, struct static_route_args *args)
 			return CMD_SUCCESS;
 		}
 
-		dnode = yang_get_subtree_with_no_sibling(dnode);
-		assert(dnode);
-		yang_dnode_get_path(dnode, ab_xpath, XPATH_MAXLEN);
+		get_route_deletion_xpath(vty, dnode, ab_xpath);
 
 		nb_cli_enqueue_change(vty, ab_xpath, NB_OP_DESTROY, NULL);
 		ret = nb_cli_apply_changes(vty, "%s", ab_xpath);
