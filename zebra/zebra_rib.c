@@ -1951,6 +1951,7 @@ done:
 	return changed_p;
 }
 
+
 /*
  * Helper to locate a zebra route-node from a dplane context. This is used
  * when processing dplane results, e.g. Note well: the route-node is returned
@@ -1990,9 +1991,52 @@ done:
 }
 
 #if defined(HAVE_CSMGR)
+/*
+ * Helper to locate a zebra route-node from the information present in z_gr_ctx.
+ * This is used when processing graceful restart operations. Note well: the 
+ * route-node is returned with a ref held - route_unlock_node() must be called 
+ * eventually.
+ */
+static struct route_node *rib_find_rn_from_gr_ctx(void)
+{
+	struct route_table *table = NULL;
+	struct route_node *rn = NULL;
+
+	/* Validate that we have the necessary information in z_gr_ctx */
+	if (z_gr_ctx.dest_pfx.family == AF_UNSPEC) {
+		if (IS_ZEBRA_DEBUG_EVENT) {
+			zlog_debug("Failed to find route for gr_ctx: invalid destination prefix");
+		}
+		goto done;
+	}
+
+	/* Locate the routing table */
+	table = zebra_vrf_lookup_table_with_table_id(z_gr_ctx.afi, z_gr_ctx.safi, z_gr_ctx.vrf_id,
+						     z_gr_ctx.table_id);
+	if (table == NULL) {
+		if (IS_ZEBRA_DEBUG_EVENT) {
+			zlog_debug("Failed to find route for gr_ctx: no table for afi %d, safi %d, vrf %s(%u), table_id %u",
+				   z_gr_ctx.afi, z_gr_ctx.safi, vrf_id_to_name(z_gr_ctx.vrf_id),
+				   z_gr_ctx.vrf_id, z_gr_ctx.table_id);
+		}
+		goto done;
+	}
+
+	/* Get the route node using the destination and source prefixes */
+	rn = srcdest_rnode_lookup(table, &z_gr_ctx.dest_pfx,
+				  (z_gr_ctx.src_pfx.family != AF_UNSPEC)
+					  ? (struct prefix_ipv6 *)&z_gr_ctx.src_pfx
+					  : NULL);
+
+done:
+	return rn;
+}
+
+
 static void zebra_gr_reinstall_last_route(void)
 {
 	zrouter.gr_last_rt_installed = true;
+	struct route_node *rn;
 
 	if (IS_ZEBRA_DEBUG_EVENT)
 		zlog_debug("GR %s: Routes: Total queued %u, total processed %d. EVPN entries: Total queued %u, total processed %u",
@@ -2005,86 +2049,91 @@ static void zebra_gr_reinstall_last_route(void)
 	frrtrace(3, frr_zebra, gr_ready_to_reinstall_last_route, "EVPN entries",
 		 z_gr_ctx.total_evpn_entries_queued, z_gr_ctx.total_evpn_entries_processed);
 
-	/* Reinstall the last route */
-	if (z_gr_ctx.rn && z_gr_ctx.rn->info && z_gr_ctx.re) {
-		rib_dest_t *dest;
-		bool last_re_found = false;
-		char trace_pfx_buf[PREFIX_STRLEN];
+	rn = rib_find_rn_from_gr_ctx();
+	if (rn == NULL) {
+		char dst_pfx_buf[PREFIX_STRLEN];
 
-		route_lock_node(z_gr_ctx.rn);
-
+		prefix2str(&z_gr_ctx.dest_pfx, dst_pfx_buf, sizeof(dst_pfx_buf));
 		if (IS_ZEBRA_DEBUG_EVENT)
-			zlog_debug("GR %s: Reinstalling last route %pRN %u:%u", __func__,
-				   z_gr_ctx.rn, z_gr_ctx.re->vrf_id, z_gr_ctx.re->table);
+			zlog_debug("GR %s: Route node lookup failed for %s with vrf %s, afi %u, safi %u, table-id %u",
+				   __func__, dst_pfx_buf, vrf_id_to_name(z_gr_ctx.vrf_id),
+				   z_gr_ctx.afi, z_gr_ctx.safi, z_gr_ctx.table_id);
 
-		prefix2str(&z_gr_ctx.rn->p, trace_pfx_buf, sizeof(trace_pfx_buf));
+		frrtrace(6, frr_zebra, gr_last_rn_lookup_failed, z_gr_ctx.vrf_id,
+			 vrf_id_to_name(z_gr_ctx.vrf_id), z_gr_ctx.afi, z_gr_ctx.safi,
+			 z_gr_ctx.table_id, dst_pfx_buf);
 
-		/*
-		 * In case of WFI, z_gr_ctx.re is getting deleted.
-		 * In such cases, where the z_gr_ctx.re is deleted,
-		 * install the z_gr_ctx.rn's selected_fib route.
-		 * Skip last route installtion if z_gr_ctx.rn's
-		 * selected_fib is not available.
-		 */
-		dest = rib_dest_from_rnode(z_gr_ctx.rn);
-		if (dest && dest->selected_fib) {
-			if (dest->selected_fib != z_gr_ctx.re) {
-				if (!CHECK_FLAG(dest->selected_fib->status, ROUTE_ENTRY_REMOVED) &&
-				    CHECK_FLAG(dest->selected_fib->status, ROUTE_ENTRY_INSTALLED)) {
-					if (IS_ZEBRA_DEBUG_EVENT)
-						zlog_debug("GR %s: last installed re %p not found",
-							   __func__, z_gr_ctx.re);
-
-					if (dest->selected_fib->type == ZEBRA_ROUTE_BGP) {
-						z_gr_ctx.re = dest->selected_fib;
-						last_re_found = true;
-
-						if (IS_ZEBRA_DEBUG_EVENT)
-							zlog_debug("GR %s: last route updated to re %p",
-								   __func__, z_gr_ctx.re);
-
-						frrtrace(2, frr_zebra, gr_last_route_re,
-							 trace_pfx_buf, 1);
-					}
-				}
-			} else { /* (dest->selected_fib == z_gr_ctx.re) */
-				/*
-				 * If last re (which is same as the selected fib
-				 * route) is installed and not removed then
-				 * we're ok.
-				 */
-				if (!CHECK_FLAG(z_gr_ctx.re->status, ROUTE_ENTRY_REMOVED) &&
-				    CHECK_FLAG(z_gr_ctx.re->status, ROUTE_ENTRY_INSTALLED))
-					last_re_found = true;
-			}
-		}
-
-		if (last_re_found) {
-			rib_install_kernel(z_gr_ctx.rn, z_gr_ctx.re, NULL, true);
-
-			frrtrace(2, frr_zebra, gr_reinstalled_last_route,
-				 vrf_id_to_name(z_gr_ctx.re->vrf_id), trace_pfx_buf);
-		} else {
-			if (IS_ZEBRA_DEBUG_EVENT)
-				zlog_debug("GR %s: last installed BGP route not found", __func__);
-			frrtrace(2, frr_zebra, gr_last_route_re, trace_pfx_buf, 2);
-		}
-		route_unlock_node(z_gr_ctx.rn);
-	} else {
-		zlog_info("GR %s Last route not found. rn %p, re %p", __func__, z_gr_ctx.rn,
-			  z_gr_ctx.re);
+		goto done;
 	}
 
+	rib_dest_t *dest;
+	char trace_pfx_buf[PREFIX_STRLEN];
+
+	prefix2str(&rn->p, trace_pfx_buf, sizeof(trace_pfx_buf));
+
+	if (IS_ZEBRA_DEBUG_EVENT)
+		zlog_debug("GR %s: Reinstalling last route %pRN %s:%u", __func__, rn,
+			   vrf_id_to_name(z_gr_ctx.vrf_id), z_gr_ctx.table_id);
+
+	frrtrace(6, frr_zebra, gr_last_rn_lookup_success, z_gr_ctx.vrf_id,
+		 vrf_id_to_name(z_gr_ctx.vrf_id), z_gr_ctx.afi, z_gr_ctx.safi, z_gr_ctx.table_id,
+		 trace_pfx_buf);
+
+	/*
+	 * Get the destination info from the route node. This contains the list
+	 * of routes for this prefix.
+	 */
+	dest = rib_dest_from_rnode(rn);
+
+	/*
+	 * If the selected fib is not removed and installed and it is a BGP route,
+	 * reinstall the route with RTM_F_LAST_ROUTE flag.
+	 */
+	if (dest && dest->selected_fib &&
+	    !CHECK_FLAG(dest->selected_fib->status, ROUTE_ENTRY_REMOVED) &&
+	    CHECK_FLAG(dest->selected_fib->status, ROUTE_ENTRY_INSTALLED) &&
+	    dest->selected_fib->type == ZEBRA_ROUTE_BGP) {
+		/*
+		 * Install the route.
+		 */
+		rib_install_kernel(rn, dest->selected_fib, NULL, true);
+
+		frrtrace(2, frr_zebra, gr_reinstalled_last_route, vrf_id_to_name(z_gr_ctx.vrf_id),
+			 trace_pfx_buf);
+
+		if (IS_ZEBRA_DEBUG_EVENT)
+			zlog_debug("GR %s: Last route %pRN is sent to dplane for installation re %p, type %s, status 0x%x",
+				   __func__, rn, dest->selected_fib,
+				   zebra_route_string(dest->selected_fib->type),
+				   dest->selected_fib->status);
+
+		frrtrace(2, frr_zebra, gr_last_route_re, trace_pfx_buf, 1);
+	} else {
+		if (IS_ZEBRA_DEBUG_EVENT)
+			zlog_debug("GR %s: last installed BGP route not found for %pRN, selected_fib %p",
+				   __func__, rn, (dest != NULL) ? dest->selected_fib : NULL);
+		frrtrace(2, frr_zebra, gr_last_route_re, trace_pfx_buf, 2);
+
+		if (dest && dest->selected_fib) {
+			if (IS_ZEBRA_DEBUG_EVENT)
+				zlog_debug("GR %s: Last route %pRN has selected fib re %p, type %s, status 0x%x. Skipping last route reinstallation",
+					   __func__, rn, dest->selected_fib,
+					   zebra_route_string(dest->selected_fib->type),
+					   dest->selected_fib->status);
+			frrtrace(2, frr_zebra, gr_last_route_info,
+				 zebra_route_string(dest->selected_fib->type),
+				 dest->selected_fib->status);
+		}
+	}
+	route_unlock_node(rn);
+
+done:
 	if (IS_ZEBRA_DEBUG_EVENT)
 		zlog_debug("GR %s: IPv4 total route count: %u IPv6 total route count: %u", __func__,
 			   z_gr_ctx.af_installed_count[AFI_IP],
 			   z_gr_ctx.af_installed_count[AFI_IP6]);
 
 	frr_csm_send_network_layer_info();
-
-	/* Reset the global pointers */
-	z_gr_ctx.rn = NULL;
-	z_gr_ctx.re = NULL;
 }
 #endif
 
@@ -2107,6 +2156,7 @@ static void zebra_gr_last_route_reinstall(void)
 	}
 #endif
 }
+
 
 /*
  * Record the most recently installed BGP route
@@ -2143,8 +2193,18 @@ static void zebra_record_most_recent_route(struct zebra_dplane_ctx *ctx, struct 
 		 * z_gr_ctx
 		 */
 		if (re->type == ZEBRA_ROUTE_BGP) {
-			z_gr_ctx.rn = rn;
-			z_gr_ctx.re = re;
+			const struct prefix *src_pfx = dplane_ctx_get_src(ctx);
+
+			if (src_pfx)
+				prefix_copy(&z_gr_ctx.src_pfx, src_pfx);
+			else
+				z_gr_ctx.src_pfx.family = AF_UNSPEC;
+
+			prefix_copy(&z_gr_ctx.dest_pfx, dplane_ctx_get_dest(ctx));
+			z_gr_ctx.afi = dplane_ctx_get_afi(ctx);
+			z_gr_ctx.safi = dplane_ctx_get_safi(ctx);
+			z_gr_ctx.vrf_id = dplane_ctx_get_vrf(ctx);
+			z_gr_ctx.table_id = dplane_ctx_get_table(ctx);
 		}
 	}
 #endif
@@ -2260,7 +2320,7 @@ static void rib_process_result(struct zebra_dplane_ctx *ctx)
 
 	if (op == DPLANE_OP_ROUTE_INSTALL || op == DPLANE_OP_ROUTE_UPDATE ||
 	    op == DPLANE_OP_ROUTE_LAST) {
-		if (op == DPLANE_OP_ROUTE_LAST && re && z_gr_ctx.rn == rn && z_gr_ctx.re == re) {
+		if (op == DPLANE_OP_ROUTE_LAST && re) {
 			if (IS_ZEBRA_DEBUG_EVENT)
 				zlog_debug("%s(%u:%u):%pRN Update for last installed route, re %p, result %s",
 					   VRF_LOGNAME(vrf), dplane_ctx_get_vrf(ctx), re->table, rn,

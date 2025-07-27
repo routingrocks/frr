@@ -1999,6 +1999,49 @@ TRACEPOINT_LOGLEVEL(frr_zebra, gr_last_route_re, TRACE_INFO)
 
 TRACEPOINT_EVENT(
     frr_zebra,
+    gr_last_route_info,
+    TP_ARGS(const char *, type, uint32_t, status),
+    TP_FIELDS(
+    	ctf_string(route_type, type)
+        ctf_integer(uint32_t, status, status)
+    	)
+   )
+TRACEPOINT_LOGLEVEL(frr_zebra, gr_last_route_info, TRACE_INFO)
+
+TRACEPOINT_EVENT(
+    frr_zebra,
+    gr_last_rn_lookup_failed,
+    TP_ARGS(vrf_id_t, vrf_id, const char *, vrf, uint8_t, afi, uint8_t, safi,
+            uint32_t, table_id, char*, prefix),
+    TP_FIELDS(
+        ctf_integer(vrf_id_t, vrf_id, vrf_id)
+        ctf_string(vrf, vrf)
+        ctf_integer(uint8_t, afi, afi)
+        ctf_integer(uint8_t, safi, safi)
+        ctf_integer(uint32_t, table_id, table_id)
+        ctf_string(prefix, prefix)
+    	)
+   )
+TRACEPOINT_LOGLEVEL(frr_zebra, gr_last_rn_lookup_failed, TRACE_INFO)
+
+TRACEPOINT_EVENT(
+    frr_zebra,
+    gr_last_rn_lookup_success,
+    TP_ARGS(vrf_id_t, vrf_id, const char *, vrf, uint8_t, afi, uint8_t, safi,
+            uint32_t, table_id, char*, prefix),
+    TP_FIELDS(
+        ctf_integer(vrf_id_t, vrf_id, vrf_id)
+        ctf_string(vrf, vrf)
+        ctf_integer(uint8_t, afi, afi)
+        ctf_integer(uint8_t, safi, safi)
+        ctf_integer(uint32_t, table_id, table_id)
+        ctf_string(prefix, prefix)
+    	)
+   )
+TRACEPOINT_LOGLEVEL(frr_zebra, gr_last_rn_lookup_success, TRACE_INFO)
+
+TRACEPOINT_EVENT(
+    frr_zebra,
     rib_uninstall_kernel_route,
     TP_ARGS(
         const char*, prefix, struct nhg_hash_entry *, nhe, int, ret),
