@@ -184,7 +184,7 @@ module frr-bgp-peer {
             config false;
             type boolean;
             description
-                "This leaf indicates whether the graceful shutdown is enabled for the peer";
+                "Gaceful shutdown status";
           }
       }
     }

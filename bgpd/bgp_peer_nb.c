@@ -439,12 +439,15 @@ lib_vrf_peer_messages_received_last_notification_error_code_get_elem(struct nb_c
  *  Ref Nvue config command : nv set vrf default router bgp neighbor swp1s1 graceful-shutdown on
  *  Ref Nvue show command : nv show vrf default router bgp neighbor swp1s1
  *   */
-struct yang_data *lib_vrf_peer_graceful_shutdown_get_elem(struct nb_cb_get_elem_args *args){
+struct yang_data *lib_vrf_peer_graceful_shutdown_get_elem(struct nb_cb_get_elem_args *args)
+{
 	struct peer *peer;
 	if (!args || !args->list_entry)
 		return NULL;
 	peer = (struct peer *)args->list_entry;
-	return yang_data_new_bool(args->xpath, bgp_in_graceful_shutdown(peer->bgp) || CHECK_FLAG(peer->flags, PEER_FLAG_GRACEFUL_SHUTDOWN));
+	return yang_data_new_bool(args->xpath,
+				  bgp_in_graceful_shutdown(peer->bgp) ||
+					  CHECK_FLAG(peer->flags, PEER_FLAG_GRACEFUL_SHUTDOWN));
 }
 /*
  *  * XPath: /frr-bgp-peer:lib/vrf/peer/afi-safi
