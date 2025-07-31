@@ -1843,6 +1843,29 @@ static void zebra_nhg_timer(struct event *thread)
 		zebra_nhg_decrement_ref(nhe);
 }
 
+/* Check if a nexthop has SRv6 information */
+static bool nexthop_has_srv6(const struct nexthop *nexthop)
+{
+	return (nexthop && nexthop->nh_srv6 != NULL);
+}
+
+/* Check if any nexthop in a nexthop group has SRv6 information */
+static bool nhg_has_srv6(const struct nexthop_group *nhg)
+{
+	struct nexthop *nexthop;
+
+	for (nexthop = nhg->nexthop; nexthop; nexthop = nexthop->next) {
+		if (nexthop_has_srv6(nexthop)) {
+			if (IS_ZEBRA_DEBUG_SRV6)
+				zlog_debug("nexthop %pNHv has srv6 information", nexthop);
+
+			return true;
+		}
+	}
+
+	return false;
+}
+
 void zebra_nhg_decrement_ref(struct nhg_hash_entry *nhe)
 {
 	if (IS_ZEBRA_DEBUG_NHG_DETAIL)
@@ -1854,7 +1877,7 @@ void zebra_nhg_decrement_ref(struct nhg_hash_entry *nhe)
 	if (!zebra_router_in_shutdown() && nhe->refcnt <= 0 &&
 	    (CHECK_FLAG(nhe->flags, NEXTHOP_GROUP_INSTALLED) ||
 	     CHECK_FLAG(nhe->flags, NEXTHOP_GROUP_QUEUED)) &&
-	    !CHECK_FLAG(nhe->flags, NEXTHOP_GROUP_KEEP_AROUND)) {
+	    !CHECK_FLAG(nhe->flags, NEXTHOP_GROUP_KEEP_AROUND) && !nhg_has_srv6(&nhe->nhg)) {
 		nhe->refcnt = 1;
 		SET_FLAG(nhe->flags, NEXTHOP_GROUP_KEEP_AROUND);
 		event_add_timer(zrouter.master, zebra_nhg_timer, nhe,
