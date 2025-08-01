@@ -1821,8 +1821,11 @@ static void bgp_per_src_nhg_peer_clear_route_cb(struct hash_bucket *bucket, void
 			    (pi->type == ZEBRA_ROUTE_BGP && pi->sub_type == BGP_ROUTE_NORMAL)) {
 				SET_FLAG(nhe->flags, PER_SRC_NEXTHOP_GROUP_SOO_ROUTE_CLEAR_ONLY);
 				if (BGP_DEBUG(per_src_nhg, PER_SRC_NHG))
-					zlog_debug("bgp vrf %s per src nhg: peer clear processing soo route %pBD for peer %p",
-						   peer->bgp->name_pretty, pi, peer);
+					zlog_debug("bgp vrf %s per src nhg: peer clear processing soo route %pBD for peer %p peerIP: %pSU",
+						   peer->bgp->name_pretty, dest, peer,
+						   (pi->peer && pi->peer->connection)
+							   ? &pi->peer->connection->su
+							   : NULL);
 				bgp_process(peer->bgp, dest, pi, table->afi, table->safi);
 			}
 		}
