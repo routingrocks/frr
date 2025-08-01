@@ -1612,15 +1612,18 @@ int evpn_route_select_install(struct bgp *bgp, struct bgpevpn *vpn,
 static struct bgp_path_info *bgp_evpn_route_get_local_path(
 		struct bgp *bgp, struct bgp_dest *dest)
 {
-	struct bgp_path_info *pi = NULL;
+	struct bgp_path_info *tmp_pi;
+	struct bgp_path_info *local_pi = NULL;
 
-	for (pi = bgp_dest_get_bgp_path_info(dest); pi; pi = pi->next) {
-		if (bgp_evpn_is_path_local(bgp, pi)) {
-			return pi;
+	for (tmp_pi = bgp_dest_get_bgp_path_info(dest); tmp_pi;
+			tmp_pi = tmp_pi->next) {
+		if (bgp_evpn_is_path_local(bgp, tmp_pi)) {
+			local_pi = tmp_pi;
+			break;
 		}
 	}
 
-	return NULL;
+	return local_pi;
 }
 
 static int update_evpn_type5_route_entry(struct bgp *bgp_evpn,
@@ -2403,15 +2406,18 @@ void delete_evpn_route_entry(struct bgp *bgp, afi_t afi, safi_t safi,
 				    struct bgp_dest *dest,
 				    struct bgp_path_info **pi)
 {
-	struct bgp_path_info *tmp_pi = NULL;
+	struct bgp_path_info *tmp_pi;
 
 	*pi = NULL;
 
 	/* Now, find matching route. */
-	tmp_pi = bgp_evpn_route_get_local_path(bgp, dest);
-	if (!tmp_pi) {
-		return;
-	}
+	for (tmp_pi = bgp_dest_get_bgp_path_info(dest); tmp_pi;
+	     tmp_pi = tmp_pi->next)
+		if (tmp_pi->peer == bgp->peer_self
+		    && tmp_pi->type == ZEBRA_ROUTE_BGP
+		    && tmp_pi->sub_type == BGP_ROUTE_STATIC)
+			break;
+
 	*pi = tmp_pi;
 
 	/* Mark route for delete. */
@@ -2679,7 +2685,14 @@ static void update_type2_route(struct bgp *bgp, struct bgpevpn *vpn,
 		return;
 
 	/* Identify local route. */
-	tmp_pi = bgp_evpn_route_get_local_path(bgp, dest);
+	for (tmp_pi = bgp_dest_get_bgp_path_info(dest); tmp_pi;
+	     tmp_pi = tmp_pi->next) {
+		if (tmp_pi->peer == bgp->peer_self &&
+		    tmp_pi->type == ZEBRA_ROUTE_BGP &&
+		    tmp_pi->sub_type == BGP_ROUTE_STATIC)
+			break;
+	}
+
 	if (!tmp_pi)
 		return;
 
@@ -4675,7 +4688,10 @@ static void update_advertise_vni_route(struct bgp *bgp, struct bgpevpn *vpn,
 	    evp->prefix.route_type != BGP_EVPN_AD_ROUTE)
 		return;
 
-	pi = bgp_evpn_route_get_local_path(bgp, dest);
+	for (pi = bgp_dest_get_bgp_path_info(dest); pi; pi = pi->next)
+		if (pi->peer == bgp->peer_self && pi->type == ZEBRA_ROUTE_BGP &&
+		    pi->sub_type == BGP_ROUTE_STATIC)
+			break;
 	if (!pi)
 		return;
 
@@ -4739,7 +4755,7 @@ static void update_advertise_vni_route(struct bgp *bgp, struct bgpevpn *vpn,
 }
 
 /*
- * Update and advertise local routes for a VNI. Invoked upon router-id/RD
+ * Update and advertise local routes for a VNI. Invoked upon router-id
  * change. Note that the processing is done only on the global route table
  * using routes that already exist in the per-VNI table.
  */
@@ -4764,7 +4780,11 @@ static void update_advertise_vni_routes(struct bgp *bgp, struct bgpevpn *vpn)
 		dest = bgp_evpn_vni_node_lookup(vpn, &p, NULL);
 		if (!dest) /* unexpected */
 			return;
-		pi = bgp_evpn_route_get_local_path(bgp, dest);
+		for (pi = bgp_dest_get_bgp_path_info(dest); pi; pi = pi->next)
+			if (pi->peer == bgp->peer_self &&
+			    pi->type == ZEBRA_ROUTE_BGP
+			    && pi->sub_type == BGP_ROUTE_STATIC)
+				break;
 		if (!pi) {
 			bgp_dest_unlock_node(dest);
 			return;
