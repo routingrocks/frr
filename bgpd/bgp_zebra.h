@@ -129,7 +129,6 @@ extern enum zclient_send_status
 bgp_zebra_withdraw_actual(struct bgp_dest *dest, struct bgp_path_info *info,
 			  struct bgp *bgp);
 extern void bgp_zebra_process_remote_routes_for_l2vni(struct event *e);
-extern void bgp_zebra_process_remote_routes_for_l3vrf(struct event *e);
 enum zclient_send_status bgp_zebra_announce_actual(struct bgp_dest *dest,
 						   struct bgp_path_info *info,
 						   struct bgp *bgp);
