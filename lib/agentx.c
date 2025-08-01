@@ -239,6 +239,38 @@ DEFUN (no_agentx,
 
 static int smux_disable(void)
 {
+	if (!agentx_enabled)
+		return 0;
+
+	/* Generic Net-SNMP cleanup for all FRR daemons */
+
+	/* Step 1: Clean up AgentX event list */
+	if (events) {
+		list_delete(&events);
+		events = NULL;
+	}
+
+	/* Step 2: Net-SNMP comprehensive shutdown sequence */
+
+	/* Detach all registered MIB modules */
+	register_mib_detach();
+
+	/* Shutdown the internal MIB tree and free all associated memory */
+	shutdown_tree();
+
+	/* Clean up Net-SNMP's data storage subsystem */
+	netsnmp_ds_shutdown();
+
+	/* Free all config handlers registered by SNMP modules */
+	unregister_all_config_handlers();
+
+	/* Clear all callback registrations and free callback memory */
+	clear_callback();
+
+	/* Final Net-SNMP shutdown - frees remaining global structures */
+	snmp_shutdown("frr-agentx");
+
+	/* Reset state */
 	agentx_enabled = false;
 
 	return 0;
