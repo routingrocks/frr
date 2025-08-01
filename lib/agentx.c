@@ -29,7 +29,7 @@ XREF_SETUP();
 DEFINE_HOOK(agentx_enabled, (), ());
 
 static bool agentx_enabled = false;
-
+static bool smux_initialized = false;
 static struct event_loop *agentx_tm;
 static struct event *timeout_thr = NULL;
 static struct list *events = NULL;
@@ -239,39 +239,43 @@ DEFUN (no_agentx,
 
 static int smux_disable(void)
 {
-	if (!agentx_enabled)
+	bool cleanup_needed = agentx_enabled || smux_initialized;
+	
+	if (!cleanup_needed)
 		return 0;
 
-	/* Generic Net-SNMP cleanup for all FRR daemons */
-
-	/* Step 1: Clean up AgentX event list */
-	if (events) {
+	/* Step 1: Clean up AgentX-specific resources first (if enabled) */
+	if (agentx_enabled && events) {
 		list_delete(&events);
 		events = NULL;
 	}
 
-	/* Step 2: Net-SNMP comprehensive shutdown sequence */
-
-	/* Detach all registered MIB modules */
+	/* Step 2: Stop all timers and alarms */
+	snmp_alarm_unregister_all();
+	
+	/* Step 3: Detach MIB modules and shutdown MIB tree */
 	register_mib_detach();
-
-	/* Shutdown the internal MIB tree and free all associated memory */
 	shutdown_tree();
 
-	/* Clean up Net-SNMP's data storage subsystem */
-	netsnmp_ds_shutdown();
-
-	/* Free all config handlers registered by SNMP modules */
+	/* Step 4: Clean up configuration and callback systems */
 	unregister_all_config_handlers();
-
-	/* Clear all callback registrations and free callback memory */
 	clear_callback();
 
-	/* Final Net-SNMP shutdown - frees remaining global structures */
+	/* Step 5: Shutdown data storage subsystem */
+	netsnmp_ds_shutdown();
+
+	/* Step 6: Final comprehensive shutdown */
 	snmp_shutdown("frr-agentx");
 
-	/* Reset state */
+	/* Step 7: Clean up FRR command elements (reverse of install order) */
+	if (smux_initialized) {
+		uninstall_element(CONFIG_NODE, &no_agentx_cmd);
+		uninstall_element(CONFIG_NODE, &agentx_enable_cmd);
+	}
+
+	/* Step 8: Reset state variables */
 	agentx_enabled = false;
+	smux_initialized = false;
 
 	return 0;
 }
@@ -313,6 +317,7 @@ void smux_init(struct event_loop *tm)
 	install_element(CONFIG_NODE, &agentx_enable_cmd);
 	install_element(CONFIG_NODE, &no_agentx_cmd);
 
+	smux_initialized = true;
 	hook_register(frr_early_fini, smux_disable);
 }
 

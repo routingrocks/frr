@@ -1684,3 +1684,16 @@ void bgp_mpls_l3vpn_module_init(void)
 	REGISTER_MIB("mplsL3VpnMIB", mpls_l3vpn_variables, variable,
 		     mpls_l3vpn_oid);
 }
+
+void bgp_mpls_l3vpn_module_cleanup(void)
+{
+	/* Unregister MPLS L3VPN MIB */
+	unregister_mib(mpls_l3vpn_oid, sizeof(mpls_l3vpn_oid)/sizeof(oid));
+
+	/* Unregister hooks */
+	hook_unregister(bgp_vrf_status_changed, bgp_vrf_check_update_active);
+	hook_unregister(bgp_snmp_init_stats, bgp_init_snmp_stats);
+	hook_unregister(bgp_snmp_update_last_changed,
+			bgp_mpls_l3vpn_update_last_changed);
+	hook_unregister(bgp_snmp_update_stats, bgp_snmp_update_route_stats);
+}

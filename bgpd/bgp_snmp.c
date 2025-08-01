@@ -25,7 +25,6 @@
 #include "bgpd/bgp_attr.h"
 #include "bgpd/bgp_route.h"
 #include "bgpd/bgp_fsm.h"
-#include "bgpd/bgp_snmp.h"
 #include "bgpd/bgp_snmp_bgp4.h"
 #include "bgpd/bgp_snmp_bgp4v2.h"
 #include "bgpd/bgp_mplsvpn_snmp.h"
@@ -124,25 +123,19 @@ static int bgp_snmp_init(struct event_loop *tm)
 
 static int bgp_snmp_cleanup(void)
 {
-	/* BGP-specific SNMP cleanup - unregister BGP MIBs before generic Net-SNMP cleanup */
+	/* Step 1: Clean up BGP SNMP command elements (installed to CONFIG_NODE, not BGP_NODE) */
+	uninstall_element(CONFIG_NODE, &bgp_snmp_traps_rfc4273_cmd);
+	uninstall_element(CONFIG_NODE, &bgp_snmp_traps_bgp4_mibv2_cmd);
 
-	/* Step 1: Unregister BGP-specific MIBs that cause the major memory leaks */
+	/* Step 2: Unregister BGP-specific MIBs via their respective cleanup functions */
+	bgp_snmp_bgp4_cleanup();      /* BGP4-MIB (RFC 4273) */
+	bgp_snmp_bgp4v2_cleanup();    /* BGP4V2-MIB */
+	bgp_mpls_l3vpn_module_cleanup(); /* MPLS L3VPN MIB */
 
-	/* BGP4-MIB (RFC 4273) - Main BGP MIB causing 309KB+ leak */
-	static oid bgp4_oid[] = {1, 3, 6, 1, 2, 1, 15};
-	unregister_mib(bgp4_oid, sizeof(bgp4_oid)/sizeof(oid));
-
-	/* BGP4V2-MIB - BGP version 2 MIB causing additional leaks */
-	static oid bgp4v2_oid[] = {1, 3, 6, 1, 3, 5};
-	unregister_mib(bgp4v2_oid, sizeof(bgp4v2_oid)/sizeof(oid));
-
-	/* MPLS L3VPN MIB - Used by BGP MPLS VPN module */
-	static oid mpls_l3vpn_oid[] = {1, 3, 6, 1, 3, 118};
-	unregister_mib(mpls_l3vpn_oid, sizeof(mpls_l3vpn_oid)/sizeof(oid));
-
-	/* Step 2: Unregister BGP-specific hooks and callbacks */
+	/* Step 3: Unregister BGP-specific hooks and callbacks */
 	hook_unregister(peer_status_changed, bgpTrapEstablished);
 	hook_unregister(peer_backward_transition, bgpTrapBackwardTransition);
+	hook_unregister(bgp_snmp_traps_config_write, bgp_cli_snmp_traps_config_write);
 
 	return 0;
 }
