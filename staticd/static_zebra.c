@@ -534,9 +534,18 @@ static int static_ifp_create(struct interface *ifp)
 {
 	struct static_if *sif;
 
+	/* Check if interface info already exists to prevent double allocation */
+	if (ifp->info) {
+		/* Interface info already exists, just update if needed */
+		static_ifindex_update(ifp, true);
+		return 0;
+	}
+
 	sif = XCALLOC(MTYPE_STATIC_IF, sizeof(struct static_if));
-	if (!sif)
+	if (!sif) {
+		zlog_err("Failed to allocate memory for static interface info");
 		return -1;
+	}
 
 	ifp->info = sif;
 	static_ifindex_update(ifp, true);
@@ -546,6 +555,11 @@ static int static_ifp_create(struct interface *ifp)
 
 static int static_ifp_destroy(struct interface *ifp)
 {
+	if (!ifp) {
+		zlog_err("static_ifp_destroy: NULL interface pointer");
+		return -1;
+	}
+
 	static_ifindex_update(ifp, false);
 	if (ifp->info) {
 		XFREE(MTYPE_STATIC_IF, ifp->info);
