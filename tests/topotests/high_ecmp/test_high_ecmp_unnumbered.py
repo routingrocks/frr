@@ -390,6 +390,134 @@ def test_bgp_route_cleanup():
     logger.info("=== Interface Shutdown/Restoration Test Complete ===\n")
 
 
+    # New test: BGP Graceful Restart with interface down on r2
+    logger.info("\n=== BGP Graceful Restart Test (r2 interfaces) ===")
+    
+    # Enable BGP Graceful Restart on r2 only
+    logger.info("Enabling BGP Graceful Restart on r2...")
+    gr_config_commands = [
+        "conf",
+        "router bgp",
+        "bgp graceful-restart",
+        "exit",
+        "exit"
+    ]
+    
+    gr_cmd = "vtysh"
+    for config_line in gr_config_commands:
+        gr_cmd += f' -c "{config_line}"'
+    
+    result = net["r2"].cmd(gr_cmd)
+    logger.info("BGP Graceful Restart configured on r2")
+    # Clear BGP sessions on r2 to enable GR
+    logger.info("Clearing BGP sessions on r2 to enable GR...")
+    net["r2"].cmd('vtysh -c "clear bgp *"')
+
+    # Verify GR is enabled on r2
+    def check_gr_enabled_r2():
+
+        try:
+            # Check specific neighbor r2-eth200 for GR status
+            neighbor_output = net["r2"].cmd('vtysh -c "show bgp neighbors r2-eth200"')
+            if "Local GR Mode: Restart*" in neighbor_output:
+                logger.info("✓ BGP Graceful Restart verified as enabled on r2 (Local GR Mode: Restart*)")
+                return True
+            else:
+                logger.info("⚠ BGP Graceful Restart not yet active on r2")
+                return False
+        except Exception as e:
+            logger.info(f"Warning: Could not verify GR status: {e}")
+            return False
+    
+    # Wait for GR configuration to take effect using topotest.run_and_expect
+    gr_enabled, _ = topotest.run_and_expect(
+        check_gr_enabled_r2,
+        True,
+        count=5,   # 5 attempts
+        wait=1,    # 1 second between attempts
+    )
+    
+    # Get list of interfaces on r2 (r2-eth0 to r2-eth514)
+    r2_interfaces = [f"r2-eth{i}" for i in range(515)]
+    logger.info(f"Testing {len(r2_interfaces)} interfaces on r2: r2-eth0 to r2-eth514")
+    
+    # Phase 1: Shutdown interfaces on r2 (even with GR, routes should be deleted)
+    logger.info("\nPhase 1: Shutting down interfaces on r2...")
+    logger.info("Note: Even with GR enabled, routes should be DELETED when interfaces go down")
+    
+    for interface in r2_interfaces:
+        net["r2"].cmd(f"ip link set {interface} down")
+    
+    logger.info("All r2 interfaces shut down, waiting for route deletion on r2...")
+    
+    # Reuse existing functions - they already check routes on r2
+    # Routes should be DELETED (not staled) when interfaces go down, even with GR
+    success_ipv4_deleted, _ = topotest.run_and_expect(
+        check_ipv4_routes_removed,
+        True,
+        count=10,  # 10 attempts  
+        wait=1,    # 1 second between attempts (10 seconds total)
+    )
+    
+    if not success_ipv4_deleted:
+        sys.stderr.write("GR interface down test failed - IPv4 routes not deleted from r2\n")
+        failures += 1
+    else:
+        logger.info("✓ IPv4 routes successfully deleted from r2 after r2 interface down (even with GR)")
+    
+    # Wait for IPv6 routes to be deleted using existing function
+    success_ipv6_deleted, _ = topotest.run_and_expect(
+        check_ipv6_routes_removed,
+        True,
+        count=10,  # 10 attempts
+        wait=1,    # 1 second between attempts (10 seconds total)
+    )
+    
+    if not success_ipv6_deleted:
+        sys.stderr.write("GR interface down test failed - IPv6 routes not deleted from r2\n")
+        failures += 1
+    else:
+        logger.info("✓ IPv6 routes successfully deleted from r2 after r2 interface down (even with GR)")
+    
+    # Phase 2: Bring r2 interfaces back up
+    logger.info("\nPhase 2: Bringing r2 interfaces back up...")
+    for interface in r2_interfaces:
+        net["r2"].cmd(f"ip link set {interface} up")
+    
+    logger.info("All r2 interfaces brought up, waiting for route restoration on r2...")
+    
+    # Reuse existing route restoration functions - they already check routes on r2
+    success_ipv4_restore, _ = topotest.run_and_expect(
+        check_ipv4_routes_restored,
+        True,
+        count=30,  # 30 attempts
+        wait=3,    # 3 seconds between attempts (90 seconds total)
+    )
+    
+    if not success_ipv4_restore:
+        sys.stderr.write(f"GR interface recovery test failed - IPv4 routes not restored on r2\n")
+        failures += 1
+    else:
+        logger.info("✓ IPv4 routes successfully restored on r2 after r2 interface recovery")
+    
+    success_ipv6_restore, _ = topotest.run_and_expect(
+        check_ipv6_routes_restored,
+        True,
+        count=30,  # 30 attempts  
+        wait=3,    # 3 seconds between attempts (90 seconds total)
+    )
+    
+    if not success_ipv6_restore:
+        sys.stderr.write(f"GR interface recovery test failed - IPv6 routes not restored on r2\n")
+        failures += 1
+    else:
+        logger.info("✓ IPv6 routes successfully restored on r2 after r2 interface recovery")
+    
+    logger.info("=== BGP Graceful Restart Test Complete ===\n")
+    logger.info("Note: This test shows that GR does NOT prevent route deletion during interface failures.")
+    logger.info("GR only provides stale route preservation during BGP process restarts, not interface down events.")
+
+
     # Stop bgpd in r1 to trigger deletion of routes in r2
     kill_router_daemons(get_topogen(), "r1", ["bgpd"])
 
