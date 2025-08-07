@@ -36,6 +36,7 @@ struct ethhdr;
 #include "zebra_evpn_mac.h"
 #include "zebra_evpn_mh.h"
 #include "zebra_evpn_arp_nd.h"
+#include "zebra_trace.h"
 
 struct zebra_evpn_arp_nd_info zevpn_arp_nd_info;
 extern struct zebra_privs_t zserv_privs;
@@ -630,6 +631,9 @@ void zebra_evpn_arp_nd_udp_sock_create(void)
 		zlog_debug("Create UDP sock for arp_nd redirect from %pI4",
 			   &zmh_info->es_originator_ip);
 
+	frrtrace(1, frr_zebra, evpn_arp_nd_udp_sock_create,
+		 zmh_info->es_originator_ip.s_addr);
+
 	if (zevpn_arp_nd_info.udp_fd <= 0) {
 		zevpn_arp_nd_info.udp_fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
 
@@ -711,6 +715,9 @@ void zebra_evpn_arp_nd_failover_enable(void)
 	if (IS_ZEBRA_DEBUG_EVPN_MH_ARP_ND_EVT)
 		zlog_debug("Enable arp_nd failover");
 
+	frrtrace(1, frr_zebra, evpn_arp_nd_failover_enable,
+		 zmh_info->es_originator_ip.s_addr);
+
 	zevpn_arp_nd_info.flags |= ZEBRA_EVPN_ARP_ND_FAILOVER;
 
 	/*
@@ -734,6 +741,8 @@ void zebra_evpn_arp_nd_failover_disable(void)
 
 	if (IS_ZEBRA_DEBUG_EVPN_MH_ARP_ND_EVT)
 		zlog_debug("Disable arp_nd failover");
+
+	frrtrace(0, frr_zebra, evpn_arp_nd_failover_disable);
 
 	/*
 	 * walkthrough existing br-ports and disable

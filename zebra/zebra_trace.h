@@ -2155,6 +2155,42 @@ TRACEPOINT_EVENT(
 TRACEPOINT_LOGLEVEL(frr_zebra, get_srv6_sid_explicit, TRACE_INFO)
 
 
+/* EVPN ARP/ND packet redirection tracepoints */
+TRACEPOINT_EVENT(
+    frr_zebra,
+    evpn_arp_nd_failover_enable,
+    TP_ARGS(
+        uint32_t, originator_ip),
+    TP_FIELDS(
+        ctf_string(vtep_ip, inet_ntoa(*(struct in_addr *)&originator_ip))
+        )
+   )
+
+TRACEPOINT_LOGLEVEL(frr_zebra, evpn_arp_nd_failover_enable, TRACE_INFO)
+
+TRACEPOINT_EVENT(
+    frr_zebra,
+    evpn_arp_nd_failover_disable,
+    TP_ARGS(void),
+    TP_FIELDS(
+        ctf_string(action, "EVPN ARP/ND failover disabled")
+        )
+   )
+
+TRACEPOINT_LOGLEVEL(frr_zebra, evpn_arp_nd_failover_disable, TRACE_INFO)
+
+TRACEPOINT_EVENT(
+    frr_zebra,
+    evpn_arp_nd_udp_sock_create,
+    TP_ARGS(
+        uint32_t, originator_ip),
+    TP_FIELDS(
+        ctf_string(vtep_ip, inet_ntoa(*(struct in_addr *)&originator_ip))
+        )
+   )
+
+TRACEPOINT_LOGLEVEL(frr_zebra, evpn_arp_nd_udp_sock_create, TRACE_INFO)
+
 /* clang-format on */
 #include <lttng/tracepoint-event.h>
 
