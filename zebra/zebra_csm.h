@@ -43,6 +43,7 @@ extern int frr_csm_send_init_complete(void);
 extern void frr_csm_unregister(void);
 extern void frr_csm_register(void);
 extern int frr_csm_send_network_layer_info(void);
+extern void zebra_csm_set_startup_mode(uint16_t smode);
 
 static inline const char *frr_csm_smode2str(enum frr_csm_smode smode)
 {
