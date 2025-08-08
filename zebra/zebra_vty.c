@@ -4842,6 +4842,33 @@ DEFPY (zebra_gre_use_nhg,
 	return CMD_SUCCESS;
 }
 
+#if defined(HAVE_CSMGR)
+DEFUN(zebra_csm_startup_mode, zebra_csm_startup_mode_cmd,
+      "zebra csm startup-mode (0-65535)",
+      "Zebra daemon\n"
+      "CSM configuration\n"
+      "Startup mode configuration\n"
+      "Startup mode value (0-65535)\n")
+{
+	uint16_t smode = strtoul(argv[3]->arg, NULL, 10);
+
+	zebra_csm_set_startup_mode(smode);
+	return CMD_SUCCESS;
+}
+
+DEFUN(no_zebra_csm_startup_mode, no_zebra_csm_startup_mode_cmd,
+      "no zebra csm startup-mode [(0-65535)]",
+      NO_STR
+      "Zebra daemon\n"
+      "CSM configuration\n"
+      "Startup mode configuration\n"
+      "Startup mode value (0-65535)\n")
+{
+	zebra_csm_set_startup_mode(0);
+	return CMD_SUCCESS;
+}
+#endif
+
 /* IP node for static routes. */
 static int zebra_ip_config(struct vty *vty);
 static struct cmd_node ip_node = {
@@ -4995,6 +5022,11 @@ void zebra_vty_init(void)
 	install_element(CONFIG_NODE, &no_zebra_dplane_queue_limit_cmd);
 
 	install_element(CONFIG_NODE, &zebra_gre_use_nhg_cmd);
+
+#if defined(HAVE_CSMGR)
+	install_element(CONFIG_NODE, &zebra_csm_startup_mode_cmd);
+	install_element(CONFIG_NODE, &no_zebra_csm_startup_mode_cmd);
+#endif
 
 #ifdef HAVE_NETLINK
 	install_element(CONFIG_NODE, &zebra_kernel_netlink_batch_tx_buf_cmd);

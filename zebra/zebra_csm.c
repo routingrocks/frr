@@ -34,6 +34,7 @@
 
 #include "zebra/zserv.h"
 #include "zebra/zebra_csm.h"
+#include "zebra/zapi_msg.h"
 
 #if defined(HAVE_CSMGR)
 #include <cumulus/cs_mgr_intf.h>
@@ -970,6 +971,19 @@ void frr_csm_register()
 			 frr_csm_smode_str[smode]);
 	}
 }
+
+void zebra_csm_set_startup_mode(uint16_t smode)
+{
+	zrouter.frr_csm_smode = smode;
+	if (CHECK_FLAG(zrouter.frr_csm_smode, FAST_START) ||
+            CHECK_FLAG(zrouter.frr_csm_smode, WARM_START))
+                zrouter.graceful_restart = true;
+        if (CHECK_FLAG(zrouter.frr_csm_smode, MAINT))
+                zrouter.maint_mode = true;
+
+	zsend_capabilities_all_clients();
+}
+
 #else
 void zebra_csm_maint_mode_client_ack(struct zserv *client, bool enter)
 {
@@ -980,5 +994,10 @@ void zebra_csm_fast_restart_client_ack(struct zserv *client, bool enter)
 {
 	zlog_warn(
 		"FRRCSM: Fast Restart handling Not Written for this platform yet");
+}
+
+void zebra_csm_set_startup_mode(uint16_t smode)
+{
+	zlog_warn("FRRCSM: CSM support not compiled in");
 }
 #endif
