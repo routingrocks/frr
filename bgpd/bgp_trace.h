@@ -1631,6 +1631,104 @@ TRACEPOINT_EVENT(
 
 TRACEPOINT_LOGLEVEL(frr_bgp, fsm_event, TRACE_INFO)
 
+TRACEPOINT_EVENT(
+	frr_bgp,
+	bgp_ifp_oper,
+	TP_ARGS(struct interface *, ifp, uint8_t, loc),
+	TP_FIELDS(
+		ctf_integer(vrf_id_t, vrf_id, ifp->vrf->vrf_id)
+		ctf_string(interface, ifp->name)
+		ctf_integer(uint8_t, location, loc)
+	)
+)
+TRACEPOINT_LOGLEVEL(frr_bgp, bgp_ifp_oper, TRACE_INFO)
+
+TRACEPOINT_EVENT(
+	frr_bgp,
+	bgp_zebra_radv_operation,
+	TP_ARGS(uint8_t, location, vrf_id_t, vrf_id, const char *, peer_host),
+	TP_FIELDS(
+		ctf_integer(uint8_t, location, location)
+		ctf_integer(vrf_id_t, vrf_id, vrf_id)
+		ctf_string(peer_host, peer_host)
+	)
+)
+TRACEPOINT_LOGLEVEL(frr_bgp, bgp_zebra_radv_operation, TRACE_INFO)
+
+TRACEPOINT_EVENT(
+	frr_bgp,
+	bgp_zebra_dup_addr_detection,
+	TP_ARGS(struct bgp *, bgp),
+	TP_FIELDS(
+		ctf_integer(vrf_id_t, vrf_id, bgp->vrf_id)
+		ctf_integer(bool, dup_addr_detect, bgp->evpn_info->dup_addr_detect)
+		ctf_integer(uint32_t, dad_max_moves, bgp->evpn_info->dad_max_moves)
+		ctf_integer(uint32_t, dad_time, bgp->evpn_info->dad_time)
+		ctf_integer(bool, dad_freeze, bgp->evpn_info->dad_freeze)
+		ctf_integer(uint32_t, dad_freeze_time, bgp->evpn_info->dad_freeze_time)
+	)
+)
+TRACEPOINT_LOGLEVEL(frr_bgp, bgp_zebra_dup_addr_detection, TRACE_INFO)
+
+TRACEPOINT_EVENT(
+	frr_bgp,
+	bgp_zebra_evpn_advertise_type,
+	TP_ARGS(struct bgp *, bgp, int, advertise, vni_t, vni, uint8_t, location),
+	TP_FIELDS(
+		ctf_integer(vrf_id_t, vrf_id, bgp->vrf_id)
+		ctf_integer(int, advertise, advertise)
+		ctf_integer(vni_t, vni, vni)
+		ctf_integer(uint8_t, location, location)
+	)
+)
+TRACEPOINT_LOGLEVEL(frr_bgp, bgp_zebra_evpn_advertise_type, TRACE_INFO)
+
+TRACEPOINT_EVENT(
+       frr_bgp,
+       bgp_zebra_route_notify_owner,
+       TP_ARGS(enum zapi_route_notify_owner, route_status, struct bgp_dest *, dest, struct prefix *, prefix),
+       TP_FIELDS(
+               ctf_integer(enum zapi_route_notify_owner, route_status, route_status)
+               ctf_integer(uint32_t, dest_flags, dest->flags)
+               ctf_array(unsigned char, prefix, prefix, sizeof(struct prefix))
+       )
+)
+TRACEPOINT_LOGLEVEL(frr_bgp, bgp_zebra_route_notify_owner, TRACE_INFO)
+
+TRACEPOINT_EVENT(
+	frr_bgp,
+	bgp_zebra_vxlan_flood_control,
+	TP_ARGS(struct bgp *, bgp, enum vxlan_flood_control, flood_ctrl),
+	TP_FIELDS(
+		ctf_integer(vrf_id_t, vrf_id, bgp->vrf_id)
+		ctf_integer(enum vxlan_flood_control, flood_ctrl, flood_ctrl)
+		ctf_integer(uint8_t, flood_enabled, flood_ctrl == VXLAN_FLOOD_HEAD_END_REPL)
+	)
+)
+TRACEPOINT_LOGLEVEL(frr_bgp, bgp_zebra_vxlan_flood_control, TRACE_INFO)
+
+TRACEPOINT_EVENT(
+	frr_bgp,
+	handle_maint_mode_zrecv,
+	TP_ARGS(bool, enter_maint),
+	TP_FIELDS(
+		ctf_integer(bool, enter_maint, enter_maint)
+	)
+)
+TRACEPOINT_LOGLEVEL(frr_bgp, handle_maint_mode_zrecv, TRACE_INFO)
+
+TRACEPOINT_EVENT(
+	frr_bgp,
+	bgp_zebra_process_local_ip_prefix_zrecv,
+	TP_ARGS(struct prefix *, prefix, int, cmd, vrf_id_t, vrf_id),
+	TP_FIELDS(
+		ctf_array(unsigned char, prefix, prefix, sizeof(struct prefix))
+		ctf_integer(int, cmd, cmd)
+		ctf_integer(vrf_id_t, vrf_id, vrf_id)
+	)
+)
+TRACEPOINT_LOGLEVEL(frr_bgp, bgp_zebra_process_local_ip_prefix_zrecv, TRACE_INFO)
+
 /* clang-format on */
 
 #include <lttng/tracepoint-event.h>

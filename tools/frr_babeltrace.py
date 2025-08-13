@@ -1476,6 +1476,116 @@ def parse_frr_bgp_fsm_event(event):
     }
     parse_event(event, field_parsers)
 
+def location_bgp_ifp_oper(field_val):
+    if field_val == 1:
+        return ("Intf UP")
+    elif field_val == 2:
+        return ("Intf DOWN")
+
+def parse_frr_bgp_ifp_oper(event):
+    field_parsers = {"location" : location_bgp_ifp_oper}
+    parse_event(event, field_parsers)
+
+def zapi_route_note_to_string(note_val):
+    """
+    Convert ZAPI route notification enum to human-readable string
+    """
+    notes = {
+        1: "ROUTE_INSTALLED",
+        2: "ROUTE_REMOVED",
+        3: "ROUTE_CHANGED",
+        4: "ROUTE_ADDED",
+        5: "ROUTE_DELETED"
+    }
+    return notes.get(note_val, f"UNKNOWN({note_val})")
+
+def parse_bgp_dest_flags(flags_val):
+    """
+    Parse BGP destination flags into minimal human-readable strings
+    """
+    flags = int(flags_val)
+    flag_strings = []
+
+    # BGP destination flags with minimal naming
+    if flags & 0x00000001:  # BGP_NODE_SCHEDULE_FOR_INSTALL
+        flag_strings.append("install")
+    if flags & 0x00000002:  # BGP_NODE_SCHEDULE_FOR_DELETE
+        flag_strings.append("delete")
+    if flags & 0x00000004:  # BGP_NODE_SCHEDULE_FOR_UPDATE
+        flag_strings.append("update")
+    if flags & 0x00000008:  # BGP_NODE_SCHEDULE_FOR_ANNOUNCEMENT
+        flag_strings.append("announce")
+    if flags & 0x00000010:  # BGP_NODE_SCHEDULE_FOR_WITHDRAWAL
+        flag_strings.append("withdraw")
+    if flags & 0x00000020:  # BGP_NODE_SCHEDULE_FOR_IMPORT
+        flag_strings.append("import")
+    if flags & 0x00000040:  # BGP_NODE_SCHEDULE_FOR_EXPORT
+        flag_strings.append("export")
+    if flags & 0x00000080:  # BGP_NODE_SCHEDULE_FOR_AGGREGATION
+        flag_strings.append("aggregate")
+    if flags & 0x00000100:  # BGP_NODE_SCHEDULE_FOR_ORIGINATION
+        flag_strings.append("originate")
+    if flags & 0x00000200:  # BGP_NODE_SCHEDULE_FOR_ANNOUNCEMENT_TO_ZEBRA
+        flag_strings.append("zebra_announce")
+    if flags & 0x00000400:  # BGP_NODE_SCHEDULE_FOR_WITHDRAWAL_FROM_ZEBRA
+        flag_strings.append("zebra_withdraw")
+
+    if not flag_strings:
+        return "none"
+
+    return " | ".join(flag_strings)
+
+def parse_frr_bgp_bgp_zebra_route_notify_owner(event):
+    field_parsers = {
+        "route_status": zapi_route_note_to_string,
+        "dest_flags": parse_bgp_dest_flags,
+        "prefix": print_prefix_addr
+    }
+    parse_event(event, field_parsers)
+
+def parse_frr_bgp_bgp_zebra_process_local_ip_prefix_zrecv(event):
+    field_parsers = {"prefix": print_prefix_addr}
+    parse_event(event, field_parsers)
+
+def location_bgp_zebra_radv_operation(field_val):
+    locations = {
+        1: "Initiating",
+        2: "Terminating"
+    }
+    return locations.get(field_val, f"UNKNOWN({field_val})")
+
+def parse_frr_bgp_bgp_zebra_radv_operation(event):
+    field_parsers = {"location": location_bgp_zebra_radv_operation}
+    parse_event(event, field_parsers)
+
+def location_bgp_zebra_evpn_advertise_type(field_val):
+    if field_val == 1:
+        return "Subnet advertisement"
+    elif field_val == 2:
+        return "SVI MAC-IP advertisement"
+    elif field_val == 3:
+        return "Gateway MAC-IP advertisement"
+    elif field_val == 4:
+        return "All VNI advertisement"
+    else:
+        return f"Unknown location ({field_val})"
+
+def parse_frr_bgp_bgp_zebra_evpn_advertise_type(event):
+    """
+    bgp zebra advertise unified parser with location
+    Location values:
+    1 - Subnet advertisement
+    2 - SVI MAC-IP advertisement
+    3 - Gateway MAC-IP advertisement
+    4 - All VNI advertisement
+    """
+    field_parsers = {"location": location_bgp_zebra_evpn_advertise_type}
+    parse_event(event, field_parsers)
+
+def parse_frr_bgp_bgp_zebra_vxlan_flood_control(event):
+    field_parsers = {"flood_enabled": lambda x: "Flooding Enabled" if x else "Flooding Disabled"}
+    parse_event(event, field_parsers)
+
 def main():
     """
     FRR lttng trace output parser; babel trace plugin
@@ -1612,6 +1722,18 @@ def main():
                      parse_frr_bgp_connection_attempt,
                      "frr_bgp:fsm_event":
                      parse_frr_bgp_fsm_event,
+                     "frr_bgp:bgp_ifp_oper":
+                     parse_frr_bgp_ifp_oper,
+                     "frr_bgp:bgp_zebra_process_local_ip_prefix_zrecv":
+                     parse_frr_bgp_bgp_zebra_process_local_ip_prefix_zrecv,
+                     "frr_bgp:bgp_zebra_radv_operation":
+                     parse_frr_bgp_bgp_zebra_radv_operation,
+                     "frr_bgp:bgp_zebra_evpn_advertise_type":
+                     parse_frr_bgp_bgp_zebra_evpn_advertise_type,
+                     "frr_bgp:bgp_zebra_vxlan_flood_control":
+                     parse_frr_bgp_bgp_zebra_vxlan_flood_control,
+                     "frr_bgp:bgp_zebra_route_notify_owner":
+                     parse_frr_bgp_bgp_zebra_route_notify_owner,
                      "frr_zebra:gr_last_route_re":
                      parse_frr_zebra_gr_last_route_re,
                      "frr_zebra:netlink_vrf_change":
