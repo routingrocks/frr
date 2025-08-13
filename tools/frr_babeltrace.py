@@ -1396,6 +1396,86 @@ def parse_frr_zebra_get_srv6_sid_explicit(event):
     field_parsers = {"sid_value": bytes_to_ipv6}
     parse_event(event, field_parsers)
 
+def location_bgp_session_state_change(field_val):
+    locations = {
+        1: "START_TIMER_EXPIRE",
+        2: "CONNECT_TIMER_EXPIRE",
+        3: "HOLDTIME_EXPIRE",
+        4: "ROUTEADV_TIMER_EXPIRE",
+        5: "DELAY_OPEN_TIMER_EXPIRE",
+        6: "BGP_OPEN_MSG_DELAYED",
+        7: "Unable to get Nbr's IP Addr, waiting..",
+        8: "Waiting for NHT, no path to Nbr present",
+        9: "FSM_HOLDTIME_EXPIRE",
+    }
+    return locations.get(field_val, f"UNKNOWN({field_val})")
+
+def bgp_status_to_string(field_val):
+    statuses = {
+        1: "Idle",
+        2: "Connect",
+        3: "Active",
+        4: "OpenSent",
+        5: "OpenConfirm",
+        6: "Established",
+        7: "Clearing",
+        8: "Deleted"
+    }
+    return statuses.get(field_val, f"UNKNOWN({field_val})")
+
+def bgp_event_to_string(field_val):
+    events = {
+        1: "BGP_Start",
+        2: "BGP_Stop",
+        3: "TCP_connection_open",
+        4: "TCP_connection_open_w_delay",
+        5: "TCP_connection_closed",
+        6: "TCP_connection_open_failed",
+        7: "TCP_fatal_error",
+        8: "ConnectRetry_timer_expired",
+        9: "Hold_Timer_expired",
+        10: "KeepAlive_timer_expired",
+        11: "DelayOpen_timer_expired",
+        12: "Receive_OPEN_message",
+        13: "Receive_KEEPALIVE_message",
+        14: "Receive_UPDATE_message",
+        15: "Receive_NOTIFICATION_message",
+        16: "Clearing_Completed"
+    }
+    return events.get(field_val, f"UNKNOWN({field_val})")
+
+def parse_frr_bgp_session_state_change(event):
+    field_parsers = {
+        "location": location_bgp_session_state_change,
+        "old_status": bgp_status_to_string,
+        "new_status": bgp_status_to_string,
+        "event": bgp_event_to_string
+    }
+    parse_event(event, field_parsers)
+
+def connection_status_to_string(field_val):
+    statuses = {
+        0: "connect_error",
+        1: "connect_success",
+        2: "connect_in_progress"
+    }
+    return statuses.get(field_val, f"UNKNOWN({field_val})")
+
+def parse_frr_bgp_connection_attempt(event):
+    field_parsers = {
+        "status": connection_status_to_string,
+        "current_status": bgp_status_to_string
+    }
+    parse_event(event, field_parsers)
+
+def parse_frr_bgp_fsm_event(event):
+    field_parsers = {
+        "event": bgp_event_to_string,
+        "current_status": bgp_status_to_string,
+        "next_status": bgp_status_to_string
+    }
+    parse_event(event, field_parsers)
+
 def main():
     """
     FRR lttng trace output parser; babel trace plugin
@@ -1526,6 +1606,12 @@ def main():
                      parse_frr_bgp_per_src_nhg_rt_with_soo_use_nhgid,
                      "frr_bgp:per_src_nhg_peer_clear_route":
                      parse_frr_bgp_per_src_nhg_peer_clear_route,
+                     "frr_bgp:session_state_change":
+                     parse_frr_bgp_session_state_change,
+                     "frr_bgp:connection_attempt":
+                     parse_frr_bgp_connection_attempt,
+                     "frr_bgp:fsm_event":
+                     parse_frr_bgp_fsm_event,
                      "frr_zebra:gr_last_route_re":
                      parse_frr_zebra_gr_last_route_re,
                      "frr_zebra:netlink_vrf_change":
