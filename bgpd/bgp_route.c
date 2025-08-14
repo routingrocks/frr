@@ -3014,7 +3014,7 @@ static void bgp_route_select_timer_expire(struct event *thread)
 			bgp->name_pretty, get_afi_safi_str(afi, safi, false),
 			bgp->gr_info[afi][safi].gr_deferred);
 
-	frrtrace(4, frr_bgp, gr_continue_deferred_path_selection, bgp->name_pretty, afi, safi,
+	frrtrace(4, frr_bgp, gr_continue_deferred_path_selection, bgp, afi, safi,
 		 bgp->gr_info[afi][safi].gr_deferred);
 
 	bgp_do_deferred_path_selection(bgp, afi, safi);
@@ -4304,7 +4304,7 @@ void bgp_do_deferred_path_selection(struct bgp *bgp, afi_t afi, safi_t safi)
 		zlog_debug("%s: Started doing BGP deferred path selection for %s", bgp->name_pretty,
 			   get_afi_safi_str(afi, safi, false));
 
-	frrtrace(4, frr_bgp, gr_eors, bgp->name_pretty, afi, safi, 7);
+	frrtrace(4, frr_bgp, gr_eors, bgp, afi, safi, 7);
 
 	if (afi == AFI_L2VPN && safi == SAFI_EVPN) {
 		struct bgp_dest *rd_dest = NULL;
@@ -4440,7 +4440,7 @@ void bgp_do_deferred_path_selection(struct bgp *bgp, afi_t afi, safi_t safi)
 		if (!route_sync_pending) {
 			bgp->gr_route_sync_pending = false;
 			/* Set bgp master GR COMPLETE flag */
-			frrtrace(3, frr_bgp, gr_update_complete, bgp->name_pretty, afi, safi);
+			frrtrace(3, frr_bgp, gr_update_complete, bgp, afi, safi);
 			bgp_update_gr_completion();
 		}
 
@@ -9719,8 +9719,8 @@ void bgp_redistribute_add(struct bgp *bgp, struct prefix *p,
 	    bgp->peer_self == NULL)
 		return;
 
-	frrtrace(10, frr_bgp, bgp_redistribute_add_zrecv, bgp->name_pretty, p, ifindex, nhtype,
-		 distance, bhtype, metric, type, instance, tag);
+	frrtrace(10, frr_bgp, bgp_redistribute_add_zrecv, bgp, p, ifindex, nhtype, distance, bhtype,
+		 metric, type, instance, tag);
 	/* Make default attribute. */
 	bgp_attr_default_set(&attr, bgp, BGP_ORIGIN_INCOMPLETE);
 	/*
@@ -9903,7 +9903,7 @@ void bgp_redistribute_delete(struct bgp *bgp, struct prefix *p, uint8_t type,
 	struct bgp_redist *red;
 
 	afi = family2afi(p->family);
-	frrtrace(4, frr_bgp, bgp_redistribute_delete_zrecv, bgp->name_pretty, p, type, instance);
+	frrtrace(4, frr_bgp, bgp_redistribute_delete_zrecv, bgp, p, type, instance);
 
 	red = bgp_redist_lookup(bgp, afi, type, instance);
 	if (red) {

@@ -2618,10 +2618,7 @@ bgp_attr_ext_communities(struct bgp_attr_parser_args *args)
 			zlog_debug("%s: router mac %pEA is self mac", __func__,
 				   &attr->rmac);
 
-		char mac_buf[ETHER_ADDR_STRLEN];
-
-		frrtrace(1, frr_bgp, upd_rmac_is_self_mac,
-			 prefix_mac2str(&attr->rmac, mac_buf, sizeof(mac_buf)));
+		frrtrace(1, frr_bgp, upd_rmac_is_self_mac, &attr->rmac);
 	}
 
 	/* Get the tunnel type from encap extended community */

@@ -578,7 +578,8 @@ def parse_frr_bgp_evpn_mac_ip_zsend(event):
     field_parsers = {"ip": print_ip_addr,
                      "mac": print_mac,
                      "esi": print_esi,
-                     "vtep": print_net_ipv4_addr}
+                     "vtep": print_net_ipv4_addr,
+                     "action": evpn_action_to_string}
 
     parse_event(event, field_parsers)
 
@@ -589,16 +590,18 @@ def parse_frr_bgp_evpn_bum_vtep_zsend(event):
             pfx->prefix.imet_addr.ip.ipaddr_v4.s_addr)
 
     """
-    field_parsers = {"vtep": print_net_ipv4_addr}
+    field_parsers = {"vtep": print_net_ipv4_addr,
+                     "action": evpn_action_to_string}
 
     parse_event(event, field_parsers)
 
-def parse_frr_bgp_evpn_mh_nh_rmac_send(event):
+def parse_frr_bgp_evpn_mh_nh_rmac_zsend(event):
     """
     bgp evpn nh-rmac parser; raw format -
     ctf_array(unsigned char, rmac, &nh->rmac, sizeof(struct ethaddr))
     """
-    field_parsers = {"rmac": print_mac}
+    field_parsers = {"rmac": print_mac,
+                     "action": evpn_action_to_string}
 
     parse_event(event, field_parsers)
 
@@ -700,7 +703,8 @@ def parse_frr_bgp_evpn_local_l3vni_add_zrecv(event):
     """
     field_parsers = {"vtep": print_net_ipv4_addr,
                      "svi_rmac": print_mac,
-                     "vrr_rmac": print_mac}
+                     "vrr_rmac": print_mac,
+                     "anycast_mac": lambda x: "yes" if x else "no"}
 
     parse_event(event, field_parsers)
 
@@ -936,10 +940,11 @@ def parse_frr_bgp_gr_deferral_timer_start(event):
                      "safi": print_safi_string}
 
     parse_event(event, field_parsers)
-    
+
 def parse_frr_bgp_gr_deferral_timer_expiry(event):
     field_parsers = {"afi": print_afi_string,
-                     "safi": print_safi_string}
+                     "safi": print_safi_string,
+                     "gr_tier": lambda x: "2" if x else "1"}
 
     parse_event(event, field_parsers)
                     
@@ -986,65 +991,6 @@ def parse_frr_bgp_gr_zebra_update(event):
 def parse_frr_zebra_if_ip_addr_add_del(event):
     field_parsers = {"location": location_if_ip_addr_add_del,
                      "address": print_prefix_addr}
-    parse_event(event, field_parsers)
-
-
-def parse_frr_bgp_gr_deferral_timer_start(event):
-    field_parsers = {"location": print_location_gr_deferral_timer_start,
-                     "afi": print_afi_string,
-                     "safi": print_safi_string}
-
-    parse_event(event, field_parsers)
-
-
-def parse_frr_bgp_gr_deferral_timer_expiry(event):
-    field_parsers = {"afi": print_afi_string,
-                     "safi": print_safi_string}
-
-    parse_event(event, field_parsers)
-
-
-def parse_frr_bgp_gr_eors(event):
-    field_parsers = {"location": print_location_gr_eors,
-                     "afi": print_afi_string,
-                     "safi": print_safi_string}
-
-    parse_event(event, field_parsers)
-
-
-def parse_frr_bgp_gr_eor_peer(event):
-    field_parsers = {"location": print_location_gr_eor_peer,
-                     "afi": print_afi_string,
-                     "safi": print_safi_string}
-
-    parse_event(event, field_parsers)
-
-
-def parse_frr_bgp_gr_start_deferred_path_selection(event):
-    field_parsers = {"afi": print_afi_string,
-                     "safi": print_safi_string}
-
-    parse_event(event, field_parsers)
-
-
-def parse_frr_bgp_gr_send_fbit_capability(event):
-    field_parsers = {"afi": print_afi_string,
-                     "safi": print_safi_string}
-
-    parse_event(event, field_parsers)
-
-
-def parse_frr_bgp_gr_continue_deferred_path_selection(event):
-    field_parsers = {"afi": print_afi_string,
-                     "safi": print_safi_string}
-
-    parse_event(event, field_parsers)
-
-
-def parse_frr_bgp_gr_zebra_update(event):
-    field_parsers = {"afi": print_afi_string,
-                     "safi": print_safi_string}
-
     parse_event(event, field_parsers)
 
 
@@ -1586,6 +1532,36 @@ def parse_frr_bgp_bgp_zebra_vxlan_flood_control(event):
     field_parsers = {"flood_enabled": lambda x: "Flooding Enabled" if x else "Flooding Disabled"}
     parse_event(event, field_parsers)
 
+def evpn_action_to_string(action_val):
+    return "add" if action_val else "del"
+
+def evpn_type_to_string(type_val):
+    return "v4" if type_val else "v6"
+
+def parse_frr_bgp_evpn_mh_vtep_zsend(event):
+    field_parsers = {
+        "action": evpn_action_to_string,
+        "vtep": print_net_ipv4_addr,
+        "esi": print_esi
+    }
+    parse_event(event, field_parsers)
+
+def parse_frr_bgp_evpn_mh_nhg_zsend(event):
+    field_parsers = {
+        "action": evpn_action_to_string,
+        "type": evpn_type_to_string,
+        "esi": print_esi
+    }
+    parse_event(event, field_parsers)
+
+def parse_frr_bgp_evpn_mh_nh_zsend(event):
+    field_parsers = {"vtep": print_net_ipv4_addr}
+    parse_event(event, field_parsers)
+
+def parse_frr_bgp_upd_rmac_is_self_mac(event):
+    field_parsers = {"rmac": print_mac}
+    parse_event(event, field_parsers)
+
 def main():
     """
     FRR lttng trace output parser; babel trace plugin
@@ -1595,7 +1571,13 @@ def main():
                      "frr_bgp:evpn_bum_vtep_zsend":
                      parse_frr_bgp_evpn_bum_vtep_zsend,
                      "frr_bgp:evpn_mh_nh_rmac_zsend":
-                     parse_frr_bgp_evpn_mh_nh_rmac_send,
+                     parse_frr_bgp_evpn_mh_nh_rmac_zsend,
+                     "frr_bgp:evpn_mh_vtep_zsend":
+                     parse_frr_bgp_evpn_mh_vtep_zsend,
+                     "frr_bgp:evpn_mh_nh_zsend":
+                     parse_frr_bgp_evpn_mh_nh_zsend,
+                     "frr_bgp:evpn_mh_nhg_zsend":
+                     parse_frr_bgp_evpn_mh_nhg_zsend,
                      "frr_bgp:evpn_mh_local_es_add_zrecv":
                      parse_frr_bgp_evpn_mh_local_es_add_zrecv,
                      "frr_bgp:evpn_mh_local_es_del_zrecv":
@@ -1698,6 +1680,8 @@ def main():
                      parse_frr_update_prefix_filter,
                      "frr_bgp:upd_attr_type_unsupported":
                      parse_frr_bgp_attr_type_unsupported,
+                     "frr_bgp:upd_rmac_is_self_mac":
+                     parse_frr_bgp_upd_rmac_is_self_mac,
                      "frr_bgp:per_src_nhg_soo_timer_slot_run":
                      parse_frr_bgp_per_src_nhg_soo_timer_slot_run,
                      "frr_bgp:per_src_nhg_soo_timer_start":
