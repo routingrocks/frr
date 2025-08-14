@@ -1,0 +1,30 @@
+{
+  "name": "bgp_ecmp_ebgp",
+  "description": "ECMP with eBGP test topology - 3 routers with equal cost paths",
+  "nodes": {
+    "r1": {
+      "type": "frr",
+      "image": "frrouting/frr:latest"
+    },
+    "r2": {
+      "type": "frr",
+      "image": "frrouting/frr:latest"
+    },
+    "r3": {
+      "type": "frr",
+      "image": "frrouting/frr:latest"
+    }
+  },
+  "links": [
+    {
+      "name": "s1",
+      "nodes": ["r1", "r2"],
+      "interfaces": ["r1-eth0", "r2-eth0"]
+    },
+    {
+      "name": "s2",
+      "nodes": ["r2", "r3"],
+      "interfaces": ["r2-eth1", "r3-eth0"]
+    }
+  ]
+}
