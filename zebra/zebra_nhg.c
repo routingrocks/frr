@@ -3829,8 +3829,7 @@ void zebra_nhg_dplane_result(struct zebra_dplane_ctx *ctx)
 			"Nexthop dplane ctx %p, op %s, nexthop ID (%u), result %s",
 			ctx, dplane_op2str(op), id, dplane_res2str(status));
 
-	frrtrace(3, frr_zebra, zebra_nhg_dplane_result, dplane_op2str(op), id,
-		 dplane_res2str(status));
+	frrtrace(3, frr_zebra, zebra_nhg_dplane_result, op, id, status);
 
 	if (op == DPLANE_OP_NH_DELETE) {
 		if (status != ZEBRA_DPLANE_REQUEST_SUCCESS)

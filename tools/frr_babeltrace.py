@@ -20,6 +20,74 @@ import babeltrace
 import datetime
 
 ########################### common parsers - start ############################
+def dplane_op2str(field_val):
+    dplane_ops = {
+        0: "DPLANE_OP_NONE",
+        1: "DPLANE_OP_ROUTE_INSTALL",
+        2: "DPLANE_OP_ROUTE_UPDATE",
+        3: "DPLANE_OP_ROUTE_DELETE",
+        4: "DPLANE_OP_ROUTE_NOTIFY",
+        5: "DPLANE_OP_NH_INSTALL",
+        6: "DPLANE_OP_NH_UPDATE",
+        7: "DPLANE_OP_NH_DELETE",
+        8: "DPLANE_OP_LSP_INSTALL",
+        9: "DPLANE_OP_LSP_UPDATE",
+        10: "DPLANE_OP_LSP_DELETE",
+        11: "DPLANE_OP_LSP_NOTIFY",
+        12: "DPLANE_OP_PW_INSTALL",
+        13: "DPLANE_OP_PW_UNINSTALL",
+        14: "DPLANE_OP_SYS_ROUTE_ADD",
+        15: "DPLANE_OP_SYS_ROUTE_DELETE",
+        16: "DPLANE_OP_ADDR_INSTALL",
+        17: "DPLANE_OP_ADDR_UNINSTALL",
+        18: "DPLANE_OP_MAC_INSTALL",
+        19: "DPLANE_OP_MAC_DELETE",
+        20: "DPLANE_OP_NEIGH_INSTALL",
+        21: "DPLANE_OP_NEIGH_UPDATE",
+        22: "DPLANE_OP_NEIGH_DELETE",
+        23: "DPLANE_OP_VTEP_ADD",
+        24: "DPLANE_OP_VTEP_DELETE",
+        25: "DPLANE_OP_RULE_ADD",
+        26: "DPLANE_OP_RULE_DELETE",
+        27: "DPLANE_OP_RULE_UPDATE",
+        28: "DPLANE_OP_NEIGH_DISCOVER",
+        29: "DPLANE_OP_BR_PORT_UPDATE",
+        30: "DPLANE_OP_IPTABLE_ADD",
+        31: "DPLANE_OP_IPTABLE_DELETE",
+        32: "DPLANE_OP_IPSET_ADD",
+        33: "DPLANE_OP_IPSET_DELETE",
+        34: "DPLANE_OP_IPSET_ENTRY_ADD",
+        35: "DPLANE_OP_IPSET_ENTRY_DELETE",
+        36: "DPLANE_OP_NEIGH_IP_INSTALL",
+        37: "DPLANE_OP_NEIGH_IP_DELETE",
+        38: "DPLANE_OP_NEIGH_TABLE_UPDATE",
+        39: "DPLANE_OP_GRE_SET",
+        40: "DPLANE_OP_INTF_ADDR_ADD",
+        41: "DPLANE_OP_INTF_ADDR_DEL",
+        42: "DPLANE_OP_INTF_NETCONFIG",
+        43: "DPLANE_OP_INTF_INSTALL",
+        44: "DPLANE_OP_INTF_UPDATE",
+        45: "DPLANE_OP_INTF_DELETE",
+        46: "DPLANE_OP_TC_QDISC_INSTALL",
+        47: "DPLANE_OP_TC_QDISC_UNINSTALL",
+        48: "DPLANE_OP_TC_CLASS_ADD",
+        49: "DPLANE_OP_TC_CLASS_DELETE",
+        50: "DPLANE_OP_TC_CLASS_UPDATE",
+        51: "DPLANE_OP_TC_FILTER_ADD",
+        52: "DPLANE_OP_TC_FILTER_DELETE",
+        53: "DPLANE_OP_TC_FILTER_UPDATE",
+        54: "DPLANE_OP_VLAN_INSTALL"
+    }
+    return dplane_ops.get(field_val, f"UNKNOWN_OP_{field_val}")
+
+def dplane_res2str(field_val):
+    dplane_results = {
+        0: "ZEBRA_DPLANE_REQUEST_QUEUED",
+        1: "ZEBRA_DPLANE_REQUEST_SUCCESS",
+        2: "ZEBRA_DPLANE_REQUEST_FAILURE"
+    }
+    return dplane_results.get(field_val, f"UNKNOWN_RES_{field_val}")
+
 def location_interface_nhg_reinstall(field_val):
     if field_val == 1:
         return ("Interface dependent NHE")
@@ -919,7 +987,18 @@ def parse_frr_zebra_if_protodown(event):
     parse_event(event, field_parsers)
 
 def parse_frr_zebra_if_upd_ctx_dplane_result(event):
-    field_parsers = {"location" : location_if_upd_ctx_dplane_res}
+    field_parsers = {"oper" : dplane_op2str,
+                     "location" : location_if_upd_ctx_dplane_res}
+    parse_event(event, field_parsers)
+
+def parse_frr_zebra_zebra_nhg_dplane_result(event):
+    field_parsers = {"op" : dplane_op2str,
+                     "status" : dplane_res2str}
+    parse_event(event, field_parsers)
+
+def parse_frr_zebra_if_dplane_result(event):
+    field_parsers = {"oper" : dplane_op2str,
+                     "dplane_result" : dplane_res2str}
     parse_event(event, field_parsers)
 
 def parse_frr_zebra_if_vrf_change(event):
@@ -1644,6 +1723,10 @@ def main():
                      parse_frr_zebra_if_protodown,
                      "frr_zebra:if_upd_ctx_dplane_result":
                      parse_frr_zebra_if_upd_ctx_dplane_result,
+                     "frr_zebra:zebra_nhg_dplane_result":
+                     parse_frr_zebra_zebra_nhg_dplane_result,
+                     "frr_zebra:if_dplane_result":
+                     parse_frr_zebra_if_dplane_result,
                      "frr_zebra:if_vrf_change":
                      parse_frr_zebra_if_vrf_change,
                      "frr_zebra:if_dplane_ifp_handling":

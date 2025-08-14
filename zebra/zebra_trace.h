@@ -158,10 +158,10 @@ TRACEPOINT_EVENT(
 		struct interface *, ifp,
         bool, down,
         bool, pd_reason_val,
-        const char*, oper,
+        enum dplane_op_e, oper,
         uint8_t, loc),
 	TP_FIELDS(
-		ctf_string(oper, oper)
+		ctf_integer(uint32_t, oper, oper)
 		ctf_string(interface_name, ifp->name)
 		ctf_integer(ifindex_t, ifindex, ifp->ifindex)
 		ctf_integer(bool, down , down)
@@ -213,15 +213,15 @@ TRACEPOINT_EVENT(
 	frr_zebra,
 	if_dplane_result,
 	TP_ARGS(
-        const char*, oper,
-        const char*, dplane_result,
+        enum dplane_op_e, oper,
+        enum zebra_dplane_result, dplane_result,
         ns_id_t, ns_id,
 		struct interface *, ifp),
 	TP_FIELDS(
-		ctf_string(oper, oper)
+		ctf_integer(uint32_t, oper, oper)
 		ctf_string(interface_name, ifp ? ifp->name : " ")
 		ctf_integer(ifindex_t, ifindex, ifp ? ifp->ifindex : -1)
-		ctf_string(dplane_result, dplane_result)
+		ctf_integer(uint32_t, dplane_result, dplane_result)
 		ctf_integer(ns_id_t, ns_id, ns_id)
 		)
 	)
@@ -1304,13 +1304,13 @@ TRACEPOINT_EVENT(
     frr_zebra,
     zebra_nhg_dplane_result,
     TP_ARGS(
-        const char *, op,
+        enum dplane_op_e, op,
         uint32_t, nhe_id,
-        const char *, status),
+        enum zebra_dplane_result, status),
     TP_FIELDS(
-        ctf_string(op, op)
+        ctf_integer(uint32_t, op, op)
         ctf_integer(uint32_t, nhe_id, nhe_id)
-        ctf_string(status, status)
+        ctf_integer(uint32_t, status, status)
         )
    )
 
