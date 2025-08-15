@@ -1803,6 +1803,15 @@ def parse_frr_zebra_zebra_vxlan_remote_vtep_del(event):
                      "vtep_ip": print_net_ipv4_addr}
     parse_event(event, field_parsers)
 
+def parse_frr_zebra_zebra_ptm_bfd_reg_info(event):
+    field_parsers = {"location": lambda x: {
+        1: "BFD Destination Register",
+        2: "BFD Destination Deregister",
+        3: "BFD Client Register",
+        4: "BFD Client Deregister"
+    }.get(x, f"Unknown BFD operation {x}")}
+    parse_event(event, field_parsers)
+
 def main():
     """
     FRR lttng trace output parser; babel trace plugin
@@ -2059,6 +2068,8 @@ def main():
                      parse_frr_zebra_get_srv6_sid_explicit,
                      "frr_zebra:zebra_vxlan_remote_vtep_del":
                      parse_frr_zebra_zebra_vxlan_remote_vtep_del,
+                     "frr_zebra:zebra_ptm_bfd_reg_info":
+                     parse_frr_zebra_zebra_ptm_bfd_reg_info,
                      "frr_zebra:zsend_redistribute_route":
                      parse_frr_zebra_zsend_redistribute_route,
                      "frr_zebra:zebra_evpn_send_add_to_client":

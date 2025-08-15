@@ -514,54 +514,17 @@ TRACEPOINT_LOGLEVEL(frr_zebra, zsend_redistribute_route, TRACE_INFO)
 
 TRACEPOINT_EVENT(
 	frr_zebra,
-	zebra_ptm_bfd_dst_register,
+	zebra_ptm_bfd_reg_info,
 	TP_ARGS(
-		uint8_t, len),
-	TP_FIELDS(
-		ctf_string(reg_msg, "Register message Sent")
-		ctf_integer(int, len, len)
-		)
-	)
-
-TRACEPOINT_LOGLEVEL(frr_zebra, zebra_ptm_bfd_dst_register, TRACE_INFO)
-
-TRACEPOINT_EVENT(
-	frr_zebra,
-	zebra_ptm_bfd_dst_deregister,
-	TP_ARGS(
+		uint8_t, location,
 		int, data_len),
 	TP_FIELDS(
-		ctf_string(reg_msg, "De-Register message Sent")
+		ctf_integer(uint8_t, location, location)
 		ctf_integer(int, data_len, data_len)
 		)
 	)
 
-TRACEPOINT_LOGLEVEL(frr_zebra, zebra_ptm_bfd_dst_deregister, TRACE_INFO)
-
-TRACEPOINT_EVENT(
-	frr_zebra,
-	zebra_ptm_bfd_client_register,
-	TP_ARGS(int, data_len),
-	TP_FIELDS(
-		ctf_string(reg_msg, "BFD Client Register message Sent")
-		ctf_integer(int, data_len, data_len)
-		)
-	)
-
-TRACEPOINT_LOGLEVEL(frr_zebra, zebra_ptm_bfd_client_register, TRACE_INFO)
-
-TRACEPOINT_EVENT(
-	frr_zebra,
-	zebra_ptm_bfd_client_deregister,
-	TP_ARGS(
-		int, data_len),
-	TP_FIELDS(
-		ctf_string(reg_msg, "BFD Client De-Register message Sent")
-		ctf_integer(int, data_len, data_len)
-		)
-	)
-
-TRACEPOINT_LOGLEVEL(frr_zebra, zebra_ptm_bfd_client_deregister, TRACE_INFO)
+TRACEPOINT_LOGLEVEL(frr_zebra, zebra_ptm_bfd_reg_info, TRACE_INFO)
 
 TRACEPOINT_EVENT(
 	frr_zebra,
