@@ -2082,6 +2082,9 @@ int zebra_evpn_mac_remote_macip_add(struct zebra_evpn *zevpn,
 				    struct in_addr vtep_ip, uint8_t flags,
 				    uint32_t seq, const esi_t *esi)
 {
+	//::TBD
+	//frrtrace(9, frr_zebra, process_remote_macip_add, zevpn->vni, zevpn, macaddr, &vtep_ip,
+	//	 vtep_ip, esi, flags, seq, 1);
 	bool sticky;
 	bool remote_gw;
 	int update_mac = 0;

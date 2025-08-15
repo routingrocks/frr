@@ -2059,25 +2059,20 @@ static void zebra_gr_reinstall_last_route(void)
 				   __func__, dst_pfx_buf, vrf_id_to_name(z_gr_ctx.vrf_id),
 				   z_gr_ctx.afi, z_gr_ctx.safi, z_gr_ctx.table_id);
 
-		frrtrace(6, frr_zebra, gr_last_rn_lookup_failed, z_gr_ctx.vrf_id,
-			 vrf_id_to_name(z_gr_ctx.vrf_id), z_gr_ctx.afi, z_gr_ctx.safi,
-			 z_gr_ctx.table_id, dst_pfx_buf);
+		frrtrace(5, frr_zebra, gr_last_rn_lookup_failed, z_gr_ctx.vrf_id, z_gr_ctx.afi,
+			 z_gr_ctx.safi, z_gr_ctx.table_id, &z_gr_ctx.dest_pfx);
 
 		goto done;
 	}
 
 	rib_dest_t *dest;
-	char trace_pfx_buf[PREFIX_STRLEN];
-
-	prefix2str(&rn->p, trace_pfx_buf, sizeof(trace_pfx_buf));
 
 	if (IS_ZEBRA_DEBUG_EVENT)
 		zlog_debug("GR %s: Reinstalling last route %pRN %s:%u", __func__, rn,
 			   vrf_id_to_name(z_gr_ctx.vrf_id), z_gr_ctx.table_id);
 
-	frrtrace(6, frr_zebra, gr_last_rn_lookup_success, z_gr_ctx.vrf_id,
-		 vrf_id_to_name(z_gr_ctx.vrf_id), z_gr_ctx.afi, z_gr_ctx.safi, z_gr_ctx.table_id,
-		 trace_pfx_buf);
+	frrtrace(5, frr_zebra, gr_last_rn_lookup_success, z_gr_ctx.vrf_id, z_gr_ctx.afi,
+		 z_gr_ctx.safi, z_gr_ctx.table_id, &rn->p);
 
 	/*
 	 * Get the destination info from the route node. This contains the list
@@ -2098,8 +2093,7 @@ static void zebra_gr_reinstall_last_route(void)
 		 */
 		rib_install_kernel(rn, dest->selected_fib, NULL, true);
 
-		frrtrace(2, frr_zebra, gr_reinstalled_last_route, vrf_id_to_name(z_gr_ctx.vrf_id),
-			 trace_pfx_buf);
+		frrtrace(2, frr_zebra, gr_reinstalled_last_route, z_gr_ctx.vrf_id, &rn->p);
 
 		if (IS_ZEBRA_DEBUG_EVENT)
 			zlog_debug("GR %s: Last route %pRN is sent to dplane for installation re %p, type %s, status 0x%x",
@@ -2107,12 +2101,12 @@ static void zebra_gr_reinstall_last_route(void)
 				   zebra_route_string(dest->selected_fib->type),
 				   dest->selected_fib->status);
 
-		frrtrace(2, frr_zebra, gr_last_route_re, trace_pfx_buf, 1);
+		frrtrace(2, frr_zebra, gr_last_route_re, &rn->p, 1);
 	} else {
 		if (IS_ZEBRA_DEBUG_EVENT)
 			zlog_debug("GR %s: last installed BGP route not found for %pRN, selected_fib %p",
 				   __func__, rn, (dest != NULL) ? dest->selected_fib : NULL);
-		frrtrace(2, frr_zebra, gr_last_route_re, trace_pfx_buf, 2);
+		frrtrace(2, frr_zebra, gr_last_route_re, &rn->p, 2);
 
 		if (dest && dest->selected_fib) {
 			if (IS_ZEBRA_DEBUG_EVENT)
@@ -2120,8 +2114,7 @@ static void zebra_gr_reinstall_last_route(void)
 					   __func__, rn, dest->selected_fib,
 					   zebra_route_string(dest->selected_fib->type),
 					   dest->selected_fib->status);
-			frrtrace(2, frr_zebra, gr_last_route_info,
-				 zebra_route_string(dest->selected_fib->type),
+			frrtrace(2, frr_zebra, gr_last_route_info, dest->selected_fib->type,
 				 dest->selected_fib->status);
 		}
 	}

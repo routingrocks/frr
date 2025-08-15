@@ -4953,7 +4953,7 @@ void zebra_vxlan_remote_vtep_del_zapi(ZAPI_HANDLER_ARGS)
 			zlog_debug("Recv VTEP DEL %pI4 VNI %u from %s", &vtep_ip, vni,
 				   client_proto_str);
 
-		frrtrace(3, frr_zebra, zebra_vxlan_remote_vtep_del, vtep_ip, vni, client_proto_str);
+		frrtrace(3, frr_zebra, zebra_vxlan_remote_vtep_del, vtep_ip, vni, client->proto);
 		/* Enqueue for processing */
 		zebra_rib_queue_evpn_rem_vtep_del(zvrf_id(zvrf), vni, vtep_ip);
 	}
@@ -6555,8 +6555,7 @@ void zebra_evpn_stale_entries_cleanup(uint64_t gr_cleanup_time)
 		if (IS_ZEBRA_DEBUG_EVENT)
 			zlog_debug("EVPN-GR: Cleaning up stale entries in  %s(%u)", vrf->name,
 				   vrf->vrf_id);
-		frrtrace(2, frr_zebra, gr_evpn_stale_entries_cleanup, VRF_LOGNAME(vrf),
-			 gr_cleanup_time);
+		frrtrace(2, frr_zebra, gr_evpn_stale_entries_cleanup, vrf->vrf_id, gr_cleanup_time);
 
 		zvrf = vrf->info;
 		if (zvrf)

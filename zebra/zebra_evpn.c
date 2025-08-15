@@ -1669,8 +1669,8 @@ void zebra_evpn_rem_macip_del(vni_t vni, const struct ethaddr *macaddr,
 				"Ignoring remote MACIP DEL VNI %u, invalid interface state or info",
 				vni);
 		if (macaddr && ipaddr)
-			frrtrace(4, frr_zebra, process_remote_macip_del, vni, macaddr, ipaddr,
-				 vtep_ip);
+			frrtrace(5, frr_zebra, process_remote_macip_del, vni, macaddr, ipaddr,
+				 vtep_ip, 1);
 		return;
 	}
 	zns = zebra_ns_lookup(NS_DEFAULT);
@@ -1681,8 +1681,8 @@ void zebra_evpn_rem_macip_del(vni_t vni, const struct ethaddr *macaddr,
 				"VNI %u not in interface upon remote MACIP DEL",
 				vni);
 		if (macaddr && ipaddr)
-			frrtrace(4, frr_zebra, process_remote_macip_del, vni, macaddr, ipaddr,
-				 vtep_ip);
+			frrtrace(5, frr_zebra, process_remote_macip_del, vni, macaddr, ipaddr,
+				 vtep_ip, 2);
 		return;
 	}
 
@@ -1695,8 +1695,8 @@ void zebra_evpn_rem_macip_del(vni_t vni, const struct ethaddr *macaddr,
 			"Failed to locate MAC %pEA for Neigh %pIA VNI %u upon remote MACIP DEL",
 			macaddr, ipaddr, vni);
 		if (macaddr && ipaddr)
-			frrtrace(4, frr_zebra, process_remote_macip_del, vni, macaddr, ipaddr,
-				 vtep_ip);
+			frrtrace(5, frr_zebra, process_remote_macip_del, vni, macaddr, ipaddr,
+				 vtep_ip, 3);
 		return;
 	}
 
@@ -1709,8 +1709,8 @@ void zebra_evpn_rem_macip_del(vni_t vni, const struct ethaddr *macaddr,
 				"Failed to locate MAC %pEA & Neigh %pIA VNI %u upon remote MACIP DEL",
 				macaddr, ipaddr, vni);
 		if (macaddr && ipaddr)
-			frrtrace(4, frr_zebra, process_remote_macip_del, vni, macaddr, ipaddr,
-				 vtep_ip);
+			frrtrace(5, frr_zebra, process_remote_macip_del, vni, macaddr, ipaddr,
+				 vtep_ip, 4);
 		return;
 	}
 
@@ -1725,8 +1725,8 @@ void zebra_evpn_rem_macip_del(vni_t vni, const struct ethaddr *macaddr,
 			ipa_len ? " IP " : "",
 			ipa_len ? ipaddr2str(ipaddr, buf1, sizeof(buf1)) : "");
 		if (macaddr && ipaddr)
-			frrtrace(4, frr_zebra, process_remote_macip_del, vni, macaddr, ipaddr,
-				 vtep_ip);
+			frrtrace(5, frr_zebra, process_remote_macip_del, vni, macaddr, ipaddr,
+				 vtep_ip, 5);
 		return;
 	}
 
@@ -1750,8 +1750,8 @@ void zebra_evpn_rem_macip_del(vni_t vni, const struct ethaddr *macaddr,
 			macfdb_read_specific_mac(zns, zif->brslave_info.br_if,
 						 macaddr, vnip->access_vlan);
 			if (macaddr && ipaddr)
-				frrtrace(4, frr_zebra, process_remote_macip_del, vni, macaddr,
-					 ipaddr, vtep_ip);
+				frrtrace(5, frr_zebra, process_remote_macip_del, vni, macaddr,
+					 ipaddr, vtep_ip, 6);
 		}
 
 		if (CHECK_FLAG(mac->flags, ZEBRA_MAC_LOCAL)) {

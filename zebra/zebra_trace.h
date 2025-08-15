@@ -393,7 +393,7 @@ TRACEPOINT_EVENT(
 		ctf_integer(vni_t, vni, vni)
 		ctf_array(unsigned char, mac, mac,
 			  sizeof(struct ethaddr))
-		ctf_string(vtep_ip, inet_ntoa(vtep_ip))
+		ctf_integer_network_hex(unsigned int, vtep_ip, vtep_ip.s_addr)
 		)
 	)
 
@@ -502,8 +502,8 @@ TRACEPOINT_EVENT(
 		const char *, nexthop),
 	TP_FIELDS(
 		ctf_string(cmd, zserv_command_string(cmd))
-		ctf_string(client_proto, zebra_route_string(client->proto))
-		ctf_string(api_type, zebra_route_string(api.type))
+		ctf_integer(uint8_t, client_proto, client->proto)
+		ctf_integer(uint8_t, api_type, api.type)
 		ctf_integer(uint32_t, vrfid, api.vrf_id)
 		ctf_integer(unsigned int, prefix_len, api.prefix.prefixlen)
 		ctf_string(nexthops, nexthop)
@@ -570,7 +570,6 @@ TRACEPOINT_EVENT(
 		const struct nlsock *, nl,
 		struct msghdr *, msg),
 	TP_FIELDS(
-		ctf_string(netlink_recv, "netlink message recv")
 		ctf_string(nl_name, nl->name)
 		ctf_integer(int, msg_len, msg->msg_namelen)
 		)
@@ -585,7 +584,6 @@ TRACEPOINT_EVENT(
 		const struct nlsock *, nl,
 		struct msghdr, msg),
 	TP_FIELDS(
-		ctf_string(netlink_recv, "netlink message sent")
 		ctf_string(nl_name, nl->name)
 		ctf_integer(uint32_t, msg_len, msg.msg_namelen)
 		)
@@ -671,7 +669,7 @@ TRACEPOINT_EVENT(
 		ctf_integer(int, vni, zevpn->vni)
 		ctf_integer(int, flags, zevpn->flags)
 		ctf_integer(uint16_t, vlan_id, zevpn->vid)
-		ctf_string(vtep_ip,inet_ntoa(zevpn->local_vtep_ip))
+		ctf_integer_network_hex(unsigned int, vtep_ip, zevpn->local_vtep_ip.s_addr)
 		)
 	)
 
@@ -707,8 +705,8 @@ TRACEPOINT_EVENT(
 	TP_FIELDS(
 		ctf_integer(int, vni, zevpn->vni)
 		ctf_integer(int, vrfid, zevpn->vrf_id)
-		ctf_string(vtep_ip, inet_ntoa(zevpn->local_vtep_ip))
-		ctf_string(client_proto, zebra_route_string(client->proto))
+		ctf_integer_network_hex(unsigned int, vtep_ip, zevpn->local_vtep_ip.s_addr)
+		ctf_integer(uint8_t, client_proto, client->proto)
 		)
 	)
 
@@ -720,23 +718,23 @@ TRACEPOINT_EVENT(
 	TP_ARGS(
 		vni_t, vni,
 		struct zebra_evpn *, zevpn,
-		struct ethaddr *, mac,
-		struct ipaddr *, ip,
+		const struct ethaddr *, mac,
+		struct in_addr *, ip,
 		struct in_addr, vtep_ip,
-		esi_t *, esi,
-		uint8_t , flags,
-		uint32_t, seq),
+		const esi_t *, esi,
+		uint8_t, flags,
+		uint32_t, seq,
+		uint8_t, location),
 	TP_FIELDS(
-		ctf_string(remote_add, "Remote MACIP add from BGP")
 		ctf_integer(int, vni, vni)
 		ctf_array(unsigned char, mac, mac,
 			  sizeof(struct ethaddr))
-		ctf_array(unsigned char, ip, ip,
-			  sizeof(struct ipaddr))
-		ctf_string(vtep_ip, inet_ntoa(vtep_ip))
+		ctf_integer_network_hex(unsigned int, ip, ip->s_addr)
+		ctf_integer_network_hex(unsigned int, vtep_ip, vtep_ip.s_addr)
 		ctf_array(unsigned char, esi, esi, sizeof(esi_t))
 		ctf_integer(uint8_t, flags, flags)
 		ctf_integer(uint32_t, seq, seq)
+		ctf_integer(uint8_t, location, location)
 		)
 	)
 
@@ -749,15 +747,16 @@ TRACEPOINT_EVENT(
 		vni_t, vni,
 		const struct ethaddr *, mac,
 		const struct ipaddr *, ip,
-		struct in_addr, vtep_ip),
+		struct in_addr, vtep_ip,
+		uint8_t, location),
 	TP_FIELDS(
-		ctf_string(remote_del, "Ignoring remote MACIP DEL VNI")
+		ctf_integer(vni_t, vni, vni)
 		ctf_array(unsigned char, mac, mac,
 			  sizeof(struct ethaddr))
 		ctf_array(unsigned char, ip, ip,
 			  sizeof(struct ipaddr))
-		ctf_integer(int, vni, vni)
-		ctf_string(vtep_ip, inet_ntoa(vtep_ip))
+		ctf_integer_network_hex(unsigned int, vtep_ip, vtep_ip.s_addr)
+		ctf_integer(uint8_t, location, location)
 		)
 	)
 
@@ -782,7 +781,7 @@ TRACEPOINT_EVENT(
 		ctf_array(unsigned char, ip, ip,
 			  sizeof(struct ipaddr))
 		ctf_integer(int, state, state)
-		ctf_string(action, (cmd == ZEBRA_MACIP_ADD) ? "Add" : "Del")
+		ctf_integer(uint8_t, is_add, (cmd == ZEBRA_MACIP_ADD) ? 1 : 0)
 		ctf_integer(uint32_t, seq, seq)
 		ctf_integer(int, ip_len, ipa_len)
 		ctf_array(unsigned char, esi, esi, sizeof(esi_t))
@@ -920,7 +919,7 @@ TRACEPOINT_EVENT(
 		ctf_string(ifp,ifp->name)
 		ctf_integer(int, ifp_index, ifp->ifindex)
 		ctf_integer(int, vni, vni)
-		ctf_string(vtep_ip,inet_ntoa(*ip))
+		ctf_integer_network_hex(unsigned int, vtep_ip, ip->s_addr)
 		)
 	)
 
@@ -937,7 +936,7 @@ TRACEPOINT_EVENT(
 		ctf_string(ifp,ifp->name)
 		ctf_integer(int, ifp_index, ifp->ifindex)
 		ctf_integer(int, vni, vni)
-		ctf_string(vtep_ip,inet_ntoa(*ip))
+		ctf_integer_network_hex(unsigned int, vtep_ip, ip->s_addr)
 		)
 	)
 
@@ -952,7 +951,7 @@ TRACEPOINT_EVENT(
 		ctf_integer(int, vni, zevpn->vni)
 		ctf_integer(int, flags, zevpn->flags)
 		ctf_integer(uint16_t, vlan_id, zevpn->vid)
-		ctf_string(vtep_ip,inet_ntoa(zevpn->local_vtep_ip))
+		ctf_integer_network_hex(unsigned int, vtep_ip, zevpn->local_vtep_ip.s_addr)
 		)
 	)
 
@@ -965,7 +964,7 @@ TRACEPOINT_EVENT(
 		struct zserv *, client,
 		struct zebra_evpn *,zevpn),
 	TP_FIELDS(
-		ctf_string(client, zebra_route_string(client->proto))
+		ctf_integer(uint8_t, client_proto, client->proto)
 		ctf_integer(int, vni, zevpn->vni)
 		)
 	)
@@ -1087,7 +1086,7 @@ TRACEPOINT_EVENT(
 			  sizeof(struct ethaddr))
 		ctf_array(unsigned char, ip, ip,
 			  sizeof(struct ipaddr))
-		ctf_string(vtep_ip, inet_ntoa(vtep_ip))
+		ctf_integer_network_hex(unsigned int, vtep_ip, vtep_ip.s_addr)
 		ctf_integer(uint8_t, flags, flags)
 		ctf_array(unsigned char, esi, esi, sizeof(esi_t))
 		)
@@ -1110,7 +1109,7 @@ TRACEPOINT_EVENT(
 			  sizeof(struct ethaddr))
 		ctf_array(unsigned char, ip, ip,
 			  sizeof(struct ipaddr))
-		ctf_string(vtep_ip, inet_ntoa(vtep_ip))
+		ctf_integer_network_hex(unsigned int, vtep_ip, vtep_ip.s_addr)
 		ctf_integer(int, ip_len, ipa_len)
 		)
 	)
@@ -1182,7 +1181,7 @@ TRACEPOINT_EVENT(
 		uint16_t, cmd),
 	TP_FIELDS(
 		ctf_string(cmd, zserv_command_string(cmd))
-		ctf_string(vtep_ip, inet_ntoa(vtep_ip))
+		ctf_integer_network_hex(unsigned int, vtep_ip, vtep_ip.s_addr)
 		ctf_array(unsigned char, esi, esi, sizeof(esi_t))
 		)
 	)
@@ -1201,7 +1200,7 @@ TRACEPOINT_EVENT(
 	TP_FIELDS(
 		ctf_array(unsigned char, rmac, &zrmac->macaddr,
 			  sizeof(struct ethaddr))
-		ctf_string(vtep_ip, inet_ntoa(vtep_ip))
+		ctf_integer_network_hex(unsigned int, vtep_ip, vtep_ip.s_addr)
 		ctf_integer(vni_t, vni, vni)
 		ctf_integer(uint16_t, vlan_id, vid)
 		ctf_integer(unsigned int, vxlan_if, vxlan_if->ifindex)
@@ -1222,7 +1221,7 @@ TRACEPOINT_EVENT(
 	TP_FIELDS(
 		ctf_array(unsigned char, rmac, &zrmac->macaddr,
 			  sizeof(struct ethaddr))
-		ctf_string(vtep_ip, inet_ntoa(vtep_ip))
+		ctf_integer_network_hex(unsigned int, vtep_ip, vtep_ip.s_addr)
 		ctf_integer(vni_t, vni, vni)
 		ctf_integer(uint16_t, vlan_id, vid)
 		ctf_integer(unsigned int, vxlan_if, vxlan_if->ifindex)
@@ -1239,7 +1238,7 @@ TRACEPOINT_EVENT(
 		vni_t, vni,
 		int, flood_control),
 	TP_FIELDS(
-		ctf_string(vtep_ip, inet_ntoa(vtep_ip))
+		ctf_integer_network_hex(unsigned int, vtep_ip, vtep_ip.s_addr)
 		ctf_integer(vni_t, vni, vni)
 		ctf_integer(int, flood_control, flood_control)
 		)
@@ -1253,11 +1252,11 @@ TRACEPOINT_EVENT(
     TP_ARGS(
         struct in_addr, vtep_ip,
         vni_t, vni,
-        const char *, proto),
+        uint8_t, client_proto),
     TP_FIELDS(
-        ctf_string(vtep_ip, inet_ntoa(vtep_ip))
+        ctf_integer_network_hex(unsigned int, vtep_ip, vtep_ip.s_addr)
         ctf_integer(vni_t, vni, vni)
-        ctf_string(proto, proto)
+        ctf_integer(uint8_t, client_proto, client_proto)
         )
     )
 TRACEPOINT_LOGLEVEL(frr_zebra, zebra_vxlan_remote_vtep_del, TRACE_INFO)
@@ -1493,7 +1492,6 @@ TRACEPOINT_EVENT(
         ctf_integer(vrf_id_t, vrf_id, vrf_id)
         ctf_integer(uint8_t, afi, afi)
         ctf_integer(uint8_t, location, loc)
-
         )
    )
 TRACEPOINT_LOGLEVEL(frr_zebra, gr_client_not_found, TRACE_INFO)
@@ -1532,7 +1530,7 @@ TRACEPOINT_EVENT(
         ctf_integer(vni_t, vni, vni)
         ctf_string(interface, if_name)
         ctf_integer(ifindex_t, ifindex, ifindex)
-        ctf_string(vtep_ip, inet_ntoa(vtep_ip))
+        ctf_integer_network_hex(unsigned int, vtep_ip, vtep_ip.s_addr)
         )
    )
 TRACEPOINT_LOGLEVEL(frr_zebra, zevpn_build_l2vni_hash, TRACE_INFO)
@@ -1589,7 +1587,7 @@ TRACEPOINT_EVENT(
         const struct ethaddr *, rmac),
     TP_FIELDS(
         ctf_integer(vni_t, vni, vni)
-        ctf_string(old_vtep, inet_ntoa(old_vtep_ip))
+        ctf_integer_network_hex(unsigned int, old_vtep_ip, old_vtep_ip.s_addr)
         ctf_array(unsigned char, new_vtep, ip,
 			  sizeof(struct ipaddr))
         ctf_array(unsigned char, rmac, rmac,
@@ -1634,7 +1632,7 @@ TRACEPOINT_EVENT(
         ctf_integer(vni_t, vni, vni)
         ctf_array(unsigned char, old_vtep, ip,
 			  sizeof(struct ipaddr))
-        ctf_string(new_vtep, inet_ntoa(new_vtep_ip))
+        ctf_integer_network_hex(unsigned int, new_vtep_ip, new_vtep_ip.s_addr)
         ctf_array(unsigned char, rmac, &mac,
 			  sizeof(struct ethaddr))
         )
@@ -1741,10 +1739,10 @@ TRACEPOINT_EVENT(
     frr_zebra,
     gr_process_client_stale_routes,
     TP_ARGS(
-        const char *, proto, const char *, vrf, uint8_t, afi, bool, pending),
+        uint8_t, proto, vrf_id_t, vrf_id, uint8_t, afi, bool, pending),
     TP_FIELDS(
-        ctf_string(client, proto)
-        ctf_string(vrf, vrf)
+        ctf_integer(uint8_t, client_proto, proto)
+        ctf_integer(vrf_id_t, vrf_id, vrf_id)
         ctf_integer(uint8_t, afi, afi)
         ctf_integer(bool, gr_pending, pending)
         )
@@ -1755,9 +1753,9 @@ TRACEPOINT_EVENT(
     frr_zebra,
     gr_delete_stale_route_table_afi,
     TP_ARGS(
-        const char *, vrf, uint8_t, afi),
+        vrf_id_t, vrf_id, uint8_t, afi),
     TP_FIELDS(
-        ctf_string(vrf, vrf)
+        ctf_integer(vrf_id_t, vrf_id, vrf_id)
         ctf_integer(uint8_t, afi, afi)
         )
    )
@@ -1767,9 +1765,9 @@ TRACEPOINT_EVENT(
     frr_zebra,
     gr_complete_check,
     TP_ARGS(
-       const char *, vrf, bool, route_sync_done),
+       vrf_id_t, vrf_id, bool, route_sync_done),
     TP_FIELDS(
-        ctf_string(vrf, vrf)
+        ctf_integer(vrf_id_t, vrf_id, vrf_id)
         ctf_integer(bool, route_sync_done, route_sync_done)
         )
    )
@@ -1800,10 +1798,10 @@ TRACEPOINT_LOGLEVEL(frr_zebra, gr_ready_to_reinstall_last_route, TRACE_INFO)
 TRACEPOINT_EVENT(
     frr_zebra,
     gr_reinstalled_last_route,
-    TP_ARGS(const char *, vrf, char *, pfx),
+    TP_ARGS(vrf_id_t, vrf_id, struct prefix*, pfx),
     TP_FIELDS(
-    	ctf_string(vrf, vrf)
-    	ctf_string(last_route, pfx)
+        ctf_integer(vrf_id_t, vrf_id, vrf_id)
+        ctf_array(unsigned char, last_route, pfx, sizeof(struct prefix))
     	)
    )
 TRACEPOINT_LOGLEVEL(frr_zebra, gr_reinstalled_last_route, TRACE_INFO)
@@ -1822,11 +1820,11 @@ TRACEPOINT_LOGLEVEL(frr_zebra, gr_complete_route_count, TRACE_INFO)
 TRACEPOINT_EVENT(
     frr_zebra,
     gr_evpn_stale_entries_cleanup,
-    TP_ARGS(const char *, vrf, uint64_t, gr_cleanup_time),
+    TP_ARGS(vrf_id_t, vrf_id, uint64_t, gr_cleanup_time),
     TP_FIELDS(
-    	ctf_string(vrf, vrf)
-    	ctf_integer(uint64_t, gr_cleanup_time, gr_cleanup_time)
-    	)
+        ctf_integer(vrf_id_t, vrf_id, vrf_id)
+        ctf_integer(uint64_t, gr_cleanup_time, gr_cleanup_time)
+        )
    )
 TRACEPOINT_LOGLEVEL(frr_zebra, gr_evpn_stale_entries_cleanup, TRACE_INFO)
 
@@ -1845,9 +1843,9 @@ TRACEPOINT_LOGLEVEL(frr_zebra, gr_complete_evpn_count, TRACE_INFO)
 TRACEPOINT_EVENT(
     frr_zebra,
     gr_stale_client_cleanup,
-    TP_ARGS(const char *, client),
+    TP_ARGS(uint8_t, client_proto),
     TP_FIELDS(
-    	ctf_string(client, client)
+        ctf_integer(uint8_t, client_proto, client_proto)
     	)
    )
 TRACEPOINT_LOGLEVEL(frr_zebra, gr_stale_client_cleanup, TRACE_INFO)
@@ -1855,10 +1853,10 @@ TRACEPOINT_LOGLEVEL(frr_zebra, gr_stale_client_cleanup, TRACE_INFO)
 TRACEPOINT_EVENT(
     frr_zebra,
     gr_client_info_delete,
-    TP_ARGS(const char *, client, const char *, vrf),
+    TP_ARGS(uint8_t, client_proto, vrf_id_t, vrf_id),
     TP_FIELDS(
-    	ctf_string(client, client)
-	ctf_string(vrf, vrf)
+        ctf_integer(uint8_t, client_proto, client_proto)
+        ctf_integer(vrf_id_t, vrf_id, vrf_id)
     	)
    )
 TRACEPOINT_LOGLEVEL(frr_zebra, gr_client_info_delete, TRACE_INFO)
@@ -1866,9 +1864,9 @@ TRACEPOINT_LOGLEVEL(frr_zebra, gr_client_info_delete, TRACE_INFO)
 TRACEPOINT_EVENT(
     frr_zebra,
     gr_client_disconnect_stale_exists,
-    TP_ARGS(const char *, client),
+    TP_ARGS(uint8_t, client_proto),
     TP_FIELDS(
-    	ctf_string(client, client)
+        ctf_integer(uint8_t, client_proto, client_proto)
     	)
    )
 TRACEPOINT_LOGLEVEL(frr_zebra, gr_client_disconnect_stale_exists, TRACE_INFO)
@@ -1876,11 +1874,11 @@ TRACEPOINT_LOGLEVEL(frr_zebra, gr_client_disconnect_stale_exists, TRACE_INFO)
 TRACEPOINT_EVENT(
     frr_zebra,
     gr_client_disconnect_stale_timer,
-    TP_ARGS(const char *, client, const char *, vrf, uint32_t, stale_time),
+    TP_ARGS(uint8_t, client_proto, vrf_id_t, vrf_id, uint32_t, stale_time),
     TP_FIELDS(
-    	ctf_string(client, client)
-	ctf_string(vrf, vrf)
-	ctf_integer(uint32_t, stale_time, stale_time)
+        ctf_integer(uint8_t, client_proto, client_proto)
+        ctf_integer(vrf_id_t, vrf_id, vrf_id)
+        ctf_integer(uint32_t, stale_time, stale_time)
     	)
    )
 TRACEPOINT_LOGLEVEL(frr_zebra, gr_client_disconnect_stale_timer, TRACE_INFO)
@@ -1888,10 +1886,10 @@ TRACEPOINT_LOGLEVEL(frr_zebra, gr_client_disconnect_stale_timer, TRACE_INFO)
 TRACEPOINT_EVENT(
     frr_zebra,
     gr_delete_stale_client,
-    TP_ARGS(const char *, client, uint32_t, gr_instance_count),
+    TP_ARGS(uint8_t, client_proto, uint32_t, gr_instance_count),
     TP_FIELDS(
-    	ctf_string(client, client)
-	ctf_integer(uint32_t, gr_instance_count, gr_instance_count)
+        ctf_integer(uint8_t, client_proto, client_proto)
+        ctf_integer(uint32_t, gr_instance_count, gr_instance_count)
     	)
    )
 TRACEPOINT_LOGLEVEL(frr_zebra, gr_delete_stale_client, TRACE_INFO)
@@ -1899,10 +1897,10 @@ TRACEPOINT_LOGLEVEL(frr_zebra, gr_delete_stale_client, TRACE_INFO)
 TRACEPOINT_EVENT(
     frr_zebra,
     gr_free_stale_client,
-    TP_ARGS(const char *, client, const char *, vrf),
+    TP_ARGS(uint8_t, client_proto, vrf_id_t, vrf_id),
     TP_FIELDS(
-    	ctf_string(client, client)
-	ctf_string(vrf, vrf)
+        ctf_integer(uint8_t, client_proto, client_proto)
+        ctf_integer(vrf_id_t, vrf_id, vrf_id)
     	)
    )
 TRACEPOINT_LOGLEVEL(frr_zebra, gr_free_stale_client, TRACE_INFO)
@@ -1910,10 +1908,10 @@ TRACEPOINT_LOGLEVEL(frr_zebra, gr_free_stale_client, TRACE_INFO)
 TRACEPOINT_EVENT(
     frr_zebra,
     gr_client_reconnect,
-    TP_ARGS(const char *, client, uint32_t, gr_instance_count),
+    TP_ARGS(uint8_t, client_proto, uint32_t, gr_instance_count),
     TP_FIELDS(
-    	ctf_string(client, client)
-	ctf_integer(uint32_t, gr_instance_count, gr_instance_count)
+        ctf_integer(uint8_t, client_proto, client_proto)
+        ctf_integer(uint32_t, gr_instance_count, gr_instance_count)
     	)
    )
 TRACEPOINT_LOGLEVEL(frr_zebra, gr_client_reconnect, TRACE_INFO)
@@ -1921,9 +1919,9 @@ TRACEPOINT_LOGLEVEL(frr_zebra, gr_client_reconnect, TRACE_INFO)
 TRACEPOINT_EVENT(
     frr_zebra,
     gr_client_cap_decode_err,
-    TP_ARGS(const char *, client),
+    TP_ARGS(uint8_t, client_proto),
     TP_FIELDS(
-    	ctf_string(client, client)
+        ctf_integer(uint8_t, client_proto, client_proto)
     	)
    )
 TRACEPOINT_LOGLEVEL(frr_zebra, gr_client_cap_decode_err, TRACE_INFO)
@@ -1942,10 +1940,10 @@ TRACEPOINT_EVENT(
     frr_zebra,
     gr_cleanup_non_gr_enabled_vrf,
     TP_ARGS(
-        uint8_t, afi, const char *, vrf),
+        uint8_t, afi, vrf_id_t, vrf_id),
     TP_FIELDS(
         ctf_integer(uint8_t, afi, afi)
-	ctf_string(vrf, vrf)
+	ctf_integer(vrf_id_t, vrf_id, vrf_id)
         )
    )
 TRACEPOINT_LOGLEVEL(frr_zebra, gr_cleanup_non_gr_enabled_vrf, TRACE_INFO)
@@ -1953,10 +1951,10 @@ TRACEPOINT_LOGLEVEL(frr_zebra, gr_cleanup_non_gr_enabled_vrf, TRACE_INFO)
 TRACEPOINT_EVENT(
     frr_zebra,
     gr_route_stale_delete_timer_expiry,
-    TP_ARGS(const char *, client, const char *, vrf),
+    TP_ARGS(uint8_t, client_proto, vrf_id_t, vrf_id),
     TP_FIELDS(
-    	ctf_string(client, client)
-	ctf_string(vrf, vrf)
+        ctf_integer(uint8_t, client_proto, client_proto)
+        ctf_integer(vrf_id_t, vrf_id, vrf_id)
     	)
    )
 TRACEPOINT_LOGLEVEL(frr_zebra, gr_route_stale_delete_timer_expiry, TRACE_INFO)
@@ -1974,10 +1972,10 @@ TRACEPOINT_LOGLEVEL(frr_zebra, gr_unicast_stale_route_delete_timer, TRACE_INFO)
 TRACEPOINT_EVENT(
     frr_zebra,
     gr_delete_stale_route,
-    TP_ARGS(const char *, client, const char *, vrf),
+    TP_ARGS(uint8_t, client_proto, vrf_id_t, vrf_id),
     TP_FIELDS(
-    	ctf_string(client, client)
-	ctf_string(vrf, vrf)
+        ctf_integer(uint8_t, client_proto, client_proto)
+        ctf_integer(vrf_id_t, vrf_id, vrf_id)
     	)
    )
 TRACEPOINT_LOGLEVEL(frr_zebra, gr_delete_stale_route, TRACE_INFO)
@@ -1989,9 +1987,9 @@ TRACEPOINT_LOGLEVEL(frr_zebra, gr_delete_stale_route, TRACE_INFO)
 TRACEPOINT_EVENT(
     frr_zebra,
     gr_last_route_re,
-    TP_ARGS(char *, pfx, uint8_t, loc),
+    TP_ARGS(struct prefix*, pfx, uint8_t, loc),
     TP_FIELDS(
-    	ctf_string(last_route, pfx)
+        ctf_array(unsigned char, last_route, pfx, sizeof(struct prefix))
         ctf_integer(uint8_t, location, loc)
     	)
    )
@@ -2000,9 +1998,9 @@ TRACEPOINT_LOGLEVEL(frr_zebra, gr_last_route_re, TRACE_INFO)
 TRACEPOINT_EVENT(
     frr_zebra,
     gr_last_route_info,
-    TP_ARGS(const char *, type, uint32_t, status),
+    TP_ARGS(uint8_t, route_type, uint32_t, status),
     TP_FIELDS(
-    	ctf_string(route_type, type)
+        ctf_integer(uint8_t, route_type, route_type)
         ctf_integer(uint32_t, status, status)
     	)
    )
@@ -2011,15 +2009,14 @@ TRACEPOINT_LOGLEVEL(frr_zebra, gr_last_route_info, TRACE_INFO)
 TRACEPOINT_EVENT(
     frr_zebra,
     gr_last_rn_lookup_failed,
-    TP_ARGS(vrf_id_t, vrf_id, const char *, vrf, uint8_t, afi, uint8_t, safi,
-            uint32_t, table_id, char*, prefix),
+    TP_ARGS(vrf_id_t, vrf_id, uint8_t, afi, uint8_t, safi,
+            uint32_t, table_id, struct prefix*, prefix),
     TP_FIELDS(
         ctf_integer(vrf_id_t, vrf_id, vrf_id)
-        ctf_string(vrf, vrf)
         ctf_integer(uint8_t, afi, afi)
         ctf_integer(uint8_t, safi, safi)
         ctf_integer(uint32_t, table_id, table_id)
-        ctf_string(prefix, prefix)
+        ctf_array(unsigned char, prefix, prefix, sizeof(struct prefix))
     	)
    )
 TRACEPOINT_LOGLEVEL(frr_zebra, gr_last_rn_lookup_failed, TRACE_INFO)
@@ -2027,15 +2024,14 @@ TRACEPOINT_LOGLEVEL(frr_zebra, gr_last_rn_lookup_failed, TRACE_INFO)
 TRACEPOINT_EVENT(
     frr_zebra,
     gr_last_rn_lookup_success,
-    TP_ARGS(vrf_id_t, vrf_id, const char *, vrf, uint8_t, afi, uint8_t, safi,
-            uint32_t, table_id, char*, prefix),
+    TP_ARGS(vrf_id_t, vrf_id, uint8_t, afi, uint8_t, safi,
+            uint32_t, table_id, struct prefix*, prefix),
     TP_FIELDS(
         ctf_integer(vrf_id_t, vrf_id, vrf_id)
-        ctf_string(vrf, vrf)
         ctf_integer(uint8_t, afi, afi)
         ctf_integer(uint8_t, safi, safi)
         ctf_integer(uint32_t, table_id, table_id)
-        ctf_string(prefix, prefix)
+        ctf_array(unsigned char, prefix, prefix, sizeof(struct prefix))
     	)
    )
 TRACEPOINT_LOGLEVEL(frr_zebra, gr_last_rn_lookup_success, TRACE_INFO)
@@ -2162,7 +2158,7 @@ TRACEPOINT_EVENT(
     TP_ARGS(
         uint32_t, originator_ip),
     TP_FIELDS(
-        ctf_string(vtep_ip, inet_ntoa(*(struct in_addr *)&originator_ip))
+        ctf_integer_network_hex(unsigned int, vtep_ip, originator_ip)
         )
    )
 
@@ -2171,9 +2167,9 @@ TRACEPOINT_LOGLEVEL(frr_zebra, evpn_arp_nd_failover_enable, TRACE_INFO)
 TRACEPOINT_EVENT(
     frr_zebra,
     evpn_arp_nd_failover_disable,
-    TP_ARGS(void),
+    TP_ARGS(bool, disable),
     TP_FIELDS(
-        ctf_string(action, "EVPN ARP/ND failover disabled")
+        ctf_integer(bool, disable, disable)
         )
    )
 
@@ -2185,7 +2181,7 @@ TRACEPOINT_EVENT(
     TP_ARGS(
         uint32_t, originator_ip),
     TP_FIELDS(
-        ctf_string(vtep_ip, inet_ntoa(*(struct in_addr *)&originator_ip))
+        ctf_integer_network_hex(unsigned int, vtep_ip, originator_ip)
         )
    )
 

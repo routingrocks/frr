@@ -630,6 +630,46 @@ def parse_frr_zebra_nhg_install(event):
     field_parsers = {"location" : location_nhg_install}
 
     parse_event(event, field_parsers)
+
+def zebra_route_string(proto_val):
+    zebra_routes = {
+        0: "system",
+        1: "kernel",
+        2: "connect",
+        3: "local",
+        4: "static",
+        5: "rip",
+        6: "ripng",
+        7: "ospf",
+        8: "ospf6",
+        9: "isis",
+        10: "bgp",
+        11: "pim",
+        12: "eigrp",
+        13: "nhrp",
+        14: "hsls",
+        15: "olsr",
+        16: "table",
+        17: "ldp",
+        18: "vnc",
+        19: "vnc_direct",
+        20: "vnc_direct_rh",
+        21: "bgp_direct",
+        22: "bgp_direct_ext",
+        23: "babel",
+        24: "sharp",
+        25: "pbr",
+        26: "bfd",
+        27: "openfabric",
+        28: "vrrp",
+        29: "nhg",
+        30: "srte",
+        31: "table_direct",
+        32: "frr",
+        33: "all",
+        34: "max"
+    }
+    return zebra_routes.get(proto_val, f"unknown_proto_{proto_val}")
 ############################ common parsers - end #############################
 
 ############################ evpn parsers - start #############################
@@ -841,7 +881,8 @@ def parse_frr_zebra_netlink_macfdb_change(event):
     """
     ctf_array(unsigned char, mac, mac, sizeof(struct ethaddr))
     """
-    field_parsers = {"mac": print_mac}
+    field_parsers = {"mac": print_mac,
+                     "vtep_ip": print_net_ipv4_addr}
 
     parse_event(event, field_parsers)
 
@@ -864,7 +905,8 @@ def parse_frr_zebra_process_remote_macip_add(event):
     """
     field_parsers = {"ip": print_ip_addr,
                      "esi": print_esi,
-                     "mac": print_mac}
+                     "mac": print_mac,
+                     "vtep_ip": print_net_ipv4_addr}
 
     parse_event(event, field_parsers)
 
@@ -876,7 +918,16 @@ def parse_frr_zebra_process_remote_macip_del(event):
     """
     field_parsers = {"ip": print_ip_addr,
                      "esi": print_esi,
-                     "mac": print_mac}
+                     "mac": print_mac,
+                     "vtep_ip": print_net_ipv4_addr,
+                     "location": lambda x: {
+                         1: "Invalid interface state",
+                         2: "VNI not in interface",
+                         3: "MAC not found for neighbor",
+                         4: "MAC and neighbor not found",
+                         5: "Gateway MAC ignore",
+                         6: "DAD freeze duplicate"
+                     }.get(x, f"Unknown location {x}")}
 
     parse_event(event, field_parsers)
 
@@ -888,7 +939,8 @@ def parse_frr_zebra_zebra_evpn_macip_send_msg_to_client(event):
     """
     field_parsers = {"ip": print_ip_addr,
                      "esi": print_esi,
-                     "mac": print_mac}
+                     "mac": print_mac,
+                     "is_add": lambda x: "Add" if x == 1 else "Del"}
 
     parse_event(event, field_parsers)
 
@@ -912,7 +964,8 @@ def parse_frr_zebra_zebra_vxlan_remote_macip_add(event):
     """
     field_parsers = {"ip": print_ip_addr,
                      "esi": print_esi,
-                     "mac": print_mac}
+                     "mac": print_mac,
+                     "vtep_ip": print_net_ipv4_addr}
 
     parse_event(event, field_parsers)
 
@@ -922,7 +975,8 @@ def parse_frr_zebra_zebra_vxlan_remote_macip_del(event):
     ctf_array(unsigned char, mac, mac, sizeof(struct ethaddr))
     """
     field_parsers = {"ip": print_ip_addr,
-                     "mac": print_mac}
+                     "mac": print_mac,
+                     "vtep_ip": print_net_ipv4_addr}
 
     parse_event(event, field_parsers)
 
@@ -958,7 +1012,8 @@ def parse_frr_zebra_evpn_dplane_remote_rmac_add(event):
     """
     dplane enqued zebra evpn remote rmac (FDB) entry
     """
-    field_parsers = {"rmac": print_mac}
+    field_parsers = {"rmac": print_mac,
+                     "vtep_ip": print_net_ipv4_addr}
 
     parse_event(event, field_parsers)
 
@@ -966,15 +1021,39 @@ def parse_frr_zebra_evpn_dplane_remote_rmac_del(event):
     """
     dplane enqued zebra evpn remote rmac (FDB) entry
     """
-    field_parsers = {"rmac": print_mac}
+    field_parsers = {"rmac": print_mac,
+                     "vtep_ip": print_net_ipv4_addr}
 
     parse_event(event, field_parsers)
+
+def parse_frr_zebra_gr_last_rn_lookup_failed(event):
+    field_parsers = {"prefix": print_prefix_addr}
+
+    parse_event(event, field_parsers)
+
+def parse_frr_zebra_gr_last_rn_lookup_success(event):
+    field_parsers = {"prefix": print_prefix_addr}
+
+    parse_event(event, field_parsers)
+
+
+def parse_frr_zebra_gr_reinstalled_last_route(event):
+    field_parsers = {"last_route": print_prefix_addr}
+
+    parse_event(event, field_parsers)
+
+def parse_frr_zebra_gr_last_route_info(event):
+    field_parsers = {"route_type": zebra_route_string}
+
+    parse_event(event, field_parsers)
+
 
 def parse_frr_zebra_zebra_evpn_proc_remote_es(event):
     """
     ctf_array(unsigned char, esi, esi, sizeof(esi_t))
     """
-    field_parsers = {"esi": print_esi}
+    field_parsers = {"esi": print_esi,
+                     "vtep_ip": print_net_ipv4_addr}
 
     parse_event(event, field_parsers)
 
@@ -1085,11 +1164,6 @@ def parse_frr_bgp_attr_type_unsupported(event):
     parse_event(event, field_parsers)
 
 
-def parse_frr_zebra_gr_last_route_re(event):
-    field_parsers = {"location" : location_last_route_re}
-    parse_event(event, field_parsers)
-
-
 def parse_frr_zebra_netlink_vrf_change(event):
     field_parsers = {"location" : location_netlink_vrf_change}
     parse_event(event, field_parsers)
@@ -1162,15 +1236,10 @@ def parse_frr_zebra_zevpn_build_vni_hash(event):
     field_parsers = {"location": location_zevpn_build_vni_hash}
     parse_event(event, field_parsers)
 
-
 def parse_frr_zebra_l3vni_remote_rmac_update(event):
-    """
-    ctf_array(unsigned char, new_vtep, ip, sizeof(struct ipaddr))
-    ctf_array(unsigned char, rmac, mac, sizeof(struct ethaddr))
-    """
     field_parsers = {"new_vtep": print_ip_addr,
-                     "rmac": print_mac}
-
+                     "rmac": print_mac,
+                     "old_vtep_ip": print_net_ipv4_addr}
     parse_event(event, field_parsers)
 
 
@@ -1187,13 +1256,9 @@ def parse_frr_zebra_l3vni_remote_rmac(event):
 
 
 def parse_frr_zebra_l3vni_remote_vtep_nh_upd(event):
-    """
-    ctf_array(unsigned char, old_vtep, ip, sizeof(struct ipaddr))
-    ctf_array(unsigned char, rmac, mac, sizeof(struct ethaddr))
-    """
     field_parsers = {"old_vtep": print_ip_addr,
-                     "rmac": print_mac}
-
+                     "rmac": print_mac,
+                     "new_vtep_ip": print_net_ipv4_addr}
     parse_event(event, field_parsers)
 
 
@@ -1204,7 +1269,8 @@ def parse_frr_zebra_remote_nh_add_rmac_change(event):
     parse_event(event, field_parsers)
 
 def parse_frr_zebra_gr_last_route_re(event):
-    field_parsers = {"location" : location_last_route_re}
+    field_parsers = {"location" : location_last_route_re,
+                     "prefix": print_prefix_addr}
 
     parse_event(event, field_parsers)
 
@@ -1641,6 +1707,102 @@ def parse_frr_bgp_upd_rmac_is_self_mac(event):
     field_parsers = {"rmac": print_mac}
     parse_event(event, field_parsers)
 
+def parse_frr_zebra_zsend_redistribute_route(event):
+    field_parsers = {"client_proto": zebra_route_string,
+                     "api_type": zebra_route_string}
+    parse_event(event, field_parsers)
+
+def parse_frr_zebra_zebra_evpn_send_add_to_client(event):
+    field_parsers = {"client_proto": zebra_route_string,
+                     "vtep_ip": print_net_ipv4_addr}
+    parse_event(event, field_parsers)
+
+def parse_frr_zebra_zebra_evpn_send_del_to_client(event):
+    field_parsers = {"client_proto": zebra_route_string}
+    parse_event(event, field_parsers)
+
+def parse_frr_zebra_zread_nhg_add(event):
+    field_parsers = {"proto": zebra_route_string}
+    parse_event(event, field_parsers)
+
+def parse_frr_zebra_zread_nhg_del(event):
+    field_parsers = {"proto": zebra_route_string}
+    parse_event(event, field_parsers)
+
+
+def parse_frr_zebra_zebra_evpn_svi_macip_del_for_evpn_hash(event):
+    field_parsers = {"vtep_ip": print_net_ipv4_addr}
+    parse_event(event, field_parsers)
+
+def parse_frr_zebra_dplane_vtep_add(event):
+    field_parsers = {"vtep_ip": print_net_ipv4_addr}
+    parse_event(event, field_parsers)
+
+def parse_frr_zebra_dplane_vtep_delete(event):
+    field_parsers = {"vtep_ip": print_net_ipv4_addr}
+    parse_event(event, field_parsers)
+
+def parse_frr_zebra_zebra_evpn_gw_macip_del_for_evpn_hash(event):
+    field_parsers = {"vtep_ip": print_net_ipv4_addr}
+    parse_event(event, field_parsers)
+
+def parse_frr_zebra_zebra_vxlan_remote_vtep_add(event):
+    field_parsers = {"vtep_ip": print_net_ipv4_addr}
+    parse_event(event, field_parsers)
+
+def parse_frr_zebra_zevpn_build_l2vni_hash(event):
+    field_parsers = {"vtep_ip": print_net_ipv4_addr}
+    parse_event(event, field_parsers)
+
+def parse_frr_zebra_evpn_arp_nd_failover_enable(event):
+    field_parsers = {"vtep_ip": print_net_ipv4_addr}
+    parse_event(event, field_parsers)
+
+def parse_frr_zebra_evpn_arp_nd_udp_sock_create(event):
+    field_parsers = {"vtep_ip": print_net_ipv4_addr}
+    parse_event(event, field_parsers)
+
+def parse_frr_zebra_gr_stale_client_cleanup(event):
+    field_parsers = {"client_proto": zebra_route_string}
+    parse_event(event, field_parsers)
+
+def parse_frr_zebra_gr_client_info_delete(event):
+    field_parsers = {"client_proto": zebra_route_string}
+    parse_event(event, field_parsers)
+
+def parse_frr_zebra_gr_client_disconnect_stale_exists(event):
+    field_parsers = {"client_proto": zebra_route_string}
+    parse_event(event, field_parsers)
+
+def parse_frr_zebra_gr_client_disconnect_stale_timer(event):
+    field_parsers = {"client_proto": zebra_route_string}
+    parse_event(event, field_parsers)
+
+def parse_frr_zebra_gr_delete_stale_client(event):
+    field_parsers = {"client_proto": zebra_route_string}
+    parse_event(event, field_parsers)
+
+def parse_frr_zebra_gr_free_stale_client(event):
+    field_parsers = {"client_proto": zebra_route_string}
+    parse_event(event, field_parsers)
+
+def parse_frr_zebra_gr_client_reconnect(event):
+    field_parsers = {"client_proto": zebra_route_string}
+    parse_event(event, field_parsers)
+
+def parse_frr_zebra_gr_client_cap_decode_err(event):
+    field_parsers = {"client_proto": zebra_route_string}
+    parse_event(event, field_parsers)
+
+def parse_frr_zebra_gr_process_client_stale_routes(event):
+    field_parsers = {"client_proto": zebra_route_string}
+    parse_event(event, field_parsers)
+
+def parse_frr_zebra_zebra_vxlan_remote_vtep_del(event):
+    field_parsers = {"client_proto": zebra_route_string,
+                     "vtep_ip": print_net_ipv4_addr}
+    parse_event(event, field_parsers)
+
 def main():
     """
     FRR lttng trace output parser; babel trace plugin
@@ -1717,6 +1879,22 @@ def main():
                      parse_frr_zebra_evpn_dplane_remote_rmac_del,
                      "frr_zebra:zebra_evpn_proc_remote_es":
                      parse_frr_zebra_zebra_evpn_proc_remote_es,
+                     "frr_zebra:zebra_evpn_svi_macip_del_for_evpn_hash":
+                     parse_frr_zebra_zebra_evpn_svi_macip_del_for_evpn_hash,
+                     "frr_zebra:dplane_vtep_add":
+                     parse_frr_zebra_dplane_vtep_add,
+                     "frr_zebra:dplane_vtep_delete":
+                     parse_frr_zebra_dplane_vtep_delete,
+                     "frr_zebra:zebra_evpn_gw_macip_del_for_evpn_hash":
+                     parse_frr_zebra_zebra_evpn_gw_macip_del_for_evpn_hash,
+                     "frr_zebra:zebra_vxlan_remote_vtep_add":
+                     parse_frr_zebra_zebra_vxlan_remote_vtep_add,
+                     "frr_zebra:zevpn_build_l2vni_hash":
+                     parse_frr_zebra_zevpn_build_l2vni_hash,
+                     "frr_zebra:evpn_arp_nd_failover_enable":
+                     parse_frr_zebra_evpn_arp_nd_failover_enable,
+                     "frr_zebra:evpn_arp_nd_udp_sock_create":
+                     parse_frr_zebra_evpn_arp_nd_udp_sock_create,
                      "frr_zebra:if_add_del_update":
                      parse_frr_zebra_if_add_del_update,
                      "frr_zebra:if_protodown":
@@ -1829,6 +2007,32 @@ def main():
                      parse_frr_zebra_zebra_vxlan_handle_vni_transition,
                      "frr_zebra:gr_client_not_found":
                      parse_frr_zebra_gr_client_not_found,
+                     "frr_zebra:gr_stale_client_cleanup":
+                     parse_frr_zebra_gr_stale_client_cleanup,
+                     "frr_zebra:gr_client_info_delete":
+                     parse_frr_zebra_gr_client_info_delete,
+                     "frr_zebra:gr_client_disconnect_stale_exists":
+                     parse_frr_zebra_gr_client_disconnect_stale_exists,
+                     "frr_zebra:gr_client_disconnect_stale_timer":
+                     parse_frr_zebra_gr_client_disconnect_stale_timer,
+                     "frr_zebra:gr_delete_stale_client":
+                     parse_frr_zebra_gr_delete_stale_client,
+                     "frr_zebra:gr_free_stale_client":
+                     parse_frr_zebra_gr_free_stale_client,
+                     "frr_zebra:gr_client_reconnect":
+                     parse_frr_zebra_gr_client_reconnect,
+                     "frr_zebra:gr_client_cap_decode_err":
+                     parse_frr_zebra_gr_client_cap_decode_err,
+                     "frr_zebra:gr_process_client_stale_routes":
+                     parse_frr_zebra_gr_process_client_stale_routes,
+                     "frr_zebra:gr_last_rn_lookup_failed":
+                     parse_frr_zebra_gr_last_rn_lookup_failed,
+                     "frr_zebra:gr_last_rn_lookup_success":
+                     parse_frr_zebra_gr_last_rn_lookup_success,
+                     "frr_zebra:gr_reinstalled_last_route":
+                     parse_frr_zebra_gr_reinstalled_last_route,
+                     "frr_zebra:gr_last_route_info":
+                     parse_frr_zebra_gr_last_route_info,
                      "frr_zebra:zevpn_build_vni_hash":
                      parse_frr_zebra_zevpn_build_vni_hash,
                      "frr_zebra:l3vni_remote_rmac_update":
@@ -1853,6 +2057,19 @@ def main():
                      parse_frr_zebra_get_srv6_sid,
                      "frr_zebra:get_srv6_sid_explicit":
                      parse_frr_zebra_get_srv6_sid_explicit,
+                     "frr_zebra:zebra_vxlan_remote_vtep_del":
+                     parse_frr_zebra_zebra_vxlan_remote_vtep_del,
+                     "frr_zebra:zsend_redistribute_route":
+                     parse_frr_zebra_zsend_redistribute_route,
+                     "frr_zebra:zebra_evpn_send_add_to_client":
+                     parse_frr_zebra_zebra_evpn_send_add_to_client,
+                     "frr_zebra:zebra_evpn_send_del_to_client":
+                     parse_frr_zebra_zebra_evpn_send_del_to_client,
+                     "frr_zebra:zread_nhg_add":
+                     parse_frr_zebra_zread_nhg_add,
+                     "frr_zebra:zread_nhg_del":
+                     parse_frr_zebra_zread_nhg_del,
+
 }
 
     # get the trace path from the first command line argument
