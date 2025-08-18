@@ -180,6 +180,12 @@ module frr-bgp-peer {
             description
                "Total messages recieved";
           }
+          leaf graceful-shutdown {
+            config false;
+            type boolean;
+            description
+                "Gaceful shutdown status";
+          }
       }
     }
   }
