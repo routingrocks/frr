@@ -151,7 +151,6 @@ def test_ecmp_route_advertisement():
     logger.info("R2 BGP table (JSON):\n%s", r2_bgp_json)
 
     # Parse JSON to verify route reception from both R1 and R3
-    import json
     bgp_data = json.loads(r2_bgp_json)
 
     # Check if routes exist in the JSON structure
@@ -329,7 +328,6 @@ def test_bgp_neighbor_prefix_counts_json():
         )
 
         # Parse JSON output
-        import json
         try:
             prefix_data = json.loads(prefix_counts_json)
             logger.info(
@@ -439,7 +437,6 @@ def test_multipath_count_accuracy():
     logger.info("BGP table JSON output:\n%s", bgp_table_json)
 
     # Parse output
-    import json
     bgp_data = json.loads(bgp_table_json)
     assert "routes" in bgp_data, "No 'routes' key found in BGP table JSON"
     assert test_prefix in bgp_data["routes"], (
