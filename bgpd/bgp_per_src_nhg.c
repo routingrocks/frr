@@ -1662,7 +1662,8 @@ static void bgp_process_route_with_soo_attr(struct bgp *bgp, afi_t afi, safi_t s
 								   get_afi_safi_str(afi, safi,
 										    false),
 								   pfxprint);
-						bgp_zebra_announce_actual(dest, pi, bgp);
+					/* TODO: bgp_zebra_update_fib_install_pending(dest, bgp, true) needs to be called here */
+					bgp_zebra_announce_actual(dest, pi, bgp);
 					}
 				}
 			}
@@ -1750,8 +1751,10 @@ static void bgp_process_soo_route(struct bgp *bgp, afi_t afi, safi_t safi, struc
 
 	if (!nhe->refcnt) {
 		bgp_per_src_nhg_delete(nhe);
-		if (soo_attr_del)
+		if (soo_attr_del) {
+			/* TODO: bgp_zebra_update_fib_install_pending(dest, bgp, true) needs to be called here */
 			bgp_zebra_announce_actual(dest, pi, bgp);
+		}
 	}
 }
 

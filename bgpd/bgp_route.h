@@ -864,6 +864,8 @@ extern void bgp_config_write_network(struct vty *, struct bgp *, afi_t, safi_t);
 extern void bgp_config_write_distance(struct vty *, struct bgp *, afi_t,
 				      safi_t);
 
+extern void bgp_process_gr_deferral_complete(struct bgp *bgp, afi_t afi, safi_t safi);
+
 extern void bgp_aggregate_delete(struct bgp *bgp, const struct prefix *p,
 				 afi_t afi, safi_t safi,
 				 struct bgp_aggregate *aggregate);
@@ -992,6 +994,8 @@ extern int bgp_path_info_cmp(struct bgp *bgp, struct bgp_path_info *new,
 	bgp_path_info_add_with_caller(__func__, (A), (B))
 #define bgp_path_info_free(B) bgp_path_info_free_with_caller(__func__, (B))
 extern int bgp_dest_set_defer_flag(struct bgp_dest *dest, bool delete);
+extern void bgp_dest_increment_gr_fib_install_pending_count(struct bgp_dest *dest);
+extern void bgp_dest_decrement_gr_fib_install_pending_count(struct bgp_dest *dest);
 extern void bgp_process_main_one(struct bgp *bgp, struct bgp_dest *dest, afi_t afi, safi_t safi);
 extern void bgp_meta_queue_free(struct meta_queue *mq);
 extern int early_route_process(struct bgp *bgp, struct bgp_dest *dest);

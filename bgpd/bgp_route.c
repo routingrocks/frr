@@ -510,6 +510,73 @@ int bgp_dest_set_defer_flag(struct bgp_dest *dest, bool delete)
 	return -1;
 }
 
+/* This function increments gr_route_fib_install_pending_cnt if needed based on BGP_NODE_FIB_INSTALL_PENDING flag */
+void bgp_dest_increment_gr_fib_install_pending_count(struct bgp_dest *dest)
+{
+	struct bgp_table *table = NULL;
+	struct bgp *bgp = NULL;
+	afi_t afi = AFI_UNSPEC;
+	safi_t safi = SAFI_UNSPEC;
+
+	table = bgp_dest_table(dest);
+	if (!table)
+		return;
+
+	bgp = table->bgp;
+	afi = table->afi;
+	safi = table->safi;
+
+	if (BGP_SUPPRESS_FIB_ENABLED(bgp) && bgp_in_graceful_restart() &&
+	    !CHECK_FLAG(dest->flags, BGP_NODE_FIB_INSTALL_PENDING)) {
+		bgp->gr_info[afi][safi].gr_route_fib_install_pending_cnt++;
+		if (BGP_DEBUG(graceful_restart, GRACEFUL_RESTART))
+			zlog_debug("%s: GR route waiting for install count incremented to %u for %s (prefix: %pBD)",
+				   bgp->name_pretty,
+				   bgp->gr_info[afi][safi].gr_route_fib_install_pending_cnt,
+				   get_afi_safi_str(afi, safi, false), dest);
+	}
+}
+
+/* This function decrements gr_route_fib_install_pending_cnt if needed based on BGP_NODE_FIB_INSTALL_PENDING flag */
+void bgp_dest_decrement_gr_fib_install_pending_count(struct bgp_dest *dest)
+{
+	struct bgp_table *table = NULL;
+	struct bgp *bgp = NULL;
+	afi_t afi = AFI_UNSPEC;
+	safi_t safi = SAFI_UNSPEC;
+
+	table = bgp_dest_table(dest);
+	if (!table)
+		return;
+
+	bgp = table->bgp;
+	afi = table->afi;
+	safi = table->safi;
+
+	if (BGP_SUPPRESS_FIB_ENABLED(bgp) && bgp_in_graceful_restart() &&
+	    CHECK_FLAG(dest->flags, BGP_NODE_FIB_INSTALL_PENDING) &&
+	    bgp->gr_info[afi][safi].gr_route_fib_install_pending_cnt > 0) {
+		bgp->gr_info[afi][safi].gr_route_fib_install_pending_cnt--;
+		if (BGP_DEBUG(graceful_restart, GRACEFUL_RESTART))
+			zlog_debug("%s: GR route waiting for install count decremented to %u for %s (prefix: %pBD)",
+				   bgp->name_pretty,
+				   bgp->gr_info[afi][safi].gr_route_fib_install_pending_cnt,
+				   get_afi_safi_str(afi, safi, false), dest);
+	}
+
+	/* Check if graceful restart deferral completion is needed */
+	if (!bgp->gr_info[afi][safi].gr_deferred &&
+	    !bgp->gr_info[afi][safi].gr_route_fib_install_pending_cnt &&
+	    bgp->gr_route_sync_pending) {
+		struct graceful_restart_info *gr_info = &(bgp->gr_info[afi][safi]);
+		EVENT_OFF(gr_info->t_select_deferral);
+		if (BGP_DEBUG(graceful_restart, GRACEFUL_RESTART))
+			zlog_debug("%s: Triggering GR deferral completion from FIB notification for %s",
+				   bgp->name_pretty, get_afi_safi_str(afi, safi, false));
+		bgp_process_gr_deferral_complete(bgp, afi, safi);
+	}
+}
+
 void bgp_path_info_add_with_caller(const char *name, struct bgp_dest *dest,
 				   struct bgp_path_info *pi)
 {
@@ -3931,10 +3998,12 @@ void bgp_process_main_one(struct bgp *bgp, struct bgp_dest *dest, afi_t afi, saf
 				    (new_select->sub_type == BGP_ROUTE_NORMAL ||
 				     new_select->sub_type ==
 					     BGP_ROUTE_IMPORTED)) {
-					if (CHECK_FLAG(bgp->gr_info[afi][safi]
-							       .flags,
-						       BGP_GR_SKIP_BP))
+										if (CHECK_FLAG(bgp->gr_info[afi][safi]
+						       .flags,
+					       BGP_GR_SKIP_BP)) {
+						bgp_zebra_update_fib_install_pending(dest, bgp, true);
 						bgp_zebra_announce_actual(dest, old_select, bgp);
+					}
 					else
 						bgp_zebra_route_install(dest, old_select, bgp, true,
 									NULL, false);
@@ -4022,6 +4091,7 @@ void bgp_process_main_one(struct bgp *bgp, struct bgp_dest *dest, afi_t afi, saf
 		 * Ensure that on uninstall that the INSTALL_PENDING
 		 * is no longer set
 		 */
+		bgp_dest_decrement_gr_fib_install_pending_count(dest);
 		UNSET_FLAG(dest->flags, BGP_NODE_FIB_INSTALL_PENDING);
 	}
 
@@ -4060,9 +4130,11 @@ void bgp_process_main_one(struct bgp *bgp, struct bgp_dest *dest, afi_t afi, saf
 			|| new_select->sub_type == BGP_ROUTE_AGGREGATE
 			|| new_select->sub_type == BGP_ROUTE_IMPORTED)) {
 
-			if (CHECK_FLAG(bgp->gr_info[afi][safi].flags, BGP_GR_SKIP_BP))
-				bgp_zebra_announce_actual(dest, new_select,
-							  bgp);
+					if (CHECK_FLAG(bgp->gr_info[afi][safi].flags, BGP_GR_SKIP_BP)) {
+			bgp_zebra_update_fib_install_pending(dest, bgp, true);
+			bgp_zebra_announce_actual(dest, new_select,
+						  bgp);
+		}
 			else
 				bgp_zebra_route_install(dest, new_select, bgp,
 							true, NULL, false);
@@ -4074,10 +4146,12 @@ void bgp_process_main_one(struct bgp *bgp, struct bgp_dest *dest, afi_t afi, saf
 			     old_select->sub_type == BGP_ROUTE_AGGREGATE ||
 			     old_select->sub_type == BGP_ROUTE_IMPORTED)) {
 
-				if (CHECK_FLAG(bgp->gr_info[afi][safi].flags,
-					       BGP_GR_SKIP_BP))
-					bgp_zebra_withdraw_actual(
-						dest, old_select, bgp);
+							if (CHECK_FLAG(bgp->gr_info[afi][safi].flags,
+				       BGP_GR_SKIP_BP)) {
+				bgp_zebra_update_fib_install_pending(dest, bgp, false);
+				bgp_zebra_withdraw_actual(
+					dest, old_select, bgp);
+			}
 				else
 					bgp_zebra_route_install(dest, old_select, bgp, false, NULL,
 								false);
@@ -4282,6 +4356,63 @@ static inline void bgp_evpn_handle_deferred_bestpath_for_vrfs(void)
  *      b) For non default Vrfs if EVPN is enabled in default vrf via
  *         bgp_evpn_handle_deferred_bestpath_for_vrfs()
  */
+
+/*
+ * bgp_process_gr_deferral_complete:
+ * Process graceful restart deferral completion tasks including EOR sending,
+ * route sync completion, and overall GR completion checking.
+ */
+void bgp_process_gr_deferral_complete(struct bgp *bgp, afi_t afi, safi_t safi)
+{
+	if (BGP_DEBUG(graceful_restart, GRACEFUL_RESTART))
+		zlog_debug("%s: Processing GR deferral completion for %s (gr_deferred=%u, gr_route_fib_install_pending_cnt=%u)",
+			   bgp->name_pretty, get_afi_safi_str(afi, safi, false),
+			   bgp->gr_info[afi][safi].gr_deferred,
+			   bgp->gr_info[afi][safi].gr_route_fib_install_pending_cnt);
+
+
+	bgp_send_delayed_eor(bgp);
+
+	bool route_sync_pending = false;
+
+	/*
+	 * Check if tier2 timer needs to be started if this
+	 * afi-safi is enabled for multihop peer
+	 */
+	bgp_gr_start_tier2_timer_if_required(bgp, afi, safi);
+
+	/* Send route processing complete message to RIB */
+	if (!bgp->gr_info[afi][safi].route_sync_tier2 &&
+	    BGP_GR_SELECT_DEFER_DONE(bgp, afi, safi)) {
+		bgp_zebra_update(bgp, afi, safi, ZEBRA_CLIENT_ROUTE_UPDATE_COMPLETE);
+		/*
+		 * If bgp instance is default, setting this variable
+		 * will enable deferred path selection for non default
+		 * vrf
+		 */
+		bgp->gr_info[afi][safi].route_sync_tier2 = true;
+	}
+
+	bgp->gr_info[afi][safi].route_sync = true;
+	/*
+	 * If this instance is all done, check for overall GR completion
+	 */
+	FOREACH_AFI_SAFI (afi, safi) {
+		if (bgp->gr_info[afi][safi].af_enabled &&
+		    !bgp->gr_info[afi][safi].route_sync_tier2) {
+			route_sync_pending = true;
+			break;
+		}
+	}
+
+	if (!route_sync_pending) {
+		bgp->gr_route_sync_pending = false;
+		/* Set bgp master GR COMPLETE flag */
+		frrtrace(3, frr_bgp, gr_update_complete, bgp, afi, safi);
+		bgp_update_gr_completion();
+	}
+}
+
 void bgp_do_deferred_path_selection(struct bgp *bgp, afi_t afi, safi_t safi)
 {
 	struct afi_safi_info *thread_info;
@@ -4399,47 +4530,8 @@ void bgp_do_deferred_path_selection(struct bgp *bgp, afi_t afi, safi_t safi)
 	 * not running or has expired.
 	 */
 	if (!bgp->gr_info[afi][safi].gr_deferred) {
-		bgp_send_delayed_eor(bgp);
-
-		bool route_sync_pending = false;
-
-		/*
-		 * Check if tier2 timer needs to be started if this
-		 * afi-safi is enabled for multihop peer
-		 */
-		bgp_gr_start_tier2_timer_if_required(bgp, afi, safi);
-
-		/* Send route processing complete message to RIB */
-		if (!bgp->gr_info[afi][safi].route_sync_tier2 &&
-		    BGP_GR_SELECT_DEFER_DONE(bgp, afi, safi)) {
-			bgp_zebra_update(bgp, afi, safi, ZEBRA_CLIENT_ROUTE_UPDATE_COMPLETE);
-			/*
-			 * If bgp instance is default, setting this variable
-			 * will enable deferred path selection for non default
-			 * vrf
-			 */
-			bgp->gr_info[afi][safi].route_sync_tier2 = true;
-		}
-
-		bgp->gr_info[afi][safi].route_sync = true;
-		/*
-		 * If this instance is all done, check for overall GR completion
-		 */
-		FOREACH_AFI_SAFI (afi, safi) {
-			if (bgp->gr_info[afi][safi].af_enabled &&
-			    !bgp->gr_info[afi][safi].route_sync_tier2) {
-				route_sync_pending = true;
-				break;
-			}
-		}
-
-		if (!route_sync_pending) {
-			bgp->gr_route_sync_pending = false;
-			/* Set bgp master GR COMPLETE flag */
-			frrtrace(3, frr_bgp, gr_update_complete, bgp, afi, safi);
-			bgp_update_gr_completion();
-		}
-
+		if (!BGP_SUPPRESS_FIB_ENABLED(bgp) || !bgp->gr_info[afi][safi].t_select_deferral)
+			bgp_process_gr_deferral_complete(bgp, afi, safi);
 		return;
 	} else {
 		/*
@@ -5008,6 +5100,7 @@ void bgp_rib_remove(struct bgp_dest *dest, struct bgp_path_info *pi,
 				UNSET_FLAG(dest->flags, BGP_NODE_SELECT_DEFER);
 				bgp = pi->peer->bgp;
 				bgp->gr_info[afi][safi].gr_deferred--;
+				bgp_dest_decrement_gr_fib_install_pending_count(dest);
 			}
 		}
 	}
@@ -7146,8 +7239,10 @@ static void bgp_cleanup_table(struct bgp *bgp, struct bgp_table *table,
 				|| pi->sub_type == BGP_ROUTE_AGGREGATE
 				|| pi->sub_type == BGP_ROUTE_IMPORTED)) {
 
-				if (bgp_fibupd_safi(safi))
-					bgp_zebra_withdraw_actual(dest, pi, bgp);
+							if (bgp_fibupd_safi(safi)) {
+				bgp_zebra_update_fib_install_pending(dest, bgp, false);
+				bgp_zebra_withdraw_actual(dest, pi, bgp);
+			}
 			}
 
 			dest = bgp_path_info_reap(dest, pi);
