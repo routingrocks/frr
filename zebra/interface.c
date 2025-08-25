@@ -2848,6 +2848,9 @@ static void if_dump_vty(struct vty *vty, struct interface *ifp)
 	if (CHECK_FLAG(zebra_if->rtadv.ra_configured, BGP_RA_CONFIGURED))
 		vty_out(vty, "  BGP has configured RA\n");
 
+	if (CHECK_FLAG(zebra_if->rtadv.ra_configured, STATIC_RA_CONFIGURED))
+		vty_out(vty, "  Static SRv6 has configured RA\n");
+
 	/* Hardware address. */
 	vty_out(vty, "  Type: %s\n", if_link_type_str(ifp->ll_type));
 	if (ifp->hw_addr_len != 0) {
@@ -3218,6 +3221,8 @@ static void if_dump_vty_json(struct vty *vty, struct interface *ifp,
 				zebra_if->v6mcast_on);
 	json_object_boolean_add(json_if, "bgpRAConfigured",
 				CHECK_FLAG(zebra_if->rtadv.ra_configured, BGP_RA_CONFIGURED));
+	json_object_boolean_add(json_if, "StaticSRv6RAConfigured",
+				CHECK_FLAG(zebra_if->rtadv.ra_configured, STATIC_RA_CONFIGURED));
 
 	if (ifp->ifindex == IFINDEX_INTERNAL) {
 		json_object_boolean_add(json_if, "pseudoInterface", true);
