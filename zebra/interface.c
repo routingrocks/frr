@@ -1396,7 +1396,7 @@ static void zebra_if_update_ctx(struct zebra_dplane_ctx *ctx,
 				   __func__, ifp->name, ifp->ifindex);
 
 		frrtrace(5, frr_zebra, if_upd_ctx_dplane_result, ifp, down, pd_reason_val,
-			 dplane_op2str(dplane_ctx_get_op(ctx)), 1);
+			 dplane_ctx_get_op(ctx), 1);
 		return;
 	}
 
@@ -1406,12 +1406,12 @@ static void zebra_if_update_ctx(struct zebra_dplane_ctx *ctx,
 				   __func__, ifp->name, ifp->ifindex);
 
 		frrtrace(5, frr_zebra, if_upd_ctx_dplane_result, ifp, down, pd_reason_val,
-			 dplane_op2str(dplane_ctx_get_op(ctx)), 2);
+			 dplane_ctx_get_op(ctx), 2);
 		goto done;
 	}
 
 	frrtrace(5, frr_zebra, if_upd_ctx_dplane_result, ifp, down, pd_reason_val,
-		 dplane_op2str(dplane_ctx_get_op(ctx)), 0);
+		 dplane_ctx_get_op(ctx), 0);
 	/* Update our info */
 	COND_FLAG(zif->flags, ZIF_FLAG_PROTODOWN, down);
 
@@ -2360,8 +2360,7 @@ void zebra_if_dplane_result(struct zebra_dplane_ctx *ctx)
 	}
 
 	ifp = if_lookup_by_index_per_ns(zns, ifindex);
-	frrtrace(4, frr_zebra, if_dplane_result, dplane_op2str(op), dplane_res2str(dp_res), ns_id,
-		 ifp);
+	frrtrace(4, frr_zebra, if_dplane_result, op, dp_res, ns_id, ifp);
 
 	if (op == DPLANE_OP_INTF_ADDR_ADD || op == DPLANE_OP_INTF_ADDR_DEL) {
 		zebra_if_addr_update_ctx(ctx, ifp);

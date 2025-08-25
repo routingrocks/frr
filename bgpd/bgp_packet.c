@@ -2248,7 +2248,7 @@ static void bgp_update_receive_eor(struct bgp *bgp, struct peer *peer,
 						"%s: check for path-selection",
 						bgp->name_pretty);
 
-				frrtrace(4, frr_bgp, gr_eors, bgp->name_pretty, afi, safi, 6);
+				frrtrace(4, frr_bgp, gr_eors, bgp, afi, safi, 6);
 
 				bgp_gr_check_path_select(bgp, afi, safi);
 			}
@@ -3927,7 +3927,6 @@ void bgp_process_packet(struct event *thread)
 					__func__, peer->host);
 			break;
 		case BGP_MSG_KEEPALIVE:
-			frrtrace(2, frr_bgp, keepalive_process, peer, size);
 			peer->readtime = monotime(NULL);
 			atomic_fetch_add_explicit(&peer->keepalive_in, 1,
 						  memory_order_relaxed);

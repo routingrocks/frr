@@ -43,7 +43,7 @@
 ####
 #
 # If you add a new routing protocol here, make sure you also update
-# meta_queue_map in zebra_rib.c
+# meta_queue_map in zebra_rib.c as well as zebra_route_string() in frr_babeltrace.py
 #
 ##  type                cname      daemon  C    4  6  Redist short help       Enabled  Restrictions
 ZEBRA_ROUTE_SYSTEM,     system,    NULL,   'X', 0, 0, 0,     "Reserved",      none

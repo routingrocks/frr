@@ -785,7 +785,7 @@ void zebra_ptm_bfd_dst_register(ZAPI_HANDLER_ARGS)
 	if (IS_ZEBRA_DEBUG_SEND)
 		zlog_debug("%s: Sent message (%d) %s", __func__, data_len,
 			   ptm_cb.out_data);
-	frrtrace(1, frr_zebra, zebra_ptm_bfd_dst_register, len);
+	frrtrace(2, frr_zebra, zebra_ptm_bfd_reg_info, 1, len);
 	zebra_ptm_send_message(ptm_cb.out_data, data_len);
 
 	return;
@@ -916,7 +916,7 @@ void zebra_ptm_bfd_dst_deregister(ZAPI_HANDLER_ARGS)
 	if (IS_ZEBRA_DEBUG_SEND)
 		zlog_debug("%s: Sent message (%d) %s", __func__, data_len,
 			   ptm_cb.out_data);
-	frrtrace(1, frr_zebra, zebra_ptm_bfd_dst_deregister, data_len);
+	frrtrace(2, frr_zebra, zebra_ptm_bfd_reg_info, 2, data_len);
 	zebra_ptm_send_message(ptm_cb.out_data, data_len);
 
 	return;
@@ -969,7 +969,7 @@ void zebra_ptm_bfd_client_register(ZAPI_HANDLER_ARGS)
 	if (IS_ZEBRA_DEBUG_SEND)
 		zlog_debug("%s: Sent message (%d) %s", __func__, data_len,
 			   ptm_cb.out_data);
-	frrtrace(1, frr_zebra, zebra_ptm_bfd_client_register, data_len);
+	frrtrace(2, frr_zebra, zebra_ptm_bfd_reg_info, 3, data_len);
 	zebra_ptm_send_message(ptm_cb.out_data, data_len);
 
 	SET_FLAG(ptm_cb.client_flags[client->proto],
@@ -1025,7 +1025,7 @@ int zebra_ptm_bfd_client_deregister(struct zserv *client)
 	if (IS_ZEBRA_DEBUG_SEND)
 		zlog_debug("%s: Sent message (%d) %s", __func__, data_len,
 			   ptm_cb.out_data);
-	frrtrace(1, frr_zebra, zebra_ptm_bfd_client_deregister, data_len);
+	frrtrace(2, frr_zebra, zebra_ptm_bfd_reg_info, 4, data_len);
 
 	zebra_ptm_send_message(ptm_cb.out_data, data_len);
 	UNSET_FLAG(ptm_cb.client_flags[proto], ZEBRA_PTM_BFD_CLIENT_FLAG_REG);

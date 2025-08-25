@@ -221,6 +221,7 @@ static int bgp_ifp_up(struct interface *ifp)
 
 	bgp_mac_add_mac_entry(ifp);
 
+	frrtrace(2, frr_bgp, bgp_ifp_oper, ifp, 1);
 	if (BGP_DEBUG(zebra, ZEBRA))
 		zlog_debug("Rx Intf up VRF %s IF %s", ifp->vrf->name, ifp->name);
 
@@ -251,6 +252,7 @@ static int bgp_ifp_down(struct interface *ifp)
 
 	bgp_mac_del_mac_entry(ifp);
 
+	frrtrace(2, frr_bgp, bgp_ifp_oper, ifp, 2);
 	if (BGP_DEBUG(zebra, ZEBRA))
 		zlog_debug("Rx Intf down VRF %s IF %s", ifp->vrf->name,
 			   ifp->name);
@@ -2352,6 +2354,7 @@ void bgp_zebra_initiate_radv(struct bgp *bgp, struct peer *peer)
 	if (zclient->sock < 0)
 		return;
 
+	frrtrace(3, frr_bgp, bgp_zebra_radv_operation, 1, bgp->vrf_id, peer->host);
 	if (BGP_DEBUG(zebra, ZEBRA))
 		zlog_debug("%u: Initiating RA for peer %s", bgp->vrf_id,
 			   peer->host);
@@ -2372,6 +2375,7 @@ void bgp_zebra_terminate_radv(struct bgp *bgp, struct peer *peer)
 	if (zclient->sock < 0)
 		return;
 
+	frrtrace(3, frr_bgp, bgp_zebra_radv_operation, 2, bgp->vrf_id, peer->host);
 	if (BGP_DEBUG(zebra, ZEBRA))
 		zlog_debug("%u: Terminating RA for peer %s", bgp->vrf_id,
 			   peer->host);
@@ -2403,6 +2407,7 @@ int bgp_zebra_advertise_subnet(struct bgp *bgp, int advertise, vni_t vni)
 		return 0;
 	}
 
+	frrtrace(4, frr_bgp, bgp_zebra_evpn_advertise_type, bgp, advertise, vni, 1);
 	s = zclient->obuf;
 	stream_reset(s);
 
@@ -2426,6 +2431,7 @@ int bgp_zebra_advertise_svi_macip(struct bgp *bgp, int advertise, vni_t vni)
 	if (!IS_BGP_INST_KNOWN_TO_ZEBRA(bgp))
 		return 0;
 
+	frrtrace(4, frr_bgp, bgp_zebra_evpn_advertise_type, bgp, advertise, vni, 2);
 	s = zclient->obuf;
 	stream_reset(s);
 
@@ -2454,6 +2460,7 @@ int bgp_zebra_advertise_gw_macip(struct bgp *bgp, int advertise, vni_t vni)
 		return 0;
 	}
 
+	frrtrace(4, frr_bgp, bgp_zebra_evpn_advertise_type, bgp, advertise, vni, 3);
 	s = zclient->obuf;
 	stream_reset(s);
 
@@ -2483,6 +2490,7 @@ int bgp_zebra_vxlan_flood_control(struct bgp *bgp,
 		return 0;
 	}
 
+	frrtrace(2, frr_bgp, bgp_zebra_vxlan_flood_control, bgp, flood_ctrl);
 	s = zclient->obuf;
 	stream_reset(s);
 
@@ -2505,6 +2513,7 @@ int bgp_zebra_advertise_all_vni(struct bgp *bgp, int advertise)
 	if (!IS_BGP_INST_KNOWN_TO_ZEBRA(bgp))
 		return 0;
 
+	frrtrace(4, frr_bgp, bgp_zebra_evpn_advertise_type, bgp, advertise, 0, 4);
 	s = zclient->obuf;
 	stream_reset(s);
 
@@ -2531,6 +2540,7 @@ int bgp_zebra_dup_addr_detection(struct bgp *bgp)
 	if (!IS_BGP_INST_KNOWN_TO_ZEBRA(bgp))
 		return 0;
 
+	frrtrace(1, frr_bgp, bgp_zebra_dup_addr_detection, bgp);
 	if (BGP_DEBUG(zebra, ZEBRA))
 		zlog_debug("dup addr detect %s max_moves %u time %u freeze %s freeze_time %u",
 			   bgp->evpn_info->dup_addr_detect ?
@@ -2814,6 +2824,7 @@ static int bgp_zebra_route_notify_owner(int command, struct zclient *zclient,
 		return -1;
 	}
 
+	frrtrace(3, frr_bgp, bgp_zebra_route_notify_owner, note, dest, &p);
 	switch (note) {
 	case ZAPI_ROUTE_INSTALLED:
 		new_select = NULL;
@@ -3332,6 +3343,7 @@ static int bgp_zebra_process_local_ip_prefix(ZAPI_CALLBACK_ARGS)
 	if (!bgp_vrf)
 		return 0;
 
+	frrtrace(4, frr_bgp, bgp_zebra_process_local_ip_prefix_zrecv, &p, cmd, vrf_id);
 	if (BGP_DEBUG(zebra, ZEBRA))
 		zlog_debug("Recv prefix %pFX %s on vrf %s", &p,
 			   (cmd == ZEBRA_IP_PREFIX_ROUTE_ADD) ? "ADD" : "DEL",
@@ -3365,6 +3377,7 @@ static int bgp_zebra_handle_maint_mode(ZAPI_CALLBACK_ARGS)
 	s = zclient->ibuf;
 	enter_maint = stream_getc(s);
 
+	frrtrace(1, frr_bgp, handle_maint_mode_zrecv, enter_maint);
 	if (BGP_DEBUG(zebra, ZEBRA))
 		zlog_debug("Rx %s maintenance mode",
 			   enter_maint ? "Enter" : "Exit");
@@ -4100,7 +4113,7 @@ int bgp_zebra_send_capabilities(struct bgp *bgp, bool disable)
 			zlog_debug("%s: %s send capabilty success", __func__,
 				   bgp->name_pretty);
 
-		frrtrace(3, frr_bgp, gr_send_capabilities, bgp->name_pretty, bgp->vrf_id, disable);
+		frrtrace(3, frr_bgp, gr_send_capabilities, bgp, bgp->vrf_id, disable);
 
 		ret = BGP_GR_SUCCESS;
 	}
@@ -4160,8 +4173,7 @@ int bgp_zebra_update(struct bgp *bgp, afi_t afi, safi_t safi,
 		return BGP_GR_FAILURE;
 	}
 
-	frrtrace(4, frr_bgp, gr_zebra_update, bgp->name_pretty, afi, safi,
-		 zserv_gr_client_cap_string(type));
+	frrtrace(4, frr_bgp, gr_zebra_update, bgp, afi, safi, zserv_gr_client_cap_string(type));
 
 	return BGP_GR_SUCCESS;
 }

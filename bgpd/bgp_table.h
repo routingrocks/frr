@@ -86,6 +86,7 @@ struct bgp_dest {
 	mpls_label_t local_label;
 
 	uint16_t flags;
+	/* NOTE: if any changes made, update parse_bgp_dest_flags() in frr_babeltrace.py */
 #define BGP_NODE_PROCESS_SCHEDULED	(1 << 0)
 #define BGP_NODE_USER_CLEAR             (1 << 1)
 #define BGP_NODE_LABEL_CHANGED          (1 << 2)

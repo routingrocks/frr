@@ -1082,6 +1082,7 @@ enum dplane_op_e dplane_ctx_get_op(const struct zebra_dplane_ctx *ctx)
 	return ctx->zd_op;
 }
 
+/* NOTE: if any changes made, update dplane_op2str() in frr_babeltrace.py */
 const char *dplane_op2str(enum dplane_op_e op)
 {
 	const char *ret = "UNKNOWN";
@@ -1288,6 +1289,7 @@ const char *dplane_op2str(enum dplane_op_e op)
 	return ret;
 }
 
+/* NOTE: if any changes made, update dplane_res2str() in frr_babeltrace.py */
 const char *dplane_res2str(enum zebra_dplane_result res)
 {
 	const char *ret = "<Unknown>";

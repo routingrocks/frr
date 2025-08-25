@@ -742,7 +742,7 @@ void zebra_evpn_arp_nd_failover_disable(void)
 	if (IS_ZEBRA_DEBUG_EVPN_MH_ARP_ND_EVT)
 		zlog_debug("Disable arp_nd failover");
 
-	frrtrace(0, frr_zebra, evpn_arp_nd_failover_disable);
+	frrtrace(1, frr_zebra, evpn_arp_nd_failover_disable, 1);
 
 	/*
 	 * walkthrough existing br-ports and disable

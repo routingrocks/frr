@@ -3607,9 +3607,7 @@ static int install_evpn_route_entry(struct bgp *bgp, struct bgpevpn *vpn,
 	char prefix_str[PREFIX2STR_BUFFER];
 
 	prefix2str(p, prefix_str, sizeof(prefix_str));
-	frrtrace(5, frr_bgp, upd_evpn_route_entry, 1,
-		 vrf_id_to_name(bgp->vrf_id), bgp->vrf_id, prefix_str,
-		 vpn->vni);
+	frrtrace(4, frr_bgp, upd_evpn_route_entry, 1, bgp->vrf_id, prefix_str, vpn->vni);
 
 	ret = install_evpn_route_entry_in_vni_mac(bgp, vpn, p, parent_pi);
 
@@ -3653,9 +3651,7 @@ static int uninstall_evpn_route_entry(struct bgp *bgp, struct bgpevpn *vpn,
 	char prefix_str[PREFIX2STR_BUFFER];
 
 	prefix2str(p, prefix_str, sizeof(prefix_str));
-	frrtrace(5, frr_bgp, upd_evpn_route_entry, 0,
-		 vrf_id_to_name(bgp->vrf_id), bgp->vrf_id, prefix_str,
-		 vpn->vni);
+	frrtrace(4, frr_bgp, upd_evpn_route_entry, 0, bgp->vrf_id, prefix_str, vpn->vni);
 
 	ret = uninstall_evpn_route_entry_in_vni_ip(bgp, vpn, p, parent_pi);
 
@@ -3879,9 +3875,8 @@ static int bgp_evpn_route_rmac_self_check(struct bgp *bgp_vrf,
 
 		prefix2str(evp, prefix_str, sizeof(prefix_str));
 
-		frrtrace(4, frr_bgp, upd_prefix_denied_due_to_self_mac,
-			 vrf_id_to_name(bgp_vrf->vrf_id), bgp_vrf->vrf_id,
-			 prefix_str, attr_str);
+		frrtrace(3, frr_bgp, upd_prefix_denied_due_to_self_mac, bgp_vrf->vrf_id, prefix_str,
+			 attr_str);
 
 
 		return 1;
@@ -6845,13 +6840,9 @@ void bgp_filter_evpn_routes_upon_martian_change(
 					prefix2str(p, prefix_str,
 						   sizeof(prefix_str));
 
-					frrtrace(
-						4, frr_bgp,
-						upd_attr_discarded_due_to_martian,
-						vrf_id_to_name(bgp->vrf_id),
-						prefix_str, attr_str,
-						bgp_martian_type2str(
-							martian_type));
+					frrtrace(4, frr_bgp, upd_attr_discarded_due_to_martian,
+						 bgp->vrf_id, prefix_str, attr_str,
+						 bgp_martian_type2str(martian_type));
 
 					bgp_evpn_unimport_route(bgp, afi, safi,
 								p, pi);
