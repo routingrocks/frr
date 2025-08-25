@@ -57,11 +57,12 @@ TRACEPOINT_EVENT_CLASS(
 	TRACEPOINT_LOGLEVEL(frr_bgp, name, TRACE_INFO)
 
 PKT_PROCESS_TRACEPOINT_INSTANCE(open_process)
-PKT_PROCESS_TRACEPOINT_INSTANCE(keepalive_process)
+//PKT_PROCESS_TRACEPOINT_INSTANCE(keepalive_process)
 PKT_PROCESS_TRACEPOINT_INSTANCE(notification_process)
 PKT_PROCESS_TRACEPOINT_INSTANCE(capability_process)
 PKT_PROCESS_TRACEPOINT_INSTANCE(refresh_process)
 
+#if 0
 TRACEPOINT_EVENT(
 	frr_bgp,
 	packet_read,
@@ -74,6 +75,7 @@ TRACEPOINT_EVENT(
 )
 
 TRACEPOINT_LOGLEVEL(frr_bgp, packet_read, TRACE_INFO)
+#endif
 
 TRACEPOINT_EVENT(
 	frr_bgp,
@@ -189,6 +191,7 @@ TRACEPOINT_EVENT(
 
 TRACEPOINT_LOGLEVEL(frr_bgp, bmp_process, TRACE_DEBUG)
 
+#if 0
 /*
  * bgp_dest_lock/bgp_dest_unlock
  */
@@ -278,6 +281,7 @@ TRACEPOINT_EVENT(
 	)
 )
 TRACEPOINT_LOGLEVEL(frr_bgp, bgp_path_info_free, TRACE_INFO)
+#endif
 
 TRACEPOINT_EVENT(
 	frr_bgp,

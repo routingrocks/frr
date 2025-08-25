@@ -347,7 +347,6 @@ struct bgp_path_info_extra *bgp_evpn_path_info_extra_get(struct bgp_path_info *p
 void bgp_path_info_free_with_caller(const char *name,
 				    struct bgp_path_info *path)
 {
-	frrtrace(2, frr_bgp, bgp_path_info_free, path, name);
 	bgp_attr_unintern(&path->attr);
 
 	bgp_unlink_nexthop(path);
@@ -514,7 +513,6 @@ int bgp_dest_set_defer_flag(struct bgp_dest *dest, bool delete)
 void bgp_path_info_add_with_caller(const char *name, struct bgp_dest *dest,
 				   struct bgp_path_info *pi)
 {
-	frrtrace(3, frr_bgp, bgp_path_info_add, dest, pi, name);
 	struct bgp_path_info *top;
 
 	top = bgp_dest_get_bgp_path_info(dest);
