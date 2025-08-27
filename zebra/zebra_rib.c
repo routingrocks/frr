@@ -352,8 +352,7 @@ static ssize_t printfrr_zebra_node(struct fbuf *buf, struct printfrr_eargs *ea,
 	zlog_info("%s: (%u:%pZNt):%pZN: " msg, __func__, vrf_id, node, node,   \
 		  ##__VA_ARGS__)
 
-static char *_dump_re_status(const struct route_entry *re, char *buf,
-			     size_t len)
+static char *zebra_rib_dump_re_status(const struct route_entry *re, char *buf, size_t len)
 {
 	if (re->status == 0) {
 		snprintfrr(buf, len, "None ");
@@ -1361,15 +1360,12 @@ static void rib_process(struct route_node *rn)
 			char flags_buf[128];
 			char status_buf[128];
 
-			zlog_debug(
-				"%s(%u:%u):%pRN: Examine re %p (%s) status: %sflags: %sdist %d metric %d",
-				VRF_LOGNAME(vrf), vrf_id, re->table, rn, re,
-				zebra_route_string(re->type),
-				_dump_re_status(re, status_buf,
-						sizeof(status_buf)),
-				zclient_dump_route_flags(re->flags, flags_buf,
-							 sizeof(flags_buf)),
-				re->distance, re->metric);
+			zlog_debug("%s(%u:%u):%pRN: Examine re %p (%s) status: %s flags: %sdist %d metric %d",
+				   VRF_LOGNAME(vrf), vrf_id, re->table, rn, re,
+				   zebra_route_string(re->type),
+				   zebra_rib_dump_re_status(re, status_buf, sizeof(status_buf)),
+				   zclient_dump_route_flags(re->flags, flags_buf, sizeof(flags_buf)),
+				   re->distance, re->metric);
 		}
 
 		/* Currently selected re. */
@@ -4591,16 +4587,16 @@ void _route_entry_dump(const char *func, union prefixconstptr pp,
 		   is_srcdst ? prefix2str(src_pp, srcaddr, sizeof(srcaddr))
 			     : "",
 		   VRF_LOGNAME(vrf), re->vrf_id);
-	zlog_debug("%s: uptime == %lu, type == %u, instance == %d, table == %d", straddr,
-		   (unsigned long)UPTIMESECS(re->uptime), re->type, re->instance, re->table);
-	zlog_debug(
-		"%s: metric == %u, mtu == %u, distance == %u, flags == %sstatus == %s",
-		straddr, re->metric, re->mtu, re->distance,
-		zclient_dump_route_flags(re->flags, flags_buf,
-					 sizeof(flags_buf)),
-		_dump_re_status(re, status_buf, sizeof(status_buf)));
-	zlog_debug("%s: tag == %u, nexthop_num == %u, nexthop_active_num == %u",
-		   straddr, re->tag, nexthop_group_nexthop_num(&(re->nhe->nhg)),
+
+	zlog_debug("%s(%s): uptime == %lu, type == %u, instance == %d, table == %d", straddr,
+		   VRF_LOGNAME(vrf), (unsigned long)UPTIMESECS(re->uptime), re->type, re->instance,
+		   re->table);
+	zlog_debug("%s(%s): metric == %u, mtu == %u, distance == %u, flags == %sstatus == %s",
+		   straddr, VRF_LOGNAME(vrf), re->metric, re->mtu, re->distance,
+		   zclient_dump_route_flags(re->flags, flags_buf, sizeof(flags_buf)),
+		   zebra_rib_dump_re_status(re, status_buf, sizeof(status_buf)));
+	zlog_debug("%s(%s): tag == %u, nexthop_num == %u, nexthop_active_num == %u", straddr,
+		   VRF_LOGNAME(vrf), re->tag, nexthop_group_nexthop_num(&(re->nhe->nhg)),
 		   nexthop_group_active_nexthop_num(&(re->nhe->nhg)));
 
 	/* Dump nexthops */
