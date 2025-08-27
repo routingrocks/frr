@@ -352,7 +352,7 @@ static ssize_t printfrr_zebra_node(struct fbuf *buf, struct printfrr_eargs *ea,
 	zlog_info("%s: (%u:%pZNt):%pZN: " msg, __func__, vrf_id, node, node,   \
 		  ##__VA_ARGS__)
 
-static char *zebra_rib_dump_re_status(const struct route_entry *re, char *buf, size_t len)
+char *zebra_rib_dump_re_status(const struct route_entry *re, char *buf, size_t len)
 {
 	if (re->status == 0) {
 		snprintfrr(buf, len, "None ");

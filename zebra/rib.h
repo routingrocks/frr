@@ -662,6 +662,7 @@ extern uint32_t rt_table_main_id;
 void route_entry_dump_nh(const struct route_entry *re, const char *straddr,
 			 const struct vrf *re_vrf,
 			 const struct nexthop *nexthop);
+extern char *zebra_rib_dump_re_status(const struct route_entry *re, char *buf, size_t len);
 #ifdef __cplusplus
 }
 #endif
