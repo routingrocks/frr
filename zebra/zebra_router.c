@@ -8,6 +8,7 @@
 #include <sys/stat.h>
 #include <pthread.h>
 #include "lib/frratomic.h"
+#include "lib/hook.h"
 
 #include "zebra_router.h"
 #include "zebra_pbr.h"
@@ -28,6 +29,8 @@ struct zebra_router zrouter = {
 	.ipv4_multicast_mode = MCAST_NO_CONFIG,
 	.zav.v6_rr_semantics = true,
 };
+
+DEFINE_HOOK(nos_initialize_data, (struct zebra_architectural_values *zav), (zav));
 
 struct zebra_gr_ctx z_gr_ctx;
 
@@ -387,6 +390,8 @@ void zebra_router_init(bool asic_offload, bool notify_on_ack,
 	zrouter.zav.asic_notification_nexthop_control = false;
 
 	zrouter.nexthop_weight_scale_value = 255;
+
+	hook_call(nos_initialize_data, &zrouter.zav);
 
 #ifdef HAVE_SCRIPTING
 	zebra_script_init();
