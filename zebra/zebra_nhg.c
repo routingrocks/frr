@@ -1172,12 +1172,8 @@ void zebra_nhg_check_valid(struct nhg_hash_entry *nhe)
 	struct nhg_connected *rb_node_dep = NULL;
 	bool valid = false;
 
-	/*
-	 * Singleton nhe will not have any depends and will have dependents only.
-	 * Set this nexthops flag as appropriate.
-	 */
-	if (nhg_connected_tree_count(&nhe->nhg_depends) == 0||
-	    nhg_connected_tree_count(&nhe->nhg_dependents)) {
+	/* Singleton means it has no depends and has only dependents */
+	if (ZEBRA_NHG_IS_SINGLETON(nhe)) {
 		UNSET_FLAG(nhe->nhg.nexthop->flags, NEXTHOP_FLAG_FIB);
 		UNSET_FLAG(nhe->nhg.nexthop->flags, NEXTHOP_FLAG_ACTIVE);
 	}
