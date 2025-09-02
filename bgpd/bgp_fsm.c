@@ -534,7 +534,8 @@ static void bgp_holdtime_timer(struct event *thread)
 	if (inq_count) {
 		BGP_TIMER_ON(connection->t_holdtime, bgp_holdtime_timer,
 			     peer->v_holdtime);
-        }
+		return;
+	}
 
 	EVENT_VAL(thread) = Hold_Timer_expired;
 	bgp_event(thread); /* bgp_event unlocks peer */
