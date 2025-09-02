@@ -412,6 +412,7 @@ struct route_entry; /* Forward ref to avoid circular includes */
 extern void nexthop_vrf_update(struct route_node *rn, struct route_entry *re, vrf_id_t vrf_id);
 extern int nexthop_active_update(struct route_node *rn, struct route_entry *re,
 				 struct route_entry *old_re);
+extern const char *zebra_nhg_afi2str(struct nhg_hash_entry *nhe);
 
 /* Determine nhg address-family, with special rules for singletons */
 afi_t zebra_nhg_get_afi(const struct nexthop_group *nhg, afi_t route_afi);

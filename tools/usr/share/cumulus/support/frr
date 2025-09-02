@@ -19,6 +19,7 @@ func_frr()
     exec_cmd frr.show_debug vtysh -c "show debugging"
     exec_cmd frr.show_log vtysh -c "show logging"
 
+    exec_cmd $jexec zebra.metaq vtysh -c "show zebra metaq $json"
     exec_cmd $jexec ospf vtysh -c "show ip ospf vrf all $json"
     exec_cmd $jexec ospf.neighbor vtysh -c "show ip ospf vrf all neighbor $json"
     exec_cmd $jexec ospf.interface vtysh -c "show ip ospf vrf all interface $json"

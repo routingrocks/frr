@@ -1213,12 +1213,16 @@ static void show_nexthop_group_out(struct vty *vty, struct nhg_hash_entry *nhe,
 	json_object *json_backup_nexthop_array = NULL;
 	json_object *json_backup_nexthops = NULL;
 	time_t epoch_tbuf;
+	uint16_t nexthop_count = 0;
+
 
 	uptime2str(nhe->uptime, up_str, sizeof(up_str));
 	epoch_tbuf = time(NULL) - (monotime(NULL) - (UPTIMESECS(nhe->uptime)));
 
 	if (json_nhe_hdr)
 		json = json_object_new_object();
+
+	nexthop_count = nexthop_group_nexthop_num_no_recurse(&nhe->nhg);
 
 	if (json) {
 		if (!brief) {
@@ -1233,6 +1237,9 @@ static void show_nexthop_group_out(struct vty *vty, struct nhg_hash_entry *nhe,
 		json_object_string_add(json, "uptime", up_str);
 		json_object_string_add(json, "vrf", vrf_id_to_name(nhe->vrf_id));
 		json_object_int_add(json, "nhGrpUptimeEstablishedEpoch", epoch_tbuf);
+		json_object_string_add(json, "afi", zebra_nhg_afi2str(nhe));
+		json_object_int_add(json, "nexthopCount", nexthop_count);
+
 	} else {
 		vty_out(vty, "ID: %u (%s)\n", nhe->id,
 			zebra_route_string(nhe->type));
@@ -1245,7 +1252,9 @@ static void show_nexthop_group_out(struct vty *vty, struct nhg_hash_entry *nhe,
 		vty_out(vty, "\n");
 
 		vty_out(vty, "     Uptime: %s\n", up_str);
-		vty_out(vty, "     VRF: %s\n", vrf_id_to_name(nhe->vrf_id));
+		vty_out(vty, "     VRF: %s(%s)\n", vrf_id_to_name(nhe->vrf_id),
+			zebra_nhg_afi2str(nhe));
+		vty_out(vty, "     Nexthop Count: %u\n", nexthop_count);
 	}
 
 	if (CHECK_FLAG(nhe->flags, NEXTHOP_GROUP_VALID)) {
@@ -2271,6 +2280,7 @@ static void show_ip_route_dump_vty(struct vty *vty, struct route_table *table)
 					 tm.tm_hour);
 
 			vty_out(vty, "   status: %u\n", re->status);
+			vty_out(vty, "   nexthop_group_id: %u\n", re->nhe->id);
 			vty_out(vty, "   nexthop_num: %u\n",
 				nexthop_group_nexthop_num(&(re->nhe->nhg)));
 			vty_out(vty, "   nexthop_active_num: %u\n",
@@ -4663,6 +4673,15 @@ DEFUN (zebra_show_routing_tables_summary,
 	return CMD_SUCCESS;
 }
 
+/* Display Zebra MetaQ counters */
+DEFUN(show_zebra_metaq_counters, show_zebra_metaq_counters_cmd, "show zebra metaq [json]",
+      SHOW_STR ZEBRA_STR "Zebra MetaQ counters\n" JSON_STR)
+{
+	bool uj = use_json(argc, argv);
+
+	return zebra_show_metaq_counter(vty, uj);
+}
+
 /* Table configuration write function. */
 static int config_write_table(struct vty *vty)
 {
@@ -5020,6 +5039,7 @@ void zebra_vty_init(void)
 
 	install_element(CONFIG_NODE, &zebra_dplane_queue_limit_cmd);
 	install_element(CONFIG_NODE, &no_zebra_dplane_queue_limit_cmd);
+	install_element(VIEW_NODE, &show_zebra_metaq_counters_cmd);
 
 	install_element(CONFIG_NODE, &zebra_gre_use_nhg_cmd);
 
