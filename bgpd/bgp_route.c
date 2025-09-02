@@ -4108,7 +4108,8 @@ void bgp_process_main_one(struct bgp *bgp, struct bgp_dest *dest, afi_t afi, saf
 	/* Reap old select bgp_path_info, if it has been removed */
 	if (old_select && CHECK_FLAG(old_select->flags, BGP_PATH_REMOVED)) {
 		bgp_path_info_reap(dest, old_select);
-		bgp_per_src_nhg_upd_msg_check(bgp, afi, safi, dest);
+		if (dest)
+			bgp_per_src_nhg_upd_msg_check(bgp, afi, safi, dest);
 	}
 
 	return;
