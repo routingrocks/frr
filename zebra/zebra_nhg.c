@@ -3117,7 +3117,7 @@ static uint32_t nexthop_list_active_update(struct route_node *rn,
 		 * a multipath perspective should not be a data plane
 		 * decision point.
 		 */
-		if (new_active && counter >= zrouter.multipath_num) {
+		if (new_active && counter >= zrouter.zav.multipath_num) {
 			struct nexthop *nh;
 
 			/* Set it and its resolved nexthop as inactive. */
@@ -3188,7 +3188,7 @@ static uint32_t nhg_nexthop_list_active_update(struct nhg_hash_entry *nhe,
 		 * a multipath perspective should not be a data plane
 		 * decision point.
 		 */
-		if (new_active && counter >= zrouter.multipath_num) {
+		if (new_active && counter >= zrouter.zav.multipath_num) {
 			struct nexthop *nh;
 
 			/* Set it and its resolved nexthop as inactive. */

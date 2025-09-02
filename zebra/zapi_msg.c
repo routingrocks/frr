@@ -828,7 +828,7 @@ static void zread_route_notify_request(ZAPI_HANDLER_ARGS)
 	 * on acks as a cumulus only patch
 	 */
 	if (client->proto == ZEBRA_ROUTE_BGP)
-		zrouter.notify_on_ack = !!!notify;
+		zrouter.zav.notify_on_ack = !!!notify;
 stream_failure:
 	return;
 }
@@ -1599,17 +1599,15 @@ stream_failure:
 bool zserv_nexthop_num_warn(const char *caller, const struct prefix *p,
 			    const unsigned int nexthop_num)
 {
-	if (nexthop_num > zrouter.multipath_num) {
+	if (nexthop_num > zrouter.zav.multipath_num) {
 		char buff[PREFIX2STR_BUFFER];
 
 		if (p)
 			prefix2str(p, buff, sizeof(buff));
 
-		flog_warn(
-			EC_ZEBRA_MORE_NH_THAN_MULTIPATH,
-			"%s: Prefix %s has %d nexthops, but we can only use the first %d",
-			caller, (p ? buff : "(NULL)"), nexthop_num,
-			zrouter.multipath_num);
+		flog_warn(EC_ZEBRA_MORE_NH_THAN_MULTIPATH,
+			  "%s: Prefix %s has %d nexthops, but we can only use the first %d",
+			  caller, (p ? buff : "(NULL)"), nexthop_num, zrouter.zav.multipath_num);
 		return true;
 	}
 
@@ -2464,15 +2462,15 @@ static void zsend_capabilities(struct zserv *client, struct zebra_vrf *zvrf)
 	zclient_create_header(s, ZEBRA_CAPABILITIES, zvrf->vrf->vrf_id);
 	stream_putl(s, vrf_get_backend());
 	stream_putc(s, mpls_enabled);
-	stream_putl(s, zrouter.multipath_num);
+	stream_putl(s, zrouter.zav.multipath_num);
 	stream_putc(s, zebra_mlag_get_role());
-	stream_putc(s, zrouter.v6_with_v4_nexthop);
+	stream_putc(s, zrouter.zav.v6_with_v4_nexthop);
 	stream_putc(s, zrouter.graceful_restart);
 	stream_putc(s, zrouter.maint_mode);
 
 	zlog_notice("Sending capabilities to client %s: MPLS %s numMultipath %d MaintMode %s MlagRole %d",
 		    zebra_route_string(client->proto), mpls_enabled ? "enabled" : "disabled",
-		    zrouter.multipath_num, zrouter.maint_mode ? "on" : "off", zebra_mlag_get_role());
+		    zrouter.zav.multipath_num, zrouter.maint_mode ? "on" : "off", zebra_mlag_get_role());
 
 	stream_putw_at(s, 0, stream_get_endp(s));
 	zserv_send_message(client, s);
