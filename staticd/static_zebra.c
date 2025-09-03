@@ -502,7 +502,7 @@ static int static_zebra_peer_ll_change(ZAPI_CALLBACK_ARGS)
 	struct stream *s;
 	ifindex_t ifindex;
 	struct interface *ifp;
-	struct in6_addr new_ll_addr;
+	struct in6_addr new_ll_addr = { 0 };
 
 	s = zclient->ibuf;
 	STREAM_GETL(s, ifindex);

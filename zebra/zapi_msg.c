@@ -3179,7 +3179,7 @@ static void zread_srv6_manager_release_srv6_sid(struct zserv *client,
 		}
 		if (len > 0) {
 			STREAM_GET(locator_name, s, len);
-			locator_name[len] = '\0';
+			locator_name[len < SRV6_LOCNAME_SIZE ? len : SRV6_LOCNAME_SIZE - 1] = '\0';
 		} else
 			locator_name[0] = '\0';
 	}

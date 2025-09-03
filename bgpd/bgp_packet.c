@@ -3308,7 +3308,7 @@ static void bgp_dynamic_capability_fqdn(uint8_t *pnt, int action,
 
 	if (action == CAPABILITY_ACTION_SET) {
 		/* hostname */
-		if (data + 1 > end) {
+		if (data + 1 >= end) {
 			zlog_err("%pBP: Received invalid FQDN capability (host name length)",
 				 peer);
 			return;
@@ -3338,7 +3338,7 @@ static void bgp_dynamic_capability_fqdn(uint8_t *pnt, int action,
 			peer->hostname = XSTRDUP(MTYPE_BGP_PEER_HOST, str);
 		}
 
-		if (data + 1 > end) {
+		if (data + 1 >= end) {
 			zlog_err("%pBP: Received invalid FQDN capability (domain name length)",
 				 peer);
 			return;
@@ -3805,8 +3805,8 @@ int bgp_capability_receive(struct peer_connection *connection,
 	if (bgp_debug_neighbor_events(peer))
 		zlog_debug("%s rcv CAPABILITY", peer->host);
 
-	/* If peer does not have the capability, send notification. */
-	if (!CHECK_FLAG(peer->cap, PEER_CAP_DYNAMIC_ADV)) {
+	if (!CHECK_FLAG(peer->cap, PEER_CAP_DYNAMIC_ADV) ||
+	    !CHECK_FLAG(peer->cap, PEER_CAP_DYNAMIC_RCV)) {
 		flog_err(EC_BGP_NO_CAP,
 			 "%s [Error] BGP dynamic capability is not enabled",
 			 peer->host);
