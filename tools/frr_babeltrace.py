@@ -124,40 +124,6 @@ def print_safi_string(field_val):
         return "MAX"
 
 
-def print_afi_string(field_val):
-    if field_val == 0:
-        return ("UNSPEC")
-    elif field_val == 1:
-        return ("IPV4")
-    elif field_val == 2:
-        return ("IPV6")
-    elif field_val == 3:
-        return ("L2VPN")
-    elif field_val == 4:
-        return ("MAX")
-
-
-def print_safi_string(field_val):
-    if field_val == 0:
-        return ("UNSPEC")
-    elif field_val == 1:
-        return ("UNICAST")
-    elif field_val == 2:
-        return ("MULTICAST")
-    elif field_val == 3:
-        return ("MPLS_VPN")
-    elif field_val == 4:
-        return ("ENCAP")
-    elif field_val == 5:
-        return ("EVPN")
-    elif field_val == 6:
-        return ("LABELED_UNICAST")
-    elif field_val == 7:
-        return ("FLOWSPEC")
-    elif field_val == 8:
-        return ("MAX")
-
-
 def print_prefix_addr(field_val):
     """
     pretty print "struct prefix"
