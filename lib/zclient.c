@@ -1230,6 +1230,34 @@ enum zclient_send_status zclient_nhg_send(struct zclient *zclient, int cmd,
 	return zclient_send_message(zclient);
 }
 
+/*
+ * Init a zapi_route struct more efficiently than a blind "memset"
+ */
+void zapi_route_init(struct zapi_route *zr)
+{
+	size_t offset;
+
+	/* We have a marker field in the zapi_route struct; we'll memset
+	 * only part of the struct.
+	 */
+	offset = offsetof(struct zapi_route, nexthop_num);
+
+	memset(zr, 0, offset);
+
+	/* Init some additional fields but avoid init'ing the large arrays */
+	zr->nexthop_num = 0;
+	zr->backup_nexthop_num = 0;
+	zr->opaque.length = 0;
+}
+
+/*
+ * Init a zapi nexthop struct
+ */
+void zapi_nexthop_init(struct zapi_nexthop *znh)
+{
+	memset(znh, 0, sizeof(struct zapi_nexthop));
+}
+
 int zapi_route_encode(uint8_t cmd, struct stream *s, struct zapi_route *api)
 {
 	struct zapi_nexthop *api_nh;
@@ -1400,6 +1428,8 @@ int zapi_nexthop_decode(struct stream *s, struct zapi_nexthop *api_nh,
 {
 	int i, ret = -1;
 
+	zapi_nexthop_init(api_nh);
+
 	STREAM_GETL(s, api_nh->vrf_id);
 	STREAM_GETC(s, api_nh->type);
 
@@ -1497,7 +1527,7 @@ int zapi_route_decode(struct stream *s, struct zapi_route *api)
 	struct zapi_nexthop *api_nh;
 	int i;
 
-	memset(api, 0, sizeof(*api));
+	zapi_route_init(api);
 
 	/* Type, flags, message. */
 	STREAM_GETC(s, api->type);
@@ -2256,7 +2286,7 @@ int zapi_nexthop_from_nexthop(struct zapi_nexthop *znh,
 {
 	int i;
 
-	memset(znh, 0, sizeof(*znh));
+	zapi_nexthop_init(znh);
 
 	znh->type = nh->type;
 	znh->vrf_id = nh->vrf_id;
@@ -2375,7 +2405,7 @@ static bool zapi_nexthop_update_decode(struct stream *s, struct prefix *match,
 {
 	uint32_t i;
 
-	memset(nhr, 0, sizeof(*nhr));
+	zapi_route_init(nhr);
 
 	STREAM_GETL(s, nhr->message);
 	STREAM_GETW(s, nhr->safi);
