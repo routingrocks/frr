@@ -695,7 +695,7 @@ struct interface *if_lookup_by_ipv6_exact(struct in6_addr *addr,
 	return NULL;
 }
 
-static int if_get_ipv6_global(struct interface *ifp, struct in6_addr *addr)
+int if_get_ipv6_global(struct interface *ifp, struct in6_addr *addr)
 {
 	struct connected *connected;
 	struct prefix *cp;
@@ -744,7 +744,6 @@ static int if_get_ipv4_address(struct interface *ifp, struct in_addr *addr)
 	}
 	return 0;
 }
-
 
 bool bgp_zebra_nexthop_set(union sockunion *local, union sockunion *remote,
 			   struct bgp_nexthop *nexthop, struct peer *peer)
