@@ -771,6 +771,23 @@ struct nb_cfg_change {
 	const char *value;
 };
 
+/* Subscription Cache entry */
+struct subscr_cache_entry {
+	char xpath[XPATH_MAXLEN];
+};
+
+struct nb_subscription_cache {
+	/* timer wheel for periodic subscription notification */
+	struct timer_wheel *timer_wheel;
+	/* cache entries */
+	struct hash *subscr_cache_entries;
+	/* cache requested on re-init */
+	bool init_cache_requested;
+};
+
+/* create a hash key for a xpath */
+unsigned int nb_xpath_hash_key(const char *str);
+
 /* Callback function used by nb_oper_data_iterate(). */
 typedef int (*nb_oper_data_cb)(const struct lysc_node *snode,
 			       struct yang_translator *translator,
@@ -807,6 +824,7 @@ DECLARE_HOOK(nb_notification_send, (const char *xpath, struct list *arguments),
 	     (xpath, arguments));
 DECLARE_HOOK(nb_notification_tree_send,
 	     (const char *xpath, const struct lyd_node *tree), (xpath, tree));
+DECLARE_HOOK(nb_empty_notification_send, (), ());
 
 /* Northbound debugging records */
 extern struct debug nb_dbg_cbs_config;
@@ -1687,6 +1705,11 @@ extern void nb_oper_terminate(void);
  * Notify subscribed xpaths
  */
 extern int nb_notify_subscriptions(void);
+
+/*
+ * Send empty Xpath list to get the latest subscription
+ */
+extern void nb_empty_notification_send(void);
 
 /*
  * Update subscription cache

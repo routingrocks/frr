@@ -354,28 +354,6 @@ static struct timeval *time_elapsed(struct timeval *result,
 	return result;
 }
 
-static void reload_routing_telemetry_service(void)
-{
-	pid_t pid;
-
-	pid = fork();
-
-	if (pid < 0) {
-		zlog_err("Failed to fork process for reloading routing_telemetry.service: %s",
-			 safe_strerror(errno));
-		return;
-	} else if (pid == 0) {
-		/* Child process */
-		execl("/bin/systemctl", "systemctl", "reload", "routing_telemetry.service", NULL);
-
-		zlog_err("Failed to execute systemctl reload routing_telemetry.service: %s",
-			 safe_strerror(errno));
-		exit(1);
-	}
-
-	zlog_notice("Started process %d to reload routing_telemetry.service", pid);
-}
-
 /* Check if the system appears to be in shutdown process */
 static bool is_shutting_down(void)
 {
@@ -672,15 +650,6 @@ static void daemon_down(struct daemon *dmn, const char *why)
 	if (try_connect(dmn) < 0)
 		SET_WAKEUP_DOWN(dmn);
 
-	/* Only try to reload the telemetry service if:
-     * 1. It's a bgpd or zebra daemon that's down
-     * 2. We're not in a shutdown process
-     */
-	if ((strcmp(dmn->name, "bgpd") == 0 || strcmp(dmn->name, "zebra") == 0) &&
-	    !is_shutting_down()) {
-		zlog_notice("daemon %s down, reloading routing telemetry service", dmn->name);
-		reload_routing_telemetry_service();
-	}
 	systemd_send_status("FRR partially operational");
 	phase_check();
 }
