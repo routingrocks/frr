@@ -2431,12 +2431,14 @@ static void evpn_show_routes_vni_all(struct vty *vty, struct bgp *bgp, int type,
 	wctx.vty = vty;
 	wctx.type = type;
 	wctx.mac_table = mac_table;
-	if (sockunion_family(vtep_ip) == AF_INET) {
+	if (vtep_ip && sockunion_family(vtep_ip) == AF_INET) {
 		SET_IPADDR_V4(&wctx.vtep_ip);
 		wctx.vtep_ip.ipaddr_v4 = vtep_ip->sin.sin_addr;
-	} else if (sockunion_family(vtep_ip) == AF_INET6) {
+	} else if (vtep_ip && sockunion_family(vtep_ip) == AF_INET6) {
 		SET_IPADDR_V6(&wctx.vtep_ip);
 		wctx.vtep_ip.ipaddr_v6 = vtep_ip->sin6.sin6_addr;
+	} else {
+		SET_IPADDR_NONE(&wctx.vtep_ip);
 	}
 	wctx.json = json;
 	wctx.detail = detail;
@@ -2462,10 +2464,10 @@ static void evpn_show_routes_vni_all_type_all(struct vty *vty, struct bgp *bgp,
 	memset(&wctx, 0, sizeof(struct vni_walk_ctx));
 	wctx.bgp = bgp;
 	wctx.vty = vty;
-	if (sockunion_family(vtep_ip) == AF_INET) {
+	if (vtep_ip && sockunion_family(vtep_ip) == AF_INET) {
 		SET_IPADDR_V4(&wctx.vtep_ip);
 		wctx.vtep_ip.ipaddr_v4 = vtep_ip->sin.sin_addr;
-	} else if (sockunion_family(vtep_ip) == AF_INET6) {
+	} else if (vtep_ip && sockunion_family(vtep_ip) == AF_INET6) {
 		SET_IPADDR_V6(&wctx.vtep_ip);
 		wctx.vtep_ip.ipaddr_v6 = vtep_ip->sin6.sin6_addr;
 	} else {
@@ -2719,10 +2721,10 @@ static void evpn_show_routes_vni(struct vty *vty, struct bgp *bgp, vni_t vni, in
 		return;
 	}
 
-	if (sockunion_family(_vtep_ip) == AF_INET) {
+	if (_vtep_ip && sockunion_family(_vtep_ip) == AF_INET) {
 		SET_IPADDR_V4(&vtep_ip);
 		vtep_ip.ipaddr_v4 = _vtep_ip->sin.sin_addr;
-	} else if (sockunion_family(_vtep_ip) == AF_INET6) {
+	} else if (_vtep_ip && sockunion_family(_vtep_ip) == AF_INET6) {
 		SET_IPADDR_V6(&vtep_ip);
 		vtep_ip.ipaddr_v6 = _vtep_ip->sin6.sin6_addr;
 	} else {
