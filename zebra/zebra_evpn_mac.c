@@ -2691,14 +2691,14 @@ void zebra_evpn_mac_svi_add(struct interface *ifp, struct zebra_evpn *zevpn)
 }
 
 static void zebra_vxlan_stale_remote_mac_add_l2vni(struct zebra_evpn *zevpn, struct ethaddr *macaddr,
-						   struct in_addr vtep_ip, bool sticky)
+						   struct ipaddr vtep_ip, bool sticky)
 {
 	struct zebra_mac *mac;
 
 	mac = zebra_evpn_mac_lookup(zevpn, macaddr);
 	if (mac) {
 		if (IS_ZEBRA_DEBUG_VXLAN)
-			zlog_debug("EVPN-GR: Remote %sMAC %pEA (%p) zevpn %p,VTEP %pI4 L2VNI %d exists",
+			zlog_debug("EVPN-GR: Remote %sMAC %pEA (%p) zevpn %p,VTEP %pIA L2VNI %d exists",
 				   sticky ? "sticky " : "", macaddr, mac, zevpn, &vtep_ip,
 				   zevpn->vni);
 		return;
@@ -2707,7 +2707,7 @@ static void zebra_vxlan_stale_remote_mac_add_l2vni(struct zebra_evpn *zevpn, str
 	/* Create remote MAC entry in table*/
 	mac = zebra_evpn_mac_add(zevpn, macaddr);
 	if (!mac) {
-		zlog_debug("EVPN-GR: Failed to add remote MAC %pEA, VTEP %pI4, L2VNI %d", macaddr,
+		zlog_debug("EVPN-GR: Failed to add remote MAC %pEA, VTEP %pIA, L2VNI %d", macaddr,
 			   &vtep_ip, zevpn->vni);
 		return;
 	}
@@ -2732,11 +2732,11 @@ static void zebra_vxlan_stale_remote_mac_add_l2vni(struct zebra_evpn *zevpn, str
 	}
 
 	if (IS_ZEBRA_DEBUG_VXLAN)
-		zlog_debug("EVPN-GR: Added stale remote %sMAC %pEA (%p) zevpn %p, VTEP %pI4 L2VNI %d",
+		zlog_debug("EVPN-GR: Added stale remote %sMAC %pEA (%p) zevpn %p, VTEP %pIA L2VNI %d",
 			   sticky ? "sticky " : "", macaddr, mac, zevpn, &vtep_ip, zevpn->vni);
 }
 
-void zebra_vxlan_stale_remote_mac_add(struct ethaddr *macaddr, struct in_addr vtep_ip, bool sticky,
+void zebra_vxlan_stale_remote_mac_add(struct ethaddr *macaddr, struct ipaddr vtep_ip, bool sticky,
 				      vni_t vni)
 {
 	struct zebra_evpn *zevpn;

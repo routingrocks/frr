@@ -259,6 +259,6 @@ extern void zebra_vxlan_process_l3vni_oper_up(struct zebra_l3vni *zl3vni);
 extern void zebra_vxlan_process_l3vni_oper_down(struct zebra_l3vni *zl3vni);
 extern int zebra_evpn_vxlan_del(struct zebra_evpn *zevpn);
 extern void zebra_vxlan_stale_remote_mac_add_l3vni(struct zebra_l3vni *zl3vni,
-						   struct ethaddr *macaddr, struct in_addr vtep_ip);
+						   struct ethaddr *macaddr, struct ipaddr vtep_ip);
 
 #endif /* _ZEBRA_VXLAN_PRIVATE_H */

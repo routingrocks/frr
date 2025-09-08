@@ -3915,7 +3915,7 @@ static int netlink_macfdb_change(struct nlmsghdr *h, int len, ns_id_t ns_id)
 
 	if (h && ndm)
 		frrtrace(6, frr_zebra, netlink_macfdb_change, h, ndm, nhg_id,
-			 vni, &mac, vtep_ip);
+			 vni, &mac, &vtep_ip);
 
 	/* The interface should exist. */
 	ifp = if_lookup_by_index_per_ns(zebra_ns_lookup(ns_id),

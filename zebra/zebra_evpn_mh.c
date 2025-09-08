@@ -1714,7 +1714,8 @@ static int zebra_evpn_mh_vtep_cmp(void *p1, void *p2)
 	const struct zebra_evpn_mh_vtep *vtep1 = p1;
 	const struct zebra_evpn_mh_vtep *vtep2 = p2;
 
-	return vtep1->vtep_ip.s_addr - vtep2->vtep_ip.s_addr;
+	//return vtep1->vtep_ip.s_addr - vtep2->vtep_ip.s_addr;
+	return ipaddr_cmp(&vtep1->vtep_ip, &vtep2->vtep_ip);
 }
 
 static void zebra_evpn_mh_vtep_uplink_sph_ingress_tc_setup(struct zebra_evpn_mh_vtep *mh_vtep,
@@ -1795,13 +1796,13 @@ static void zebra_evpn_mh_vtep_uplink_setup(struct zebra_evpn_mh_vtep *mh_vtep, 
 	}
 }
 
-static struct zebra_evpn_mh_vtep *zebra_evpn_mh_vtep_new(struct in_addr vtep_ip)
+static struct zebra_evpn_mh_vtep *zebra_evpn_mh_vtep_new(struct ipaddr vtep_ip)
 {
 	struct zebra_evpn_mh_vtep *mh_vtep;
 
 	mh_vtep = XCALLOC(MTYPE_MH_VTEP, sizeof(*mh_vtep));
 
-	mh_vtep->vtep_ip.s_addr = vtep_ip.s_addr;
+	mh_vtep->vtep_ip = vtep_ip;
 	listnode_init(&mh_vtep->listnode, mh_vtep);
 	listnode_add_sort(zmh_info->mh_vtep_list, &mh_vtep->listnode);
 
@@ -1812,7 +1813,7 @@ static struct zebra_evpn_mh_vtep *zebra_evpn_mh_vtep_new(struct in_addr vtep_ip)
 	bf_assign_index(zmh_info->sph_id_bitmap, mh_vtep->sph_offset);
 
 	if (IS_ZEBRA_DEBUG_EVPN_MH_ES)
-		zlog_debug("mh vtep %pI4 add; sph %u", &mh_vtep->vtep_ip, mh_vtep->sph_offset);
+		zlog_debug("mh vtep %pIA add; sph %u", &mh_vtep->vtep_ip, mh_vtep->sph_offset);
 
 	/* traverse all uplinks and program ingress SPH filter */
 	zebra_evpn_mh_vtep_uplink_setup(mh_vtep, true);
@@ -1823,7 +1824,7 @@ static struct zebra_evpn_mh_vtep *zebra_evpn_mh_vtep_new(struct in_addr vtep_ip)
 static void zebra_evpn_mh_vtep_free(struct zebra_evpn_mh_vtep *mh_vtep)
 {
 	if (IS_ZEBRA_DEBUG_EVPN_MH_ES)
-		zlog_debug("mh vtep %pI4 del; sph %u", &mh_vtep->vtep_ip, mh_vtep->sph_offset);
+		zlog_debug("mh vtep %pIA del; sph %u", &mh_vtep->vtep_ip, mh_vtep->sph_offset);
 
 	/* traverse all uplinks and remove ingress SPH filter */
 	zebra_evpn_mh_vtep_uplink_setup(mh_vtep, false);
@@ -1836,13 +1837,13 @@ static void zebra_evpn_mh_vtep_free(struct zebra_evpn_mh_vtep *mh_vtep)
 	XFREE(MTYPE_MH_VTEP, mh_vtep);
 }
 
-static struct zebra_evpn_mh_vtep *zebra_evpn_mh_vtep_find(struct in_addr vtep_ip)
+static struct zebra_evpn_mh_vtep *zebra_evpn_mh_vtep_find(struct ipaddr vtep_ip)
 {
 	struct listnode *node;
 	struct zebra_evpn_mh_vtep *mh_vtep;
 
 	for (ALL_LIST_ELEMENTS_RO(zmh_info->mh_vtep_list, node, mh_vtep)) {
-		if (mh_vtep->vtep_ip.s_addr == vtep_ip.s_addr)
+                if (ipaddr_is_same(&mh_vtep->vtep_ip, &vtep_ip))
 			return mh_vtep;
 	}
 	return NULL;
@@ -1947,7 +1948,7 @@ static void zebra_evpn_es_vtep_local_set(struct zebra_evpn_es_vtep *es_vtep)
 		return;
 
 	if (IS_ZEBRA_DEBUG_EVPN_MH_ES)
-		zlog_debug("es %s vtep %pI4 local set", es_vtep->es->esi_str, &es_vtep->vtep_ip);
+		zlog_debug("es %s vtep %pIA local set", es_vtep->es->esi_str, &es_vtep->vtep_ip);
 
 	es_vtep->flags |= ZEBRA_EVPNES_VTEP_LOCAL;
 	mh_vtep = zebra_evpn_mh_vtep_find(es_vtep->vtep_ip);
@@ -3083,7 +3084,7 @@ void zebra_evpn_proc_remote_es(ZAPI_HANDLER_ARGS)
        SET_IPADDR_V4(&vtep_ip);
        STREAM_GET(&vtep_ip.ipaddr_v4.s_addr, s, sizeof(vtep_ip.ipaddr_v4.s_addr));
 
-	frrtrace(3, frr_zebra, zebra_evpn_proc_remote_es, vtep_ip, &esi, hdr->command);
+	frrtrace(3, frr_zebra, zebra_evpn_proc_remote_es, &vtep_ip, &esi, hdr->command);
 	if (hdr->command == ZEBRA_REMOTE_ES_VTEP_ADD) {
 		uint32_t zapi_flags;
 		uint8_t df_alg;

@@ -1046,7 +1046,7 @@ static int zevpn_build_vni_hash_table(struct zebra_if *zif,
 				ifp->name, ifp->ifindex, vni, &vxl->vtep_ip);
 
 		frrtrace(4, frr_zebra, zevpn_build_l2vni_hash, vni, ifp->name, ifp->ifindex,
-			 vxl->vtep_ip);
+			 &vxl->vtep_ip);
 
 		/*
 		 * EVPN hash entry is expected to exist, if the BGP process is
@@ -1349,7 +1349,7 @@ static int zl3vni_rmac_install(struct zebra_l3vni *zl3vni,
 		vid = 0;
 
 	frrtrace(5, frr_zebra, evpn_dplane_remote_rmac_add, zrmac,
-		 zrmac->fwd_info.r_vtep_ip, vni->vni, vid, zl3vni->vxlan_if);
+		 &zrmac->fwd_info.r_vtep_ip, vni->vni, vid, zl3vni->vxlan_if);
 
        res = dplane_rem_mac_add(zl3vni->vxlan_if, br_ifp, vid, &zrmac->macaddr, vni->vni,
                                 &zrmac->fwd_info.r_vtep_ip, 0, 0, false /*was_static*/);
@@ -1400,7 +1400,7 @@ static int zl3vni_rmac_uninstall(struct zebra_l3vni *zl3vni,
 		vid = 0;
 
 	frrtrace(5, frr_zebra, evpn_dplane_remote_rmac_del, zrmac,
-		 zrmac->fwd_info.r_vtep_ip, vni->vni, vid, zl3vni->vxlan_if);
+		 &zrmac->fwd_info.r_vtep_ip, vni->vni, vid, zl3vni->vxlan_if);
 
        res = dplane_rem_mac_del(zl3vni->vxlan_if, br_ifp, vid, &zrmac->macaddr, vni->vni,
                                 &zrmac->fwd_info.r_vtep_ip);                                 
@@ -1477,7 +1477,7 @@ static int zl3vni_remote_rmac_add(struct zebra_l3vni *zl3vni,
 					vtep_ip, rmac);
 
 			frrtrace(4, frr_zebra, l3vni_remote_rmac_update, zl3vni->vni,
-				 zrmac->fwd_info.r_vtep_ip, vtep_ip, rmac);
+				 &zrmac->fwd_info.r_vtep_ip, vtep_ip, rmac);
 
                         zrmac->fwd_info.r_vtep_ip = *vtep_ip;
 
@@ -1515,7 +1515,7 @@ static void zl3vni_remote_rmac_del(struct zebra_l3vni *zl3vni,
 					  &zrmac->macaddr);
 
 			frrtrace(4, frr_zebra, l3vni_remote_vtep_nh_upd, zl3vni->vni, vtep_ip,
-				 zrmac->fwd_info.r_vtep_ip, zrmac->macaddr);
+				 &zrmac->fwd_info.r_vtep_ip, zrmac->macaddr);
 
 			/* Send RMAC for FPM processing */
 			hook_call(zebra_rmac_update, zrmac, zl3vni, false,
@@ -1538,7 +1538,7 @@ static void zl3vni_remote_rmac_del(struct zebra_l3vni *zl3vni,
 					"L3VNI %u RMAC %pEA vtep_ip %pIA delete",
 					zl3vni->vni, &zrmac->macaddr, vtep_ip);
 
-			frrtrace(4, frr_zebra, l3vni_remote_rmac, 2, zl3vni->vni, &ipv4_vtep,
+			frrtrace(4, frr_zebra, l3vni_remote_rmac, 2, zl3vni->vni, vtep_ip,
 				 &zrmac->macaddr);
 
 			/* del the rmac entry */
@@ -1778,7 +1778,6 @@ static void zl3vni_check_del_rmac(struct zebra_l3vni *zl3vni,
 				  const struct ipaddr *vtep_ip)
 {
 	struct zebra_mac *zrmac = NULL;
-	struct ipaddr ipv4_vtep;
 
 	zrmac = zl3vni_rmac_lookup(zl3vni, &old_rmac);
 	if (!zrmac) {
@@ -1801,10 +1800,9 @@ static void zl3vni_check_del_rmac(struct zebra_l3vni *zl3vni,
 			/* Update the forward reference vtep IP to first node in list */
 			if (node) {
 				curr_vtep = listgetdata(node);
-				vtep_to_v4(curr_vtep, &ipv4_vtep);
 				if (IS_ZEBRA_DEBUG_VXLAN)
 					zlog_debug("Updating VTEP IP %pIA", curr_vtep);
-				zrmac->fwd_info.r_vtep_ip = ipv4_vtep.ipaddr_v4;
+				zrmac->fwd_info.r_vtep_ip = *curr_vtep;
 			}
 		}
 		if (IS_ZEBRA_DEBUG_VXLAN) {
@@ -4491,7 +4489,7 @@ void zebra_vxlan_remote_macip_del(ZAPI_HANDLER_ARGS)
                                    ipa_len ? ipaddr2str(&ip, buf1, sizeof(buf1)) : "", &vtep_ip,
                                    zebra_route_string(client->proto));                
 
-		frrtrace(5, frr_zebra, zebra_vxlan_remote_macip_del, &macaddr, &ip, vni, vtep_ip,
+		frrtrace(5, frr_zebra, zebra_vxlan_remote_macip_del, &macaddr, &ip, vni, &vtep_ip,
 			 ipa_len);
 		/* Enqueue to workqueue for processing */
 		zebra_rib_queue_evpn_rem_macip_del(vni, &macaddr, &ip, &vtep_ip);
@@ -4548,7 +4546,7 @@ void zebra_vxlan_remote_macip_add(ZAPI_HANDLER_ARGS)
                                    ipa_len ? ipaddr2str(&ip, buf1, sizeof(buf1)) : "", flags, seq,
                                    &vtep_ip, esi_buf, zebra_route_string(client->proto));                                
 		}
-		frrtrace(6, frr_zebra, zebra_vxlan_remote_macip_add, &macaddr, &ip, vni, vtep_ip,
+		frrtrace(6, frr_zebra, zebra_vxlan_remote_macip_add, &macaddr, &ip, vni, &vtep_ip,
 			 flags, &esi);
 
 		/* Enqueue to workqueue for processing */
@@ -4911,7 +4909,7 @@ void zebra_vxlan_remote_vtep_del_zapi(ZAPI_HANDLER_ARGS)
 			zlog_debug("Recv VTEP DEL %pIA VNI %u from %s", &vtep_ip, vni,
 				   client_proto_str);
 
-		frrtrace(3, frr_zebra, zebra_vxlan_remote_vtep_del, vtep_ip, vni, client->proto);
+		frrtrace(3, frr_zebra, zebra_vxlan_remote_vtep_del, &vtep_ip, vni, client->proto);
 		/* Enqueue for processing */
 		zebra_rib_queue_evpn_rem_vtep_del(zvrf_id(zvrf), vni, &vtep_ip);
 	}
@@ -5112,7 +5110,7 @@ void zebra_vxlan_remote_vtep_add_zapi(ZAPI_HANDLER_ARGS)
 		if (IS_ZEBRA_DEBUG_VXLAN)
 			zlog_debug("Recv VTEP_ADD %pIA VNI %u flood %d from %s", &vtep_ip, vni,
 				   flood_control, zebra_route_string(client->proto));
-		frrtrace(3, frr_zebra, zebra_vxlan_remote_vtep_add, vtep_ip, vni, flood_control);
+		frrtrace(3, frr_zebra, zebra_vxlan_remote_vtep_add, &vtep_ip, vni, flood_control);
 
 		/* Enqueue for processing */
 		zebra_rib_queue_evpn_rem_vtep_add(zvrf_id(zvrf), vni, &vtep_ip,
@@ -6781,7 +6779,7 @@ void zebra_vlan_dplane_result(struct zebra_dplane_ctx *ctx)
 }
 
 /*********************** EVPN graceful restart *******************/
-void zebra_vxlan_stale_hrep_add(struct in_addr vtep_ip, vni_t vni)
+void zebra_vxlan_stale_hrep_add(struct ipaddr vtep_ip, vni_t vni)
 {
 	struct zebra_evpn *zevpn = NULL;
 	struct zebra_vtep *zvtep = NULL;
@@ -6804,19 +6802,19 @@ void zebra_vxlan_stale_hrep_add(struct in_addr vtep_ip, vni_t vni)
 		 */
 		zvtep = zebra_evpn_vtep_add(zevpn, &vtep_ip, VXLAN_FLOOD_HEAD_END_REPL);
 		if (!zvtep) {
-			zlog_debug("EVPN-GR: Failed to add HREP entry for %pI4, vni %u)", &vtep_ip,
+			zlog_debug("EVPN-GR: Failed to add HREP entry for %pIA, vni %u)", &vtep_ip,
 				   vni);
 			return;
 		}
 
 		if (IS_ZEBRA_DEBUG_VXLAN)
-			zlog_debug("EVPN-GR: Added stale HREP entry for %pI4, vni %u", &vtep_ip,
+			zlog_debug("EVPN-GR: Added stale HREP entry for %pIA, vni %u", &vtep_ip,
 				   vni);
 	}
 }
 
 void zebra_vxlan_stale_remote_mac_add_l3vni(struct zebra_l3vni *zl3vni, struct ethaddr *macaddr,
-					    struct in_addr vtep_ip)
+					    struct ipaddr vtep_ip)
 {
 	struct zebra_mac *zrmac = NULL;
 

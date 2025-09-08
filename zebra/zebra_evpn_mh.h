@@ -143,7 +143,7 @@ struct zebra_evpn_l2_nh {
 
 /* Local ES peers */
 struct zebra_evpn_mh_vtep {
-	struct in_addr vtep_ip;
+	struct ipaddr vtep_ip;
 
 	/* List of VTEPs (zebra_evpn_es_vtep) */
 	struct list *es_vtep_list;

@@ -211,7 +211,7 @@ static struct in_addr zebra_evpn_arp_nd_get_vtep(struct zebra_evpn_es *es,
 		es_vtep = listgetdata(listhead(es->es_vtep_list));
 
 	if (es_vtep)
-		nh = es_vtep->vtep_ip;
+		nh = es_vtep->vtep_ip.ipaddr_v4;
 	else
 		nh.s_addr = 0;
 
@@ -612,12 +612,12 @@ void zebra_evpn_arp_nd_udp_sock_create(void)
 	struct sockaddr_in sin;
 	int reuse = 1;
 
-	if (!zmh_info->es_originator_ip.s_addr)
+	if (!zmh_info->es_originator_ip.ipaddr_v4.s_addr)
 		goto close_sock;
 
 	lo_p.family = AF_INET;
 	lo_p.prefixlen = IPV4_MAX_BITLEN;
-	lo_p.u.prefix4 = zmh_info->es_originator_ip;
+	lo_p.u.prefix4 = zmh_info->es_originator_ip.ipaddr_v4;
 
 	ifp = if_lookup_by_name("lo", VRF_DEFAULT);
 	if (!ifp)
@@ -629,10 +629,9 @@ void zebra_evpn_arp_nd_udp_sock_create(void)
 
 	if (IS_ZEBRA_DEBUG_EVPN_MH_ARP_ND_EVT)
 		zlog_debug("Create UDP sock for arp_nd redirect from %pI4",
-			   &zmh_info->es_originator_ip);
+			   &zmh_info->es_originator_ip.ipaddr_v4);
 
-	frrtrace(1, frr_zebra, evpn_arp_nd_udp_sock_create,
-		 zmh_info->es_originator_ip.s_addr);
+	frrtrace(1, frr_zebra, evpn_arp_nd_udp_sock_create, &zmh_info->es_originator_ip);
 
 	if (zevpn_arp_nd_info.udp_fd <= 0) {
 		zevpn_arp_nd_info.udp_fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
@@ -651,10 +650,10 @@ void zebra_evpn_arp_nd_udp_sock_create(void)
 
 	memset(&sin, 0, sizeof(sin));
 	sin.sin_family = AF_INET;
-	sin.sin_addr = zmh_info->es_originator_ip;
+	sin.sin_addr = zmh_info->es_originator_ip.ipaddr_v4;
 	if (bind(zevpn_arp_nd_info.udp_fd, (struct sockaddr *)&sin, sizeof(sin)) < 0) {
 		flog_err(EC_LIB_SOCKET, "evpn arp_nd UDP sock fd %d bind to %pI4 errno %s",
-			 zevpn_arp_nd_info.udp_fd, &zmh_info->es_originator_ip,
+			 zevpn_arp_nd_info.udp_fd, &zmh_info->es_originator_ip.ipaddr_v4,
 			 safe_strerror(errno));
 		close(zevpn_arp_nd_info.udp_fd);
 		zevpn_arp_nd_info.udp_fd = -1;
@@ -715,8 +714,7 @@ void zebra_evpn_arp_nd_failover_enable(void)
 	if (IS_ZEBRA_DEBUG_EVPN_MH_ARP_ND_EVT)
 		zlog_debug("Enable arp_nd failover");
 
-	frrtrace(1, frr_zebra, evpn_arp_nd_failover_enable,
-		 zmh_info->es_originator_ip.s_addr);
+	frrtrace(1, frr_zebra, evpn_arp_nd_failover_enable, &zmh_info->es_originator_ip);
 
 	zevpn_arp_nd_info.flags |= ZEBRA_EVPN_ARP_ND_FAILOVER;
 
