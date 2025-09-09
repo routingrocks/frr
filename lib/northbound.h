@@ -783,6 +783,8 @@ struct nb_subscription_cache {
 	struct hash *subscr_cache_entries;
 	/* cache requested on re-init */
 	bool init_cache_requested;
+	/* sample time */
+	uint32_t sample_time;
 };
 
 /* create a hash key for a xpath */
@@ -825,6 +827,7 @@ DECLARE_HOOK(nb_notification_send, (const char *xpath, struct list *arguments),
 DECLARE_HOOK(nb_notification_tree_send,
 	     (const char *xpath, const struct lyd_node *tree), (xpath, tree));
 DECLARE_HOOK(nb_empty_notification_send, (), ());
+DECLARE_HOOK(nb_get_sample_time, (), ());
 
 /* Northbound debugging records */
 extern struct debug nb_dbg_cbs_config;
@@ -1506,6 +1509,9 @@ extern bool nb_cb_operation_is_valid(enum nb_cb_operation operation,
  *    NB_OK on success, NB_ERR otherwise.
  */
 extern int nb_notification_send(const char *xpath, struct list *arguments);
+
+/* Get sample time for the subscription */
+extern uint32_t nb_get_sample_time(void);
 
 /*
  * Send a YANG notification from a backend . This is a no-op unless th

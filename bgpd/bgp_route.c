@@ -680,8 +680,6 @@ static void bgp_pcount_adjust(struct bgp_dest *dest, struct bgp_path_info *pi)
 {
     struct bgp_table *table;
     table = bgp_dest_table(dest);
-    struct peer *peer = pi->peer;
-    char buf[INET6_ADDRSTRLEN];
 
     if (flag != BGP_PATH_SELECTED && flag != BGP_PATH_MULTIPATH)
         return;
