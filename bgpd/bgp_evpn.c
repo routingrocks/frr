@@ -8329,9 +8329,15 @@ static int bgp_evpn_update_vpn_route_attribute(struct bgp *bgp, struct bgpevpn *
 	struct ecommunity *macvrf_soo = NULL;
 
 	bgp_attr_default_set(&attr_new, bgp, BGP_ORIGIN_IGP);
-	attr_new.nexthop = vpn->originator_ip;
-	attr_new.mp_nexthop_global_in = vpn->originator_ip;
-	attr_new.mp_nexthop_len = BGP_ATTR_NHLEN_IPV4;
+	if (IS_IPADDR_V4(&vpn->originator_ip)) {
+		attr_new.nexthop = vpn->originator_ip.ipaddr_v4;
+		attr_new.mp_nexthop_global_in = vpn->originator_ip.ipaddr_v4;
+		attr_new.mp_nexthop_len = BGP_ATTR_NHLEN_IPV4;
+	} else {
+		IPV6_ADDR_COPY(&attr_new.mp_nexthop_global, &vpn->originator_ip.ipaddr_v6);
+		attr_new.mp_nexthop_len = BGP_ATTR_NHLEN_IPV6_GLOBAL;
+	}
+
 	bgp_evpn_get_rmac_nexthop(vpn, evp, &attr_new, pi->extra->evpn->af_flags);
 
 	if (evpn_route_is_sticky(bgp, rn))
