@@ -336,7 +336,7 @@ def parse_frr_bgp_evpn_mac_ip_zsend(event):
     field_parsers = {"ip": print_ip_addr,
                      "mac": print_mac,
                      "esi": print_esi,
-                     "vtep": print_net_ipv4_addr,
+                     "vtep": print_ip_addr,
                      "action": evpn_action_to_string}
     parse_event(event, field_parsers)
 
@@ -388,12 +388,12 @@ def parse_frr_bgp_evpn_mh_local_ead_es_evi_route_del(event):
     parse_event(event, field_parsers)
 
 def parse_frr_bgp_evpn_local_vni_add_zrecv(event):
-    field_parsers = {"vtep": print_net_ipv4_addr,
+    field_parsers = {"vtep": print_ip_addr,
                      "mc_grp": print_net_ipv4_addr}
     parse_event(event, field_parsers)
 
 def parse_frr_bgp_evpn_local_l3vni_add_zrecv(event):
-    field_parsers = {"vtep": print_net_ipv4_addr,
+    field_parsers = {"vtep": print_ip_addr,
                      "svi_rmac": print_mac,
                      "vrr_rmac": print_mac,
                      "anycast_mac": lambda x: "yes" if x else "no"}
@@ -427,7 +427,7 @@ def parse_frr_zebra_netlink_ipneigh_change(event):
 
 def parse_frr_zebra_netlink_macfdb_change(event):
     field_parsers = {"mac": print_mac,
-                     "vtep_ip": print_net_ipv4_addr}
+                     "vtep_ip": print_ip_addr}
     parse_event(event, field_parsers)
 
 def parse_frr_zebra_netlink_neigh_update_msg_encode(event):
@@ -440,14 +440,14 @@ def parse_frr_zebra_process_remote_macip_add(event):
     field_parsers = {"ip": print_ip_addr,
                      "esi": print_esi,
                      "mac": print_mac,
-                     "vtep_ip": print_net_ipv4_addr}
+                     "vtep_ip": print_ip_addr}
     parse_event(event, field_parsers)
 
 def parse_frr_zebra_process_remote_macip_del(event):
     field_parsers = {"ip": print_ip_addr,
                      "esi": print_esi,
                      "mac": print_mac,
-                     "vtep_ip": print_net_ipv4_addr,
+                     "vtep_ip": print_ip_addr,
                      "location": lambda x: {
                          1: "Invalid interface state",
                          2: "VNI not in interface",
@@ -475,13 +475,13 @@ def parse_frr_zebra_zebra_vxlan_remote_macip_add(event):
     field_parsers = {"ip": print_ip_addr,
                      "esi": print_esi,
                      "mac": print_mac,
-                     "vtep_ip": print_net_ipv4_addr}
+                     "vtep_ip": print_ip_addr}
     parse_event(event, field_parsers)
 
 def parse_frr_zebra_zebra_vxlan_remote_macip_del(event):
     field_parsers = {"ip": print_ip_addr,
                      "mac": print_mac,
-                     "vtep_ip": print_net_ipv4_addr}
+                     "vtep_ip": print_ip_addr}
     parse_event(event, field_parsers)
 
 def parse_frr_zebra_zebra_evpn_proc_remote_nh(event):
@@ -501,23 +501,23 @@ def parse_frr_zebra_evpn_dplane_remote_nh_del(event):
 
 def parse_frr_zebra_evpn_dplane_remote_rmac_add(event):
     field_parsers = {"rmac": print_mac,
-                     "vtep_ip": print_net_ipv4_addr}
+                     "vtep_ip": print_ip_addr}
     parse_event(event, field_parsers)
 
 def parse_frr_zebra_evpn_dplane_remote_rmac_del(event):
     field_parsers = {"rmac": print_mac,
-                     "vtep_ip": print_net_ipv4_addr}
+                     "vtep_ip": print_ip_addr}
     parse_event(event, field_parsers)
 
 def parse_frr_zebra_zebra_evpn_proc_remote_es(event):
     field_parsers = {"esi": print_esi,
-                     "vtep_ip": print_net_ipv4_addr}
+                     "vtep_ip": print_ip_addr}
     parse_event(event, field_parsers)
 
 def parse_frr_zebra_l3vni_remote_rmac_update(event):
     field_parsers = {"new_vtep": print_ip_addr,
                      "rmac": print_mac,
-                     "old_vtep_ip": print_net_ipv4_addr}
+                     "old_vtep_ip": print_ip_addr}
     parse_event(event, field_parsers)
 
 def parse_frr_zebra_l3vni_remote_rmac(event):
@@ -532,7 +532,7 @@ def parse_frr_zebra_l3vni_remote_rmac(event):
 def parse_frr_zebra_l3vni_remote_vtep_nh_upd(event):
     field_parsers = {"old_vtep": print_ip_addr,
                      "rmac": print_mac,
-                     "new_vtep_ip": print_net_ipv4_addr}
+                     "new_vtep_ip": print_ip_addr}
     parse_event(event, field_parsers)
 
 def parse_frr_zebra_remote_nh_add_rmac_change(event):
@@ -542,11 +542,11 @@ def parse_frr_zebra_remote_nh_add_rmac_change(event):
     parse_event(event, field_parsers)
 
 def parse_frr_zebra_zebra_evpn_gw_macip_del_for_evpn_hash(event):
-    field_parsers = {"vtep_ip": print_net_ipv4_addr}
+    field_parsers = {"vtep_ip": print_ip_addr}
     parse_event(event, field_parsers)
 
 def parse_frr_zebra_zebra_vxlan_remote_vtep_add(event):
-    field_parsers = {"vtep_ip": print_net_ipv4_addr}
+    field_parsers = {"vtep_ip": print_ip_addr}
     parse_event(event, field_parsers)
 
 def parse_frr_zebra_zevpn_build_vni_hash(event):
@@ -558,20 +558,20 @@ def parse_frr_zebra_zevpn_build_vni_hash(event):
     parse_event(event, field_parsers)
 
 def parse_frr_zebra_zevpn_build_l2vni_hash(event):
-    field_parsers = {"vtep_ip": print_net_ipv4_addr}
+    field_parsers = {"vtep_ip": print_ip_addr}
     parse_event(event, field_parsers)
 
 def parse_frr_zebra_evpn_arp_nd_failover_enable(event):
-    field_parsers = {"vtep_ip": print_net_ipv4_addr}
+    field_parsers = {"vtep_ip": print_ip_addr}
     parse_event(event, field_parsers)
 
 def parse_frr_zebra_evpn_arp_nd_udp_sock_create(event):
-    field_parsers = {"vtep_ip": print_net_ipv4_addr}
+    field_parsers = {"vtep_ip": print_ip_addr}
     parse_event(event, field_parsers)
 
 def parse_frr_zebra_zebra_vxlan_remote_vtep_del(event):
     field_parsers = {"client_proto": zebra_route_string,
-                     "vtep_ip": print_net_ipv4_addr}
+                     "vtep_ip": print_ip_addr}
     parse_event(event, field_parsers)
 
 def parse_frr_bgp_bgp_zebra_evpn_advertise_type(event):
@@ -619,7 +619,7 @@ def parse_frr_bgp_upd_rmac_is_self_mac(event):
 
 def parse_frr_zebra_zebra_evpn_send_add_to_client(event):
     field_parsers = {"client_proto": zebra_route_string,
-                     "vtep_ip": print_net_ipv4_addr}
+                     "vtep_ip": print_ip_addr}
     parse_event(event, field_parsers)
 
 def parse_frr_zebra_zebra_evpn_send_del_to_client(event):
@@ -627,7 +627,7 @@ def parse_frr_zebra_zebra_evpn_send_del_to_client(event):
     parse_event(event, field_parsers)
 
 def parse_frr_zebra_zebra_evpn_svi_macip_del_for_evpn_hash(event):
-    field_parsers = {"vtep_ip": print_net_ipv4_addr}
+    field_parsers = {"vtep_ip": print_ip_addr}
     parse_event(event, field_parsers)
 ############################ evpn parsers - end #############################
 
@@ -1271,11 +1271,11 @@ def parse_frr_zebra_zread_nhg_del(event):
     parse_event(event, field_parsers)
 
 def parse_frr_zebra_dplane_vtep_add(event):
-    field_parsers = {"vtep_ip": print_net_ipv4_addr}
+    field_parsers = {"vtep_ip": print_ip_addr}
     parse_event(event, field_parsers)
 
 def parse_frr_zebra_dplane_vtep_delete(event):
-    field_parsers = {"vtep_ip": print_net_ipv4_addr}
+    field_parsers = {"vtep_ip": print_ip_addr}
     parse_event(event, field_parsers)
 
 def parse_frr_zebra_zebra_ptm_bfd_reg_info(event):
