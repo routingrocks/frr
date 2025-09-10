@@ -1571,7 +1571,7 @@ static void zebra_evpn_es_l2_nh_show_entry(struct zebra_evpn_l2_nh *nh,
 
 		json_object_array_add(json_array, json);
 	} else {
-		vty_out(vty, "%-16pIA %-10u %u\n", &nh->vtep_ip, nh->nh_id, nh->ref_cnt);
+		vty_out(vty, "%-39pIA %-10u %u\n", &nh->vtep_ip, nh->nh_id, nh->ref_cnt);
 	}
 }
 
@@ -1591,7 +1591,7 @@ void zebra_evpn_l2_nh_show(struct vty *vty, bool uj)
 	if (uj) {
 		json_array = json_object_new_array();
 	} else {
-		vty_out(vty, "%-16s %-10s %s\n", "VTEP", "NH id", "#ES");
+		vty_out(vty, "%-39s %-10s %s\n", "VTEP", "NH id", "#ES");
 	}
 
 	memset(&wctx, 0, sizeof(wctx));
@@ -1859,21 +1859,19 @@ void zebra_evpn_mh_vtep_show(struct vty *vty, bool uj)
 	if (uj) {
 		json_array = json_object_new_array();
 	} else {
-		vty_out(vty, "%-20s %-10s %s\n", "VTEP", "#ES", "SPH offset");
+		vty_out(vty, "%-39s %-10s %s\n", "VTEP", "#ES", "SPH offset");
 	}
 
 	for (ALL_LIST_ELEMENTS_RO(zmh_info->mh_vtep_list, node, mh_vtep)) {
 		if (uj) {
 			json_object *json = NULL;
 			json = json_object_new_object();
-			json_object_string_add(json, "vtepIp",
-					       inet_ntop(AF_INET, &mh_vtep->vtep_ip, buf1,
-							 sizeof(buf1)));
+			json_object_string_addf(json, "vtepIp", "%pIA", &mh_vtep->vtep_ip);
 			json_object_int_add(json, "esCount", listcount(mh_vtep->es_vtep_list));
 			json_object_int_add(json, "sphOffset", mh_vtep->sph_offset);
 			json_object_array_add(json_array, json);
 		} else {
-			vty_out(vty, "%-20pI4 %-10d %u\n", &mh_vtep->vtep_ip,
+			vty_out(vty, "%-39pIA %-10d %u\n", &mh_vtep->vtep_ip,
 				listcount(mh_vtep->es_vtep_list), mh_vtep->sph_offset);
 		}
 	}
@@ -3785,8 +3783,7 @@ static void zebra_evpn_es_show_entry_detail(struct vty *vty,
 				(es_vtep->flags & ZEBRA_EVPNES_VTEP_LOCAL) ? "(local)" : "");
 			if (es_vtep->flags & ZEBRA_EVPNES_VTEP_RXED_ESR)
 				vty_out(vty, " df_alg: %s df_pref: %d",
-					evpn_es_df_alg2str(es_vtep->df_alg,
-							   alg_buf,
+					evpn_es_df_alg2str(es_vtep->df_alg, alg_buf,
 							   sizeof(alg_buf)),
 					es_vtep->df_pref);
 			if (es_vtep->flags & ZEBRA_EVPNES_VTEP_SPH_SET)
