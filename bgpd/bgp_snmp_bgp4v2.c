@@ -1671,3 +1671,9 @@ int bgp_snmp_bgp4v2_init(struct event_loop *tm)
 	REGISTER_MIB("mibII/bgpv2", bgpv2_variables, variable, bgpv2_oid);
 	return 0;
 }
+
+void bgp_snmp_bgp4v2_cleanup(void)
+{
+	/* Unregister BGP4V2-MIB */
+	unregister_mib(bgpv2_oid, sizeof(bgpv2_oid)/sizeof(oid));
+}

@@ -1985,7 +1985,9 @@ static int nb_oper_data_iter_leaf(const struct nb_node *nb_node, const char *xpa
 		/* Leaf of type "empty" is not present. */
 		return NB_OK;
 
-	return (*cb)(nb_node->snode, translator, data, arg);
+	int ret = (*cb)(nb_node->snode, translator, data, arg);
+	yang_data_free(data);
+	return ret;
 }
 
 static int nb_oper_data_iter_container(const struct nb_node *nb_node, const char *xpath,
@@ -2010,6 +2012,7 @@ static int nb_oper_data_iter_container(const struct nb_node *nb_node, const char
 			return NB_OK;
 
 		ret = (*cb)(snode, translator, data, arg);
+		yang_data_free(data);
 		if (ret != NB_OK)
 			return ret;
 	}
@@ -2054,6 +2057,7 @@ static int nb_oper_data_iter_leaflist(const struct nb_node *nb_node, const char 
 			continue;
 
 		ret = (*cb)(nb_node->snode, translator, data, arg);
+		yang_data_free(data);
 		if (ret != NB_OK)
 			return ret;
 	} while (list_entry);

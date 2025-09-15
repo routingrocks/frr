@@ -25,7 +25,6 @@
 #include "bgpd/bgp_attr.h"
 #include "bgpd/bgp_route.h"
 #include "bgpd/bgp_fsm.h"
-#include "bgpd/bgp_snmp.h"
 #include "bgpd/bgp_snmp_bgp4.h"
 #include "bgpd/bgp_snmp_bgp4v2.h"
 #include "bgpd/bgp_mplsvpn_snmp.h"
@@ -122,13 +121,34 @@ static int bgp_snmp_init(struct event_loop *tm)
 	return 0;
 }
 
+static int bgp_snmp_cleanup(void)
+{
+	/* Step 1: Clean up BGP SNMP command elements (installed to CONFIG_NODE, not BGP_NODE) */
+	uninstall_element(CONFIG_NODE, &bgp_snmp_traps_rfc4273_cmd);
+	uninstall_element(CONFIG_NODE, &bgp_snmp_traps_bgp4_mibv2_cmd);
+
+	/* Step 2: Unregister BGP-specific MIBs via their respective cleanup functions */
+	bgp_snmp_bgp4_cleanup();      /* BGP4-MIB (RFC 4273) */
+	bgp_snmp_bgp4v2_cleanup();    /* BGP4V2-MIB */
+	bgp_mpls_l3vpn_module_cleanup(); /* MPLS L3VPN MIB */
+
+	/* Step 3: Unregister BGP-specific hooks and callbacks */
+	hook_unregister(peer_status_changed, bgpTrapEstablished);
+	hook_unregister(peer_backward_transition, bgpTrapBackwardTransition);
+	hook_unregister(bgp_snmp_traps_config_write, bgp_cli_snmp_traps_config_write);
+
+	return 0;
+}
+
 static int bgp_snmp_module_init(void)
 {
 	hook_register(peer_status_changed, bgpTrapEstablished);
 	hook_register(peer_backward_transition, bgpTrapBackwardTransition);
 	hook_register(frr_late_init, bgp_snmp_init);
+	hook_register(frr_early_fini, bgp_snmp_cleanup);
 	hook_register(bgp_snmp_traps_config_write,
 		      bgp_cli_snmp_traps_config_write);
+	install_element(BGP_NODE, &bgp_snmp_traps_rfc4273_cmd);
 	return 0;
 }
 
