@@ -98,20 +98,30 @@ static void route_match_interface_free(void *rule)
 	XFREE(MTYPE_ROUTE_MAP_COMPILED, rule);
 }
 
-static void show_vrf_proto_rm(struct vty *vty, struct zebra_vrf *zvrf,
-			      int af_type)
+static void show_vrf_proto_rm(struct vty *vty, struct zebra_vrf *zvrf, int af_type,
+			      json_object *json)
 {
 	int i;
 
-	vty_out(vty, "Protocol                  : route-map\n");
-	vty_out(vty, "-------------------------------------\n");
+	if (!json) {
+		vty_out(vty, "Protocol                  : route-map\n");
+		vty_out(vty, "-------------------------------------\n");
+	}
 
 	for (i = 0; i < ZEBRA_ROUTE_MAX; i++) {
-		if (PROTO_RM_NAME(zvrf, af_type, i))
-			vty_out(vty, "%-24s  : %-10s\n", zebra_route_string(i),
-				PROTO_RM_NAME(zvrf, af_type, i));
-		else
-			vty_out(vty, "%-24s  : none\n", zebra_route_string(i));
+		if (json) {
+			if (PROTO_RM_NAME(zvrf, af_type, i))
+				json_object_string_add(json, zebra_route_string(i),
+						       PROTO_RM_NAME(zvrf, af_type, i));
+			else
+				json_object_string_add(json, zebra_route_string(i), "none");
+		} else {
+			if (PROTO_RM_NAME(zvrf, af_type, i))
+				vty_out(vty, "%-24s  : %-10s\n", zebra_route_string(i),
+					PROTO_RM_NAME(zvrf, af_type, i));
+			else
+				vty_out(vty, "%-24s  : none\n", zebra_route_string(i));
+		}
 	}
 
 }
@@ -161,34 +171,72 @@ static void show_vrf_nht_rm(struct vty *vty, struct zebra_vrf *zvrf,
 	}
 }
 
-static int show_proto_rm(struct vty *vty, int af_type, const char *vrf_all,
-			 const char *vrf_name)
+static int show_proto_rm(struct vty *vty, int af_type, const char *vrf_all, const char *vrf_name,
+			 bool use_json)
 {
 	struct zebra_vrf *zvrf;
+	json_object *json = NULL;
+	json_object *json_vrfs = NULL;
+
+	if (use_json) {
+		json = json_object_new_object();
+		json_vrfs = json_object_new_object();
+		json_object_string_add(json, "afi", (af_type == AFI_IP) ? "ipv4" : "ipv6");
+	}
 
 	if (vrf_all) {
 		struct vrf *vrf;
+
+		if (use_json)
+			json_object_object_add(json, "vrfs", json_vrfs);
 
 		RB_FOREACH (vrf, vrf_name_head, &vrfs_by_name) {
 			zvrf = (struct zebra_vrf *)vrf->info;
 			if (zvrf == NULL)
 				continue;
-			vty_out(vty, "VRF: %s\n", zvrf->vrf->name);
-			show_vrf_proto_rm(vty, zvrf, af_type);
+			if (use_json) {
+				json_object *json_proto = NULL;
+				json_object *json_vrf = NULL;
+				json_vrf = json_object_new_object();
+				json_object_object_add(json_vrfs, zvrf->vrf->name, json_vrf);
+				json_proto = json_object_new_object();
+				json_object_object_add(json_vrf, "protocols", json_proto);
+				show_vrf_proto_rm(vty, zvrf, af_type, json_proto);
+			} else {
+				vty_out(vty, "VRF: %s\n", zvrf->vrf->name);
+				show_vrf_proto_rm(vty, zvrf, af_type, NULL);
+			}
 		}
 	} else {
+		json_object *json_vrf = NULL;
+		json_object *json_proto = NULL;
 		vrf_id_t vrf_id = VRF_DEFAULT;
 
 		if (vrf_name)
 			VRF_GET_ID(vrf_id, vrf_name, false);
 
 		zvrf = zebra_vrf_lookup_by_id(vrf_id);
-		if (!zvrf)
+		if (!zvrf) {
+			json_object_free(json);
+			json_object_free(json_vrfs);
 			return CMD_SUCCESS;
+		}
 
-		vty_out(vty, "VRF: %s\n", zvrf->vrf->name);
-		show_vrf_proto_rm(vty, zvrf, af_type);
+		if (use_json) {
+			json_object_object_add(json, "vrfs", json_vrfs);
+			json_vrf = json_object_new_object();
+			json_object_object_add(json_vrfs, zvrf->vrf->name, json_vrf);
+			json_proto = json_object_new_object();
+			json_object_object_add(json_vrf, "protocols", json_proto);
+			show_vrf_proto_rm(vty, zvrf, af_type, json_proto);
+		} else {
+			vty_out(vty, "VRF: %s\n", zvrf->vrf->name);
+			show_vrf_proto_rm(vty, zvrf, af_type, NULL);
+		}
 	}
+
+	if (use_json)
+		vty_json_no_pretty(vty, json);
 
 	return CMD_SUCCESS;
 }
@@ -383,26 +431,34 @@ int ip_nht_rm_del(struct zebra_vrf *zvrf, const char *rmap, int rtype, int afi)
 
 DEFPY (show_ip_protocol,
        show_ip_protocol_cmd,
-       "show ip protocol [vrf <NAME$vrf_name|all$vrf_all>]",
+       "show ip protocol [vrf <NAME$vrf_name|all$vrf_all>] [json]",
        SHOW_STR
        IP_STR
        "IP protocol filtering status\n"
-       VRF_FULL_CMD_HELP_STR)
+       VRF_FULL_CMD_HELP_STR
+       JSON_STR)
 {
-	int ret = show_proto_rm(vty, AFI_IP, vrf_all, vrf_name);
+	int ret;
+	bool uj = use_json(argc, argv);
+
+	ret = show_proto_rm(vty, AFI_IP, vrf_all, vrf_name, uj);
 
 	return ret;
 }
 
 DEFPY (show_ipv6_protocol,
        show_ipv6_protocol_cmd,
-       "show ipv6 protocol [vrf <NAME$vrf_name|all$vrf_all>]",
+       "show ipv6 protocol [vrf <NAME$vrf_name|all$vrf_all>] [json]",
        SHOW_STR
        IP6_STR
        "IPv6 protocol filtering status\n"
-       VRF_FULL_CMD_HELP_STR)
+       VRF_FULL_CMD_HELP_STR
+       JSON_STR)
 {
-	int ret = show_proto_rm(vty, AFI_IP6, vrf_all, vrf_name);
+	int ret;
+	bool uj = use_json(argc, argv);
+
+	ret = show_proto_rm(vty, AFI_IP6, vrf_all, vrf_name, uj);
 
 	return ret;
 }
