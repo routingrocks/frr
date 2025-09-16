@@ -26,7 +26,6 @@
 
 #define GRPC_DEFAULT_PORT 50051
 
-
 // ------------------------------------------------------
 //                 File Local Variables
 // ------------------------------------------------------
@@ -1160,6 +1159,89 @@ struct grpc_pthread_attr {
 	unsigned long port;
 };
 
+/* This function is async with timeout handling
+ * Non-blocking with timeout: Won't hang indefinitely (100ms max wait)
+ * Proper CQ management: Shutdown and drain properly
+ * Error handling: Handles different completion statuses
+ */
+static int frr_grpc_send_async(frr::SubscriptionCacheRequest cache)
+{
+	grpc::ClientContext context;
+	grpc::ChannelArguments args;
+	grpc::Status status;
+	args.SetString(GRPC_ARG_PRIMARY_USER_AGENT_STRING, "frr_grpc_client");
+	args.SetString("grpc.lb_policy_name", "pick_first");
+
+	std::string vrf_address = "127.0.0.1:4221";
+	args.SetString("grpc.target", vrf_address);
+
+	// Create a gRPC channel to send telemetry data to the routing application
+	grpc_debug("Attempting to connect to gRPC service at %s", vrf_address.c_str());
+	auto channel = grpc::CreateCustomChannel(vrf_address, grpc::InsecureChannelCredentials(),
+						 args);
+	if (!channel) {
+		zlog_err("Failed to create gRPC channel to %s", vrf_address.c_str());
+		return -1;
+	}
+	auto stub = frr::Northbound::NewStub(channel);
+	if (!stub) {
+		zlog_err("Failed to create gRPC stub for %s", vrf_address.c_str());
+		return -1;
+	}
+
+	grpc::CompletionQueue cq;
+	frr::SubscriptionCacheResponse resp;
+
+	auto rpc = stub->AsyncSubscriptionCache(&context, cache, &cq);
+	zlog_debug("Telemetry data sucessfully sent via gRPC");
+	// Send request and register a tag
+	void *tag = (void *)(1);
+	rpc->Finish(&resp, &status, tag);
+
+	/* Wait for the RPC to complete */
+	void *got_tag;
+	bool ok = false;
+
+	/* Timeout for the completion queue to break on an event */
+	auto deadline = std::chrono::system_clock::now() + std::chrono::milliseconds(100);
+	grpc::CompletionQueue::NextStatus cq_status = cq.AsyncNext(&got_tag, &ok, deadline);
+	if (ok && got_tag == tag) {
+		switch (cq_status) {
+		case grpc::CompletionQueue::NextStatus::GOT_EVENT:
+			grpc_debug("CQ GOT_EVENT");
+			break;
+		case grpc::CompletionQueue::NextStatus::TIMEOUT:
+			grpc_debug("CQ TIMEOUT_EVENT");
+			break;
+		case grpc::CompletionQueue::NextStatus::SHUTDOWN:
+			grpc_debug("CQ SHUTDOWN_EVENT");
+			break;
+		}
+	}
+	//Stop new events on this cq
+	cq.Shutdown();
+	// Drain any remaining events
+	while (cq.Next(&got_tag, &ok))
+		grpc_debug("Draining CQ");
+	zlog_debug("gRPC call completed and shutdown the CQ.");
+	return 0;
+}
+
+/* Establish grpc channel and send message */
+int frr_grpc_empty_notification()
+{
+	zlog_err("frr_grpc_empty_notification");
+	/* If subscription cache has been requested once return */
+	int ret = 0;
+	// Create a gRPC channel to send telemetry data to the routing application
+	frr::SubscriptionCacheRequest cache;
+	ret = frr_grpc_send_async(cache);
+	if (ret == -1)
+		zlog_err("%s: failed to send gRPC message", __func__);
+	return ret;
+}
+
+
 // Capture these objects so we can try to shut down cleanly
 static pthread_mutex_t s_server_lock = PTHREAD_MUTEX_INITIALIZER;
 static grpc::Server *s_server;
@@ -1266,35 +1348,14 @@ static int frr_grpc_notification_send(const char *xpath, struct list *arguments)
 {
 	struct nb_node *nb_node = NULL;
 	grpc::Status status;
-	grpc::ClientContext context;
-	grpc::ChannelArguments args;
-	args.SetString(GRPC_ARG_PRIMARY_USER_AGENT_STRING, "frr_grpc_client");
-	args.SetString("grpc.lb_policy_name", "pick_first");
-
-	std::string vrf_address = "127.0.0.1:4221";
-	args.SetString("grpc.target", vrf_address);
-
+	int ret = 0;
+	frr::SubscriptionCacheRequest cache;
 	// Find the node in the data tree using the provided XPath
 	nb_node = nb_node_find(xpath);
 	if (!nb_node) {
 		zlog_err("%s: unknown data path: %s", __func__, xpath);
 		return -1;
 	}
-
-	// Create a gRPC channel to send telemetry data to the routing application
-	grpc_debug("Attempting to connect to gRPC service at %s", vrf_address.c_str());
-	auto channel = grpc::CreateCustomChannel(vrf_address, grpc::InsecureChannelCredentials(),
-						 args);
-	if (!channel) {
-		zlog_err("Failed to create gRPC channel to %s", vrf_address.c_str());
-		return -1;
-	}
-	auto stub = frr::Northbound::NewStub(channel);
-	if (!stub) {
-		zlog_err("Failed to create gRPC stub for %s", vrf_address.c_str());
-		return -1;
-	}
-	frr::SubscriptionCacheRequest cache;
 	cache.add_path(nb_node->xpath); // Add the XPath to the request
 	frr::SubscriptionCacheResponse resp;
 	auto *dt = cache.mutable_data();
@@ -1305,42 +1366,11 @@ static int frr_grpc_notification_send(const char *xpath, struct list *arguments)
 		zlog_err("%s: failed to populate DataTree for path: %s", __func__, xpath);
 		return -1;
 	}
-	grpc::CompletionQueue cq;
-	auto rpc = stub->AsyncSubscriptionCache(&context, cache, &cq);
-	zlog_debug("Telemetry data sucessfully sent via gRPC");
-	// Send request and register a tag
-	void *tag = (void *)(1);
-	rpc->Finish(&resp, &status, tag);
-
-	/* Wait for the RPC to complete */
-	void *got_tag;
-	bool ok = false;
-
-	/* Timeout for the completion queue to break on an event */
-	auto deadline = std::chrono::system_clock::now() + std::chrono::milliseconds(100);
-	grpc::CompletionQueue::NextStatus cq_status = cq.AsyncNext(&got_tag, &ok, deadline);
-	if (ok && got_tag == tag) {
-		switch (cq_status) {
-		case grpc::CompletionQueue::NextStatus::GOT_EVENT:
-			grpc_debug("CQ GOT_EVENT");
-			break;
-		case grpc::CompletionQueue::NextStatus::TIMEOUT:
-			grpc_debug("CQ TIMEOUT_EVENT");
-			break;
-		case grpc::CompletionQueue::NextStatus::SHUTDOWN:
-			grpc_debug("CQ SHUTDOWN_EVENT");
-			break;
-		}
-	}
-	//Stop new events on this cq
-	cq.Shutdown();
-	// Drain any remaining events
-	while (cq.Next(&got_tag, &ok))
-		grpc_debug("Draining CQ");
-	zlog_debug("gRPC call completed and shutdown the CQ.");
-	return 0;
+	ret = frr_grpc_send_async(cache);
+	if (ret == -1)
+		zlog_err("%s: failed to send gRPC message: %s", __func__, xpath);
+	return ret;
 }
-
 
 static int frr_grpc_init(uint port)
 {
@@ -1361,6 +1391,7 @@ static int frr_grpc_init(uint port)
 		return -1;
 	}
 	hook_register(nb_notification_send, frr_grpc_notification_send);
+	hook_register(nb_empty_notification_send, frr_grpc_empty_notification);
 	return 0;
 }
 

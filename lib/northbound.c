@@ -32,19 +32,13 @@ DEFINE_MTYPE_STATIC(LIB, NB_CONFIG_ENTRY, "Northbound Configuration Entry");
 /* Running configuration - shouldn't be modified directly. */
 struct nb_config *running_config;
 
-struct timer_wheel *timer_wheel;
-
-struct hash *subscr_cache_entries;
-
-/* Subscription Cache entry */
-struct subscr_cache_entry {
-	char xpath[XPATH_MAXLEN];
-} subscr_cache_entry;
-
 unsigned int nb_xpath_hash_key(const char *str);
 
 /* Hash table of user pointers associated with configuration entries. */
 static struct hash *running_config_entries;
+
+/* Holder of current subscription cache */
+struct nb_subscription_cache *nb_current_subcr_cache;
 
 /* Management lock for the running configuration. */
 static struct {
@@ -704,6 +698,12 @@ void nb_config_diff(const struct nb_config *config1,
 	}
 
 	lyd_free_all(diff);
+	// Request for current subscriptions if cache is empty
+	if (!nb_current_subcr_cache->init_cache_requested) {
+		zlog_debug("Sending request for current subscriptions");
+		nb_empty_notification_send();
+		nb_current_subcr_cache->init_cache_requested = true;
+	}
 }
 
 static int dnode_create(struct nb_config *candidate, const char *xpath,
@@ -2228,7 +2228,7 @@ static int get_leaf_len(const char *xpath)
 }
 
 
-int nb_oper_data_iterate(const char *xpath, struct yang_translator *translator, uint32_t flags,
+static int nb_oper_data_iterate(const char *xpath, struct yang_translator *translator, uint32_t flags,
 			 nb_oper_data_cb cb, void *arg)
 {
 	struct nb_node *nb_node;
@@ -2539,6 +2539,13 @@ bool nb_cb_operation_is_valid(enum nb_cb_operation operation,
 	}
 }
 
+DEFINE_HOOK(nb_empty_notification_send, (), ());
+void nb_empty_notification_send(void)
+{
+	hook_call(nb_empty_notification_send);
+	return;
+}
+
 DEFINE_HOOK(nb_notification_send, (const char *xpath, struct list *arguments),
 	    (xpath, arguments));
 
@@ -2803,18 +2810,20 @@ void nb_cache_subscriptions(struct event_loop *master, const char *xpath, const 
 	struct subscr_cache_entry *cache, s;
 	strcpy(s.xpath, xpath);
 	if (strcmp(action, "Add") == 0) {
-		cache = hash_get(subscr_cache_entries, &s, subsc_cache_entry_alloc);
+		cache = hash_get(nb_current_subcr_cache->subscr_cache_entries, &s,
+				 subsc_cache_entry_alloc);
 		/* Start timer wheel for sampling subscriptions */
 		nb_wheel_init_or_reset(master, xpath, interval);
 	} else if (strcmp(action, "Del") == 0) {
 		/* Delete the subscription xpath from the cache */
-		cache = hash_lookup(subscr_cache_entries, &s);
+		cache = hash_lookup(nb_current_subcr_cache->subscr_cache_entries, &s);
 		if (cache)
-			hash_release(subscr_cache_entries, cache);
-		if (hashcount(subscr_cache_entries) == 0 && timer_wheel) {
+			hash_release(nb_current_subcr_cache->subscr_cache_entries, cache);
+		if (hashcount(nb_current_subcr_cache->subscr_cache_entries) == 0 &&
+		    nb_current_subcr_cache->timer_wheel) {
 			DEBUGD(&nb_dbg_events, "Deleting timer wheel");
-			wheel_delete(timer_wheel);
-			timer_wheel = NULL;
+			wheel_delete(nb_current_subcr_cache->timer_wheel);
+			nb_current_subcr_cache->timer_wheel = NULL;
 		}
 	} else
 		nb_wheel_init_or_reset(master, xpath, interval);
@@ -2837,7 +2846,7 @@ int nb_notify_subscriptions(void)
 {
 	struct subscr_cache_entry entry;
 	/* Walk the subscription cache */
-	hash_walk(subscr_cache_entries, hash_walk_dump, &entry);
+	hash_walk(nb_current_subcr_cache->subscr_cache_entries, hash_walk_dump, &entry);
 	return NB_OK;
 }
 
@@ -2852,9 +2861,9 @@ void show_subscriptions(struct hash_bucket *bucket, void *arg)
 void nb_show_subscription_cache(struct vty *vty)
 {
 	vty_out(vty, "-------  Subscriptions ------ \n");
-	if (subscr_cache_entries) {
+	if (nb_current_subcr_cache->subscr_cache_entries) {
 		/* Walk the subscription cache */
-		hash_walk(subscr_cache_entries, show_subscriptions, vty);
+		hash_walk(nb_current_subcr_cache->subscr_cache_entries, show_subscriptions, vty);
 	}
 }
 
@@ -3006,19 +3015,20 @@ static void nb_wheel_init_or_reset(struct event_loop *master, const char *xpath,
 	}
 	int sample_time = interval ? interval * 1000 : SUBSCRIPTION_SAMPLE_TIMER;
 	DEBUGD(&nb_dbg_events, "Wheel sample %d", sample_time);
-	if (timer_wheel) {
-		if (interval != timer_wheel->period)
+	if (nb_current_subcr_cache->timer_wheel) {
+		if (interval != nb_current_subcr_cache->timer_wheel->period)
 			/* Timer is running and interval has changed, stop timer wheel */
-			wheel_delete(timer_wheel);
+			wheel_delete(nb_current_subcr_cache->timer_wheel);
 		else
 			/* Timer is running, nothing has changed */
 			return;
 	}
 	DEBUGD(&nb_dbg_events, "Initing the timer wheel");
-	timer_wheel = wheel_init(master, sample_time, 1, nb_xpath_hash_key_make,
-				 nb_notify_subscriptions, "subscription thread");
+	nb_current_subcr_cache->timer_wheel =
+		wheel_init(master, sample_time, 1, nb_xpath_hash_key_make, nb_notify_subscriptions,
+			   "subscription thread");
 	xpath = XCALLOC(MTYPE_NB_CONFIG_ENTRY, XPATH_MAXLEN);
-	wheel_add_item(timer_wheel, xpath);
+	wheel_add_item(nb_current_subcr_cache->timer_wheel, xpath);
 	return;
 }
 
@@ -3069,8 +3079,14 @@ void nb_init(struct event_loop *tm,
 	running_config_entries = hash_create(running_config_entry_key_make,
 					     running_config_entry_cmp,
 					     "Running Configuration Entries");
-	subscr_cache_entries = hash_create(nb_xpath_hash_key_make, nb_xpath_hash_entry_cmp,
-					   "Subscription Cache Entries");
+
+	zlog_err("Testing with current subscription cache");
+	/* Allocate current cache to keep track*/
+	nb_current_subcr_cache = XCALLOC(MTYPE_NB_CONFIG, sizeof(struct nb_subscription_cache));
+
+	nb_current_subcr_cache->subscr_cache_entries = hash_create(nb_xpath_hash_key_make,
+								   nb_xpath_hash_entry_cmp,
+								   "Subscription Cache Entries");
 
 	pthread_mutex_init(&running_config_mgmt_lock.mtx, NULL);
 
