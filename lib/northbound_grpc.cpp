@@ -1360,6 +1360,7 @@ static int frr_grpc_notification_send(const char *xpath, struct list *arguments)
 	frr::SubscriptionCacheResponse resp;
 	auto *dt = cache.mutable_data();
 	dt->set_encoding(frr::JSON);
+	cache.set_sampletime(nb_get_sample_time());
 
 	status = get_path(dt, xpath, frr::GetRequest_DataType_STATE, LYD_JSON, false);
 	if (!status.ok()) {

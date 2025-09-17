@@ -2228,8 +2228,8 @@ static int get_leaf_len(const char *xpath)
 }
 
 
-static int nb_oper_data_iterate(const char *xpath, struct yang_translator *translator, uint32_t flags,
-			 nb_oper_data_cb cb, void *arg)
+static int nb_oper_data_iterate(const char *xpath, struct yang_translator *translator,
+				uint32_t flags, nb_oper_data_cb cb, void *arg)
 {
 	struct nb_node *nb_node;
 	const void *list_entry = NULL;
@@ -2540,10 +2540,16 @@ bool nb_cb_operation_is_valid(enum nb_cb_operation operation,
 }
 
 DEFINE_HOOK(nb_empty_notification_send, (), ());
+
 void nb_empty_notification_send(void)
 {
 	hook_call(nb_empty_notification_send);
 	return;
+}
+
+uint32_t nb_get_sample_time(void)
+{
+	return nb_current_subcr_cache->sample_time;
 }
 
 DEFINE_HOOK(nb_notification_send, (const char *xpath, struct list *arguments),
@@ -2824,6 +2830,8 @@ void nb_cache_subscriptions(struct event_loop *master, const char *xpath, const 
 			DEBUGD(&nb_dbg_events, "Deleting timer wheel");
 			wheel_delete(nb_current_subcr_cache->timer_wheel);
 			nb_current_subcr_cache->timer_wheel = NULL;
+			nb_current_subcr_cache->sample_time = 0;
+			return;
 		}
 	} else
 		nb_wheel_init_or_reset(master, xpath, interval);
@@ -2844,18 +2852,24 @@ static int hash_walk_dump(struct hash_bucket *bucket, void *arg)
 /* Send notification of the xpaths */
 int nb_notify_subscriptions(void)
 {
+	if (!nb_current_subcr_cache->timer_wheel)
+		return NB_OK;
+	/* Increment the sample time by timer wheel period */
+	nb_current_subcr_cache->sample_time = nb_current_subcr_cache->sample_time +
+					      (nb_current_subcr_cache->timer_wheel->period / 1000);
+	DEBUGD(&nb_dbg_events, "Sample time set to %d", nb_current_subcr_cache->sample_time);
 	struct subscr_cache_entry entry;
 	/* Walk the subscription cache */
 	hash_walk(nb_current_subcr_cache->subscr_cache_entries, hash_walk_dump, &entry);
 	return NB_OK;
 }
 
-void show_subscriptions(struct hash_bucket *bucket, void *arg)
+static int show_subscriptions(struct hash_bucket *bucket, void *arg)
 {
 	struct subscr_cache_entry *entry = bucket->data;
 	struct vty *vtyp = (struct vty *)arg;
 	vty_out(vtyp, "%s \n", entry->xpath);
-	return;
+	return 0;
 }
 
 void nb_show_subscription_cache(struct vty *vty)
@@ -3013,10 +3027,10 @@ static void nb_wheel_init_or_reset(struct event_loop *master, const char *xpath,
 	if (!master) {
 		return;
 	}
-	int sample_time = interval ? interval * 1000 : SUBSCRIPTION_SAMPLE_TIMER;
-	DEBUGD(&nb_dbg_events, "Wheel sample %d", sample_time);
+	int sampletime = interval ? interval * 1000 : SUBSCRIPTION_SAMPLE_TIMER;
+	DEBUGD(&nb_dbg_events, "Wheel sample %d", sampletime);
 	if (nb_current_subcr_cache->timer_wheel) {
-		if (interval != nb_current_subcr_cache->timer_wheel->period)
+		if ((uint32_t)interval != nb_current_subcr_cache->timer_wheel->period)
 			/* Timer is running and interval has changed, stop timer wheel */
 			wheel_delete(nb_current_subcr_cache->timer_wheel);
 		else
@@ -3025,10 +3039,10 @@ static void nb_wheel_init_or_reset(struct event_loop *master, const char *xpath,
 	}
 	DEBUGD(&nb_dbg_events, "Initing the timer wheel");
 	nb_current_subcr_cache->timer_wheel =
-		wheel_init(master, sample_time, 1, nb_xpath_hash_key_make, nb_notify_subscriptions,
-			   "subscription thread");
+		wheel_init(master, sampletime, 1, nb_xpath_hash_key_make,
+			   (void *)nb_notify_subscriptions, "subscription thread");
 	xpath = XCALLOC(MTYPE_NB_CONFIG_ENTRY, XPATH_MAXLEN);
-	wheel_add_item(nb_current_subcr_cache->timer_wheel, xpath);
+	wheel_add_item(nb_current_subcr_cache->timer_wheel, (void *)xpath);
 	return;
 }
 

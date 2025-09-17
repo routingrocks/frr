@@ -468,7 +468,12 @@ message SubscriptionCacheRequest
 {
 	// Paths requested by the client.
 	repeated string path = 1;
+
+	// Data associated with the xpath.
 	DataTree data = 2;
+
+	// Sample time of the data.
+	uint32 sampletime = 3;
 }
 
 message SubscriptionCacheResponse
