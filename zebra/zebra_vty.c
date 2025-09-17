@@ -3670,11 +3670,14 @@ DEFPY(show_evpn_local_mac_all,
 	vrf = vrf_lookup_by_id(VRF_DEFAULT);
 	FOR_ALL_INTERFACES (vrf, ifp) {
 		zif = (struct zebra_if *)ifp->info;
-		br = BRIDGE_FROM_ZEBRA_IF(zif);
+		if (!zif)
+			continue;
+		/* Only consider bridge interfaces */
+		if (!IS_ZEBRA_IF_BRIDGE(ifp))
+			continue;
 		if (!IS_ZEBRA_IF_BRIDGE_VLAN_AWARE(zif))
 			continue;
-		if (!br)
-			continue;
+		br = BRIDGE_FROM_ZEBRA_IF(zif);
 		for (int vid = 1; vid < VLANID_MAX; vid++) {
 			if (!br->mac_table[vid])
 				continue;
