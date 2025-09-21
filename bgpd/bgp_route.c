@@ -11175,6 +11175,10 @@ static void route_vty_out_advertised_to(struct vty *vty, struct peer *peer,
 			json_object_string_add(json_peer, "hostname",
 					       peer->hostname);
 
+		/* Add peerGroup information when the peer belongs to a group */
+		if (peer->group)
+			json_object_string_add(json_peer, "peerGroup", peer->group->name);
+
 		if (peer->conf_if)
 			json_object_object_add(json_adv_to, peer->conf_if,
 					       json_peer);
@@ -13252,10 +13256,9 @@ void route_vty_out_detail_header(struct vty *vty, struct bgp *bgp,
 				if (json && !json_adv_to)
 					json_adv_to = json_object_new_object();
 
-				route_vty_out_advertised_to(
-					vty, peer, &first,
-					"  Advertised to non peer-group peers:\n ",
-					json_adv_to);
+				route_vty_out_advertised_to(vty, peer, &first,
+							    "  Advertised to peers:\n ",
+							    json_adv_to);
 			}
 		}
 
