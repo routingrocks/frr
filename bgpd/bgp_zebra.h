@@ -132,6 +132,8 @@ extern void bgp_zebra_process_remote_routes_for_l2vni(struct event *e);
 enum zclient_send_status bgp_zebra_announce_actual(struct bgp_dest *dest,
 						   struct bgp_path_info *info,
 						   struct bgp *bgp);
+extern void bgp_zebra_update_fib_install_pending(struct bgp_dest *dest,
+						 struct bgp *bgp, bool install);
 
 struct in6_addr *bgp_path_info_to_ipv6_nexthop(struct bgp_path_info *path, ifindex_t *ifindex);
 bool bgp_zebra_use_nhop_weighted(struct bgp *bgp, struct attr *attr, uint32_t *nh_weight);

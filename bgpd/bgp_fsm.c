@@ -87,6 +87,8 @@ static void bgp_delayopen_timer(struct event *event);
 static void bgp_graceful_deferral_timer_expire(struct event *event);
 static void bgp_start_deferral_timer(struct bgp *bgp, afi_t afi, safi_t safi,
 				     struct graceful_restart_info *gr_info);
+static bool bgp_gr_check_all_eors(struct bgp *bgp, afi_t afi, safi_t safi,
+				  bool *multihop_eors_pending);
 
 /* Register peer with NHT */
 int bgp_peer_reg_with_nht(struct peer *peer)
@@ -881,6 +883,7 @@ static void bgp_graceful_deferral_timer_expire(struct event *thread)
 	afi_t afi;
 	safi_t safi;
 	struct bgp *bgp;
+	bool multihop_eors_pending = false;
 
 	info = EVENT_ARG(thread);
 	afi = info->afi;
@@ -909,6 +912,23 @@ static void bgp_graceful_deferral_timer_expire(struct event *thread)
 
 
 	XFREE(MTYPE_TMP, info);
+
+	/*
+	 * Since all deferred route calculation is complete(gr_deferred count is 0)
+	 * and EOR has been received from all neighbors, the callback is due to
+	 * timeout expiry for FIB install completion.
+	 * Check if graceful restart deferral completion is needed.
+	 */
+	if (BGP_SUPPRESS_FIB_ENABLED(bgp) &&
+	    bgp_gr_check_all_eors(bgp, afi, safi, &multihop_eors_pending) &&
+	    !bgp->gr_info[afi][safi].gr_deferred &&
+	    bgp->gr_route_sync_pending) {
+		if (BGP_DEBUG(graceful_restart, GRACEFUL_RESTART))
+			zlog_debug("%s: Triggering GR deferral completion from FIB notification for %s",
+				   bgp->name_pretty, get_afi_safi_str(afi, safi, false));
+		bgp_process_gr_deferral_complete(bgp, afi, safi);
+		return;
+	}
 
 	bgp_do_deferred_path_selection(bgp, afi, safi);
 }
@@ -1519,7 +1539,10 @@ void bgp_gr_check_path_select(struct bgp *bgp, afi_t afi, safi_t safi)
 	 */
 	if (bgp_gr_check_all_eors(bgp, afi, safi, &multihop_eors_pending)) {
 		gr_info = &(bgp->gr_info[afi][safi]);
-		EVENT_OFF(gr_info->t_select_deferral);
+		if (!BGP_SUPPRESS_FIB_ENABLED(bgp)) {
+			/* Turn off t_select_deferral if BGP_SUPPRESS_FIB_ENABLED is not set */
+			EVENT_OFF(gr_info->t_select_deferral);
+		}
 
 		/*
 		 * If there are no pending EORs from multihop peers

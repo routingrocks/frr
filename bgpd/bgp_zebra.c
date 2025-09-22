@@ -1897,6 +1897,25 @@ static void bgp_zebra_buffer_write_ready(void)
  *                                     save new pi, mark as going to be
  *                                     withdrawn.
  */
+void bgp_zebra_update_fib_install_pending(struct bgp_dest *dest,
+					  struct bgp *bgp, bool install)
+{
+	/*
+	 * BGP is installing this route and bgp has been configured
+	 * to suppress announcements until the route has been installed
+	 * let's set the fact that we expect this route to be installed
+	 */
+	if (install) {
+		if (BGP_SUPPRESS_FIB_ENABLED(bgp)) {
+			bgp_dest_increment_gr_fib_install_pending_count(dest);
+			SET_FLAG(dest->flags, BGP_NODE_FIB_INSTALL_PENDING);
+		}
+	} else {
+		bgp_dest_decrement_gr_fib_install_pending_count(dest);
+		UNSET_FLAG(dest->flags, BGP_NODE_FIB_INSTALL_PENDING);
+	}
+}
+
 void bgp_zebra_route_install(struct bgp_dest *dest, struct bgp_path_info *info,
 			     struct bgp *bgp, bool install, struct bgpevpn *vpn,
 			     bool is_sync)
@@ -1908,20 +1927,12 @@ void bgp_zebra_route_install(struct bgp_dest *dest, struct bgp_path_info *info,
 	if (table && table->afi == AFI_L2VPN && table->safi == SAFI_EVPN)
 		is_evpn = true;
 
-	/*
-	 * BGP is installing this route and bgp has been configured
-	 * to suppress announcements until the route has been installed
-	 * let's set the fact that we expect this route to be installed
-	 */
-	if (install) {
-		if (BGP_SUPPRESS_FIB_ENABLED(bgp))
-			SET_FLAG(dest->flags, BGP_NODE_FIB_INSTALL_PENDING);
+	/* Update FIB install pending flags */
+	bgp_zebra_update_fib_install_pending(dest, bgp, install);
 
-		if (bgp->main_zebra_update_hold && !is_evpn)
-			return;
-	} else {
-		UNSET_FLAG(dest->flags, BGP_NODE_FIB_INSTALL_PENDING);
-	}
+	/* Check for main zebra update hold */
+	if (install && bgp->main_zebra_update_hold && !is_evpn)
+		return;
 
 	/*
 	 * Don't try to install if we're not connected to Zebra or Zebra doesn't
@@ -2829,6 +2840,7 @@ static int bgp_zebra_route_notify_owner(int command, struct zclient *zclient,
 	case ZAPI_ROUTE_INSTALLED:
 		new_select = NULL;
 		/* Clear the flags so that route can be processed */
+		bgp_dest_decrement_gr_fib_install_pending_count(dest);
 		UNSET_FLAG(dest->flags, BGP_NODE_FIB_INSTALL_PENDING);
 		SET_FLAG(dest->flags, BGP_NODE_FIB_INSTALLED);
 		if (BGP_DEBUG(zebra, ZEBRA))
@@ -2859,12 +2871,14 @@ static int bgp_zebra_route_notify_owner(int command, struct zclient *zclient,
 		UNSET_FLAG(dest->flags, BGP_NODE_FIB_INSTALLED);
 		if (BGP_DEBUG(zebra, ZEBRA))
 			zlog_debug("route %pBD: Removed from Fib", dest);
+		bgp_dest_decrement_gr_fib_install_pending_count(dest);
 		break;
 	case ZAPI_ROUTE_FAIL_INSTALL:
 		new_select = NULL;
 		if (BGP_DEBUG(zebra, ZEBRA))
 			zlog_debug("route: %pBD Failed to Install into Fib",
 				   dest);
+		bgp_dest_decrement_gr_fib_install_pending_count(dest);
 		UNSET_FLAG(dest->flags, BGP_NODE_FIB_INSTALL_PENDING);
 		UNSET_FLAG(dest->flags, BGP_NODE_FIB_INSTALLED);
 		for (pi = bgp_dest_get_bgp_path_info(dest); pi; pi = pi->next) {
@@ -2880,6 +2894,7 @@ static int bgp_zebra_route_notify_owner(int command, struct zclient *zclient,
 			zlog_debug("route: %pBD removed due to better admin won",
 				   dest);
 		new_select = NULL;
+		bgp_dest_decrement_gr_fib_install_pending_count(dest);
 		UNSET_FLAG(dest->flags, BGP_NODE_FIB_INSTALL_PENDING);
 		UNSET_FLAG(dest->flags, BGP_NODE_FIB_INSTALLED);
 		for (pi = bgp_dest_get_bgp_path_info(dest); pi; pi = pi->next) {

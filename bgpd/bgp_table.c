@@ -15,6 +15,7 @@
 
 #include "bgpd/bgpd.h"
 #include "bgpd/bgp_table.h"
+#include "bgpd/bgp_route.h"
 #include "bgp_addpath.h"
 #include "bgp_trace.h"
 
@@ -180,6 +181,7 @@ void bgp_delete_listnode(struct bgp_dest *dest)
 		if (bgp && rn && rn->lock == 1) {
 			/* Delete the route from the selection pending list */
 			bgp->gr_info[afi][safi].gr_deferred--;
+			bgp_dest_decrement_gr_fib_install_pending_count(dest);
 			UNSET_FLAG(dest->flags, BGP_NODE_SELECT_DEFER);
 		}
 	}
