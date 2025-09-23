@@ -1427,6 +1427,18 @@ static int zl3vni_remote_rmac_add(struct zebra_l3vni *zl3vni,
 {
 	struct zebra_mac *zrmac = NULL;
 	struct ipaddr *vtep = NULL;
+	struct ipaddr ip_vtep;
+
+	/* L3VNI local VTEP-IP is v4 then map to v4 remote vtep,
+	 * if local VTEP-IP is v6 then use as is.
+	 * if the remote vtep is a ipv4 mapped ipv6 address convert it to ipv4
+	 * address. Rmac is programmed against the ipv4 vtep because we only
+	 * support ipv4 tunnels in the h/w right now
+	 */
+	if (IS_IPADDR_V4(&zl3vni->local_vtep_ip))
+		vtep_to_v4(vtep_ip, &ip_vtep);
+	else
+		ip_vtep = *vtep_ip;
 
 	zrmac = zl3vni_rmac_lookup(zl3vni, rmac);
 	if (!zrmac) {
@@ -1443,7 +1455,8 @@ static int zl3vni_remote_rmac_add(struct zebra_l3vni *zl3vni,
 		frrtrace(4, frr_zebra, l3vni_remote_rmac, 1, zl3vni->vni, vtep_ip, rmac);
 
 		memset(&zrmac->fwd_info, 0, sizeof(zrmac->fwd_info));
-                zrmac->fwd_info.r_vtep_ip = *vtep_ip;
+		// zrmac->fwd_info.r_vtep_ip = *vtep_ip;
+		zrmac->fwd_info.r_vtep_ip = ip_vtep;
 
 		/* Add to nh_list, use ipv6 still if mapped */
 		vtep = XCALLOC(MTYPE_EVPN_VTEP, sizeof(struct ipaddr));
@@ -1467,7 +1480,7 @@ static int zl3vni_remote_rmac_add(struct zebra_l3vni *zl3vni,
 		if (!listnode_add_sort_nodup(zrmac->nh_list, (void *)vtep))
 			XFREE(MTYPE_EVPN_VTEP, vtep);
 
-                if (!ipaddr_is_same(&zrmac->fwd_info.r_vtep_ip, vtep_ip)) {
+		if (!ipaddr_is_same(&zrmac->fwd_info.r_vtep_ip, &ip_vtep)) {
 			if (IS_ZEBRA_DEBUG_VXLAN)
 				zlog_debug(
 					"L3VNI %u Remote VTEP change(%pIA -> %pIA) for RMAC %pEA",
@@ -1475,9 +1488,10 @@ static int zl3vni_remote_rmac_add(struct zebra_l3vni *zl3vni,
 					vtep_ip, rmac);
 
 			frrtrace(4, frr_zebra, l3vni_remote_rmac_update, zl3vni->vni,
-				 &zrmac->fwd_info.r_vtep_ip, vtep_ip, rmac);
+				 &zrmac->fwd_info.r_vtep_ip, (struct ipaddr *)vtep_ip, rmac);
 
-                        zrmac->fwd_info.r_vtep_ip = *vtep_ip;
+			// zrmac->fwd_info.r_vtep_ip = *vtep_ip;
+			zrmac->fwd_info.r_vtep_ip = ip_vtep;
 
 			/* Send RMAC for FPM processing */
 			hook_call(zebra_rmac_update, zrmac, zl3vni, false,
@@ -1497,16 +1511,41 @@ static void zl3vni_remote_rmac_del(struct zebra_l3vni *zl3vni,
 				   struct zebra_mac *zrmac,
 				   struct ipaddr *vtep_ip)
 {
+	struct ipaddr ip_vtep;
+	struct ipaddr found_ip_vtep;
+
 	if (!zl3vni_nh_lookup(zl3vni, vtep_ip)) {
-                /* remove nh from rmac's list */
+		if (IS_IPADDR_V4(&zl3vni->local_vtep_ip))
+			vtep_to_v4(vtep_ip, &ip_vtep);
+		else
+			ip_vtep = *vtep_ip;
+
+		/*
+		 * remove nh from rmac's list
+		 *
+		 * use ipv6 still here if mapped
+		 */
 		l3vni_rmac_nh_list_nh_delete(zl3vni, zrmac, vtep_ip);
-                 /* If there are remaining entries, use IP from one */
-                 if (listcount(zrmac->nh_list)) {
-                        struct ipaddr *vtep;
+		/* delete nh is same as current selected, fall back to
+		 * one present in the list
+		 */
+		if (ipaddr_is_same(&zrmac->fwd_info.r_vtep_ip, &ip_vtep) &&
+		    listcount(zrmac->nh_list)) {
+			struct ipaddr *vtep;
 
 			vtep = listgetdata(listhead(zrmac->nh_list));
 
-			zrmac->fwd_info.r_vtep_ip = *vtep;
+			/* Check if mapped */
+			if (IS_IPADDR_V4(&zl3vni->local_vtep_ip))
+				vtep_to_v4(vtep, &found_ip_vtep);
+			else
+				found_ip_vtep = *vtep;
+
+			/* If still same, do nothing */
+			if (ipaddr_is_same(&zrmac->fwd_info.r_vtep_ip, &found_ip_vtep))
+				return;
+
+			zrmac->fwd_info.r_vtep_ip = found_ip_vtep;
 			if (IS_ZEBRA_DEBUG_VXLAN)
                                zlog_debug("L3VNI %u Remote VTEP nh change(%pIA -> %pIA) for RMAC %pEA",
                                           zl3vni->vni, vtep_ip, &zrmac->fwd_info.r_vtep_ip,                                        
@@ -1536,7 +1575,7 @@ static void zl3vni_remote_rmac_del(struct zebra_l3vni *zl3vni,
 					"L3VNI %u RMAC %pEA vtep_ip %pIA delete",
 					zl3vni->vni, &zrmac->macaddr, vtep_ip);
 
-			frrtrace(4, frr_zebra, l3vni_remote_rmac, 2, zl3vni->vni, vtep_ip,
+			frrtrace(4, frr_zebra, l3vni_remote_rmac, 2, zl3vni->vni, &ip_vtep,
 				 &zrmac->macaddr);
 
 			/* del the rmac entry */
@@ -1776,6 +1815,7 @@ static void zl3vni_check_del_rmac(struct zebra_l3vni *zl3vni,
 				  const struct ipaddr *vtep_ip)
 {
 	struct zebra_mac *zrmac = NULL;
+	struct ipaddr ipv4_vtep;
 
 	zrmac = zl3vni_rmac_lookup(zl3vni, &old_rmac);
 	if (!zrmac) {
@@ -1798,9 +1838,10 @@ static void zl3vni_check_del_rmac(struct zebra_l3vni *zl3vni,
 			/* Update the forward reference vtep IP to first node in list */
 			if (node) {
 				curr_vtep = listgetdata(node);
+				vtep_to_v4(curr_vtep, &ipv4_vtep);
 				if (IS_ZEBRA_DEBUG_VXLAN)
 					zlog_debug("Updating VTEP IP %pIA", curr_vtep);
-				zrmac->fwd_info.r_vtep_ip = *curr_vtep;
+				zrmac->fwd_info.r_vtep_ip = ipv4_vtep;
 			}
 		}
 		if (IS_ZEBRA_DEBUG_VXLAN) {
