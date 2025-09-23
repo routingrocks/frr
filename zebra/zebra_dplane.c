@@ -3655,7 +3655,7 @@ int dplane_ctx_route_init(struct zebra_dplane_ctx *ctx, enum dplane_op_e op,
 			nexthop->nh_encap_type = NET_VXLAN;
 			nexthop->nh_encap_vni = zl3vni->vni;
 			SET_IPADDR_V4(&nexthop->nh_encap_src_ip);
-			nexthop->nh_encap_src_ip.ipaddr_v4 = zl3vni->local_vtep_ip;
+			nexthop->nh_encap_src_ip = zl3vni->local_vtep_ip;
 			if (IS_ZEBRA_DEBUG_DPLANE_DETAIL)
 				zlog_debug("%s vni %u tunnel_ip %pIA", __func__, zl3vni->vni,
 					   &nexthop->nh_encap_src_ip);
