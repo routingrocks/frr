@@ -73,6 +73,36 @@ vtysh_b ()
 	if [ "$vtysh_enable" = 2 -a -f $C_PATH/frr.conf ]; then
 		$VTYSH -b
 	fi
+	
+	# NEW FEATURE: Automatically load modular config files on startup
+	# After loading the main frr.conf, also load any .conf files from frr.conf.d/
+	# This allows splitting your config into logical pieces:
+	#   - /etc/frr/frr.conf.d/10-interfaces.conf (interface configurations)
+	#   - /etc/frr/frr.conf.d/20-ospf.conf (OSPF routing)
+	#   - /etc/frr/frr.conf.d/30-bgp.conf (BGP routing)
+	if [ -d "$C_PATH/frr.conf.d" ]; then
+		# Find all .conf files and sort them alphabetically
+		# This ensures files load in order: 10-xxx.conf before 20-xxx.conf
+		conffiles=$(find "$C_PATH/frr.conf.d" -name "*.conf" -type f 2>/dev/null | sort)
+		if [ -n "$conffiles" ]; then
+			echo "Loading configuration files from $C_PATH/frr.conf.d during startup"
+			# Load each config file one by one
+			for conffile in $conffiles; do
+				if [ -r "$conffile" ]; then
+					echo "  Loading: $conffile"
+					# Use vtysh -f to load the config file
+					$VTYSH -f "$conffile" >/dev/null 2>&1
+					if [ $? -ne 0 ]; then
+						# Don't stop on error - continue with other files
+						echo "  WARNING: Failed to load $conffile"
+					fi
+				fi
+			done
+		fi
+	else
+		# Information message - not an error
+		echo "No frr.conf.d directory found at $C_PATH/frr.conf.d"
+	fi
 }
 
 # Check if the daemon is activated and if its executable and config files
