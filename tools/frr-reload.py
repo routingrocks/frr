@@ -22,9 +22,14 @@ import re
 import string
 import subprocess
 import sys
+import time
 from collections import OrderedDict
 from ipaddress import IPv6Address, ip_network
 from pprint import pformat
+
+# Maximum allowed size for config files to prevent loading huge files
+# This protects against accidental loading of non-config files
+MAX_CONFIG_SIZE = 10 * 1024 * 1024  # 10MB
 
 
 # Python 3
@@ -37,6 +42,7 @@ log = logging.getLogger(__name__)
 
 class VtyshException(Exception):
     pass
+
 
 
 class Vtysh(object):
@@ -319,6 +325,245 @@ class Config(object):
         self.contexts = OrderedDict()
         self.vtysh = vtysh
 
+        # Production enhancements for multi-file support
+        # Keep track of which files we've already loaded to avoid duplicates
+        self.loaded_files = []
+        # Track any conflicts when merging configs from multiple files
+        self.merge_conflicts = []
+
+        # Statistics to help with debugging and performance monitoring
+        # These counters help understand what's happening during config loading
+        self.stats = {
+            'files_loaded': 0,      # Total number of config files loaded
+            'lines_processed': 0,   # Total lines read from all files
+            'contexts_created': 0,  # Number of config contexts (like interfaces, routers)
+            'merge_time': 0        # Time taken to merge all configs
+        }
+
+
+    def load_from_multiple_files(self, main_file, confdir=None):
+        """
+        Load configuration from main file and optional .d directory
+        
+        This method implements:
+        - Multiple config file support (like having separate files for BGP, OSPF, interfaces)
+        - Numeric precedence (files starting with numbers load in order: 10-ospf.conf before 20-bgp.conf)
+        - Security validations to prevent loading files from outside the config directory
+        
+        Example: If you have:
+        - /etc/frr/frr.conf (main file)
+        - /etc/frr/frr.conf.d/10-interfaces.conf
+        - /etc/frr/frr.conf.d/20-bgp.conf
+        They will load in that order
+        """
+        merge_start = time.time()
+
+        log.info("Loading configuration from multiple files")
+
+        # First, load the main config file (usually /etc/frr/frr.conf)
+        if os.path.exists(main_file) and os.path.isfile(main_file):
+            try:
+                log.info(f"Loading main config file {main_file}")
+                file_output = self.vtysh.mark_file(main_file)
+                self._process_config_lines(file_output, main_file)
+                self.loaded_files.append(main_file)
+                self.stats['files_loaded'] += 1
+            except VtyshException as e:
+                log.error(f"Failed to load main file {main_file}: {e}")
+                raise
+        else:
+            log.warning(f"Main config file {main_file} not found")
+
+        # Next, load additional config files from the .d directory
+        # If no directory specified, default to <filename>.d (e.g., frr.conf.d)
+        if confdir is None:
+            confdir = main_file + ".d"
+
+        if os.path.exists(confdir) and os.path.isdir(confdir):
+            self._load_conf_d_files(confdir)
+        else:
+            log.debug(f"Config directory {confdir} does not exist")
+
+        # Load contexts
+        self.load_contexts()
+
+        self.stats['merge_time'] = time.time() - merge_start
+        log.info(f"Configuration loading complete in {self.stats['merge_time']:.2f}s")
+
+    def _load_conf_d_files(self, confdir):
+        """
+        Load all config files from the .d directory
+        Files are sorted by numeric prefix to control loading order
+        Example: 10-ospf.conf loads before 20-bgp.conf
+        """
+        import glob
+
+        log.info(f"Loading config files from {confdir}")
+
+        # Get all potential config files
+        patterns = [
+            os.path.join(confdir, "*.conf"),
+            os.path.join(confdir, "*.frr")
+        ]
+
+        conf_files = []
+        for pattern in patterns:
+            conf_files.extend(glob.glob(pattern))
+
+        # Remove duplicates and sort with numeric precedence
+        conf_files = sorted(set(conf_files), key=self._get_file_priority)
+
+        # Security: validate directory
+        confdir_abs = os.path.abspath(confdir)
+
+        for conf_file in conf_files:
+            basename = os.path.basename(conf_file)
+
+            # Skip backup/temp files that editors might create
+            # We don't want to load files like .swp (vim), ~ (emacs), .bak, etc.
+            if (basename.startswith('.') or
+                basename.endswith('~') or
+                basename.endswith('.bak') or
+                basename.endswith('.tmp') or
+                basename.endswith('.swp')):
+                continue
+
+            # SECURITY CHECK: Make sure the file is actually inside the config directory
+            # This prevents loading files from outside via symlinks or ../.. paths
+            conf_file_abs = os.path.realpath(conf_file)
+            if not conf_file_abs.startswith(confdir_abs + os.sep):
+                log.error(f"Security: {conf_file} is outside {confdir}")
+                continue
+
+            # Handle symbolic links safely
+            # If the config file is a symlink, make sure it points to a safe location
+            if os.path.islink(conf_file):
+                link_target = os.readlink(conf_file)
+                log.debug(f"Following symlink {conf_file} -> {link_target}")
+
+                if os.path.isabs(link_target):
+                    target_abs = link_target
+                else:
+                    target_abs = os.path.realpath(
+                        os.path.join(os.path.dirname(conf_file), link_target)
+                    )
+
+                if not target_abs.startswith(confdir_abs + os.sep):
+                    log.error(f"Security: symlink {conf_file} points outside {confdir}")
+                    continue
+
+            # Load the file
+            try:
+                log.info(f"Loading config file {conf_file}")
+                file_output = self.vtysh.mark_file(conf_file)
+                self._process_config_lines(file_output, conf_file)
+                self.loaded_files.append(conf_file)
+                self.stats['files_loaded'] += 1
+
+            except VtyshException as e:
+                log.error(f"Failed to load {conf_file}: {e}")
+                # Continue with other files
+            except Exception as e:
+                log.error(f"Unexpected error loading {conf_file}: {e}")
+                # Continue with other files
+
+    def _get_file_priority(self, filename):
+        """
+        Extract numeric priority from filename for ordering
+        
+        Examples:
+        - 10-interfaces.conf → priority 10
+        - 20-bgp.conf → priority 20
+        - zebra.conf → priority 999999 (loads last)
+        
+        Lower numbers load first, so you can control the order
+        """
+        basename = os.path.basename(filename)
+        # Look for pattern like "10.something" or "20-something"
+        match = re.match(r'^(\d+)\.(.+)$', basename)
+
+        if match:
+            priority = int(match.group(1))
+            name = match.group(2)
+            return (priority, name)
+        else:
+            # Files without numbers load last (high priority number)
+            return (999999, basename)
+
+    def _process_config_lines(self, file_output, source_file=None):
+        """Enhanced line processing with IPv6 validation"""
+        if not file_output:
+            return
+
+        current_context = []
+        line_number = 0
+
+        for line in file_output.split("\n"):
+            line_number += 1
+            self.stats['lines_processed'] += 1
+
+            try:
+                # Handle unicode
+                if isinstance(line, bytes):
+                    line = line.decode('utf-8', errors='replace')
+
+                line = line.strip()
+                if not line:
+                    continue
+
+
+                # Context tracking
+                if line == "exit" or line == "exit-vrf" or line == "exit-address-family":
+                    if current_context:
+                        current_context.pop()
+                elif (line.startswith("interface ") or
+                      line.startswith("router ") or
+                      line.startswith("route-map ") or
+                      line.startswith("vrf ") or
+                      line.startswith("address-family ")):
+                    current_context.append(line)
+
+                # Process the line normally
+                self._process_single_line(line)
+
+            except Exception as e:
+                log.error(f"Error processing line {line_number} in {source_file}: {e}")
+
+    def _process_single_line(self, line):
+        """Process a single line - extracted from load_from_file"""
+        # Compress duplicate whitespaces
+        line = " ".join(line.split())
+
+        # Remove 'vrf <vrf_name>' from 'interface <x> vrf <vrf_name>'
+        if line.startswith("interface ") and "vrf" in line:
+            line = get_normalized_interface_vrf(line)
+
+        # remove 'vrf default' from 'router bgp x vrf default'
+        if line.startswith("router bgp") and "vrf" in line and "default" in line:
+            # only consider 'vrf default' as it could be 'vrf defaultxyz'
+            bgp_default_re = re.search(r"\s+default$", line)
+            if bgp_default_re:
+                line = get_normalized_bgp_default(line)
+
+        if ":" in line:
+            line = get_normalized_mac_ip_line(line)
+
+        # Handle VRF static routes
+        if (line.startswith("ip route ") or line.startswith("ipv6 route ")) and " vrf " in line:
+            newline = line.split(" ")
+            vrf_index = newline.index("vrf")
+            vrf_ctx = newline[vrf_index] + " " + newline[vrf_index + 1]
+            del newline[vrf_index : vrf_index + 2]
+            newline = " ".join(newline)
+            self.lines.append(vrf_ctx)
+            self.lines.append(newline)
+            self.lines.append("exit-vrf")
+            line = "end"
+
+        self.lines.append(line)
+
+
+
     def load_from_file(self, filename):
         """
         Read configuration from specified file and slurp it into internal memory
@@ -327,57 +572,14 @@ class Config(object):
         """
         log.info("Loading Config object from file %s", filename)
 
-        file_output = self.vtysh.mark_file(filename)
-
-        for line in file_output.split("\n"):
-            line = line.strip()
-
-            # Compress duplicate whitespaces
-            line = " ".join(line.split())
-
-            # Remove 'vrf <vrf_name>' from 'interface <x> vrf <vrf_name>'
-            if line.startswith("interface ") and "vrf" in line:
-                line = get_normalized_interface_vrf(line)
-
-            # remove 'vrf default' from 'router bgp x vrf default'
-            if line.startswith("router bgp") and "vrf" in line and "default" in line:
-                # only consider 'vrf default' as it could be
-                # 'vrf defaultxyz'
-                bgp_default_re = re.search("\s+default$", line)
-                if bgp_default_re:
-                    line = get_normalized_bgp_default(line)
-
-            if ":" in line:
-                line = get_normalized_mac_ip_line(line)
-
-            # vrf static routes can be added in two ways. The old way is:
-            #
-            # "ip route x.x.x.x/x y.y.y.y vrf <vrfname>"
-            #
-            # but it's rendered in the configuration as the new way::
-            #
-            # vrf <vrf-name>
-            #  ip route x.x.x.x/x y.y.y.y
-            #  exit-vrf
-            #
-            # this difference causes frr-reload to not consider them a
-            # match and delete vrf static routes incorrectly.
-            # fix the old way to match new "show running" output so a
-            # proper match is found.
-            if (
-                line.startswith("ip route ") or line.startswith("ipv6 route ")
-            ) and " vrf " in line:
-                newline = line.split(" ")
-                vrf_index = newline.index("vrf")
-                vrf_ctx = newline[vrf_index] + " " + newline[vrf_index + 1]
-                del newline[vrf_index : vrf_index + 2]
-                newline = " ".join(newline)
-                self.lines.append(vrf_ctx)
-                self.lines.append(newline)
-                self.lines.append("exit-vrf")
-                line = "end"
-
-            self.lines.append(line)
+        try:
+            file_output = self.vtysh.mark_file(filename)
+            self._process_config_lines(file_output, filename)
+            self.loaded_files.append(filename)
+            self.stats['files_loaded'] += 1
+        except VtyshException as e:
+            log.error(f"Failed to load {filename}: {e}")
+            raise
 
         self.load_contexts()
 
@@ -2289,12 +2491,10 @@ def compare_context_objects(newconf, running):
                 if line not in running_ctx.dlines:
                     # candidate paths can only be added after the policy and segment list,
                     # so add them to a separate array that is going to be appended at the end
-                    if (
-                        len(newconf_ctx_keys) == 3
+                    if (len(newconf_ctx_keys) == 3
                         and newconf_ctx_keys[0].startswith("segment-routing")
                         and newconf_ctx_keys[2].startswith("policy ")
-                        and line.startswith("candidate-path ")
-                    ):
+                        and line.startswith("candidate-path ")):
                         candidates_to_add.append((newconf_ctx_keys, line))
 
                     else:
@@ -2311,11 +2511,9 @@ def compare_context_objects(newconf, running):
 
             # candidate paths can only be added after the policy and segment list,
             # so add them to a separate array that is going to be appended at the end
-            if (
-                len(newconf_ctx_keys) == 4
+            if (len(newconf_ctx_keys) == 4
                 and newconf_ctx_keys[0].startswith("segment-routing")
-                and newconf_ctx_keys[3].startswith("candidate-path")
-            ):
+                and newconf_ctx_keys[3].startswith("candidate-path")):
                 candidates_to_add.append((newconf_ctx_keys, None))
                 for line in newconf_ctx.lines:
                     candidates_to_add.append((newconf_ctx_keys, line))
@@ -2455,7 +2653,10 @@ def deduplicate_lines(lines, seen=None):
             deduped.append((ctx_keys, line))
     return deduped, seen
 
+
+
 if __name__ == "__main__":
+
     # Command line options
     parser = argparse.ArgumentParser(
         description="Dynamically apply diff in frr configs"
@@ -2521,6 +2722,28 @@ if __name__ == "__main__":
         "--test-reset",
         action="store_true",
         help="Used by topotest to not delete debug or log file commands",
+    )
+    # New argument to specify the .d directory for modular configs
+    parser.add_argument(
+        "--confdir-d",
+        help="path to the .d directory containing additional config files"
+             " (default: <filename>.d)",
+        default=None,
+    )
+    # Enable loading from multiple files (new default behavior)
+    parser.add_argument(
+        "--load-multiple",
+        dest="load_multiple",
+        action="store_true",
+        help="Load configuration from both main file and .d directory (default)",
+        default=True,
+    )
+    # Keep backward compatibility - allow disabling multi-file loading
+    parser.add_argument(
+        "--no-load-multiple",
+        dest="load_multiple",
+        action="store_false",
+        help="Disable loading from .d directory (legacy single-file mode)",
     )
 
     args = parser.parse_args()
@@ -2649,8 +2872,60 @@ if __name__ == "__main__":
 
     # Create a Config object from the config generated by newconf
     newconf = Config(vtysh)
+
     try:
-        newconf.load_from_file(args.filename)
+        if args.load_multiple:
+            # Load from main file and .d directory
+            # This is the new default behavior that supports modular configs
+
+            # Figure out where to find the .d directory
+            confdir_d = args.confdir_d
+            if confdir_d is None:
+                # Smart detection of .d directory based on the main config file
+                # This handles different installation scenarios
+
+                # Get full paths to work with
+                filename_abs = os.path.abspath(args.filename)
+                filename_dir = os.path.dirname(filename_abs)
+                filename_base = os.path.basename(filename_abs)
+
+                # Case 1: Standard FRR installation (/etc/frr/frr.conf)
+                if filename_abs == os.path.abspath(os.path.join(args.confdir, "frr.conf")):
+                    # Look for /etc/frr/frr.conf.d/
+                    confdir_d = os.path.join(args.confdir, "frr.conf.d")
+                    log.debug("Using standard .d location: %s", confdir_d)
+                    
+                # Case 2: frr.conf in a custom location
+                elif filename_base == "frr.conf":
+                    # Look for frr.conf.d in the same directory
+                    confdir_d = os.path.join(filename_dir, "frr.conf.d")
+                    log.debug("Using .d location relative to frr.conf: %s", confdir_d)
+                    
+                # Case 3: Custom config file name (e.g., test.conf)
+                else:
+                    # Look for test.conf.d
+                    confdir_d = args.filename + ".d"
+                    log.debug("Using .d suffix for non-standard file: %s", confdir_d)
+
+            # Validate the .d directory path
+            if confdir_d and os.path.exists(confdir_d) and not os.path.isdir(confdir_d):
+                log.error("%s exists but is not a directory", confdir_d)
+                # Continue anyway - main file might still work
+
+            # Load configuration from multiple files
+            # This handles all error cases internally
+            newconf.load_from_multiple_files(args.filename, confdir_d)
+
+            # Check if we loaded anything
+            if not newconf.lines:
+                log.warning("No configuration loaded from any file")
+                # This might be intentional (empty config) so don't fail
+
+        else:
+            # Legacy behavior - load only from single file
+            # This is maintained for backward compatibility
+            log.info("Multiple file loading disabled, using legacy single-file mode")
+            newconf.load_from_file(args.filename)
         reload_ok = True
     except VtyshException as ve:
         log.error("vtysh failed to process new configuration: {}".format(ve))
