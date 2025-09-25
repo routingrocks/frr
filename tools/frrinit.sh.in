@@ -122,7 +122,28 @@ reload)
 
 	NEW_CONFIG_FILE="${2:-$C_PATH/frr.conf}"
 	[ ! -r $NEW_CONFIG_FILE ] && log_failure_msg "Unable to read new configuration file $NEW_CONFIG_FILE" && exit 1
-	"$RELOAD_SCRIPT" --reload "$NEW_CONFIG_FILE" `echo $nsopt`
+	
+	# NEW FEATURE: Support for modular config files in .d directory
+	# This checks if /etc/frr/frr.conf.d/ exists and contains .conf files
+	if [ -d "$C_PATH/frr.conf.d" ]; then
+		# Look for any .conf files in the directory
+		# We only check for the first one (head -1) to avoid listing all files
+		conffiles=$(find "$C_PATH/frr.conf.d" -name "*.conf" -type f 2>/dev/null | head -1)
+		if [ -n "$conffiles" ]; then
+			# Found .conf files - include them in the reload
+			# This allows configs like: 10-interfaces.conf, 20-bgp.conf, etc.
+			log_success_msg "Reloading with frr.conf.d directory: $C_PATH/frr.conf.d"
+			"$RELOAD_SCRIPT" --reload "$NEW_CONFIG_FILE" --confdir-d "$C_PATH/frr.conf.d" `echo $nsopt`
+		else
+			# Directory exists but is empty - proceed without it
+			log_success_msg "No .conf files found in $C_PATH/frr.conf.d, reloading without it"
+			"$RELOAD_SCRIPT" --reload "$NEW_CONFIG_FILE" `echo $nsopt`
+		fi
+	else
+		# No .d directory - use traditional single-file reload
+		log_success_msg "Reloading without frr.conf.d directory"
+		"$RELOAD_SCRIPT" --reload "$NEW_CONFIG_FILE" `echo $nsopt`
+	fi
 	exit $?
 	;;
 

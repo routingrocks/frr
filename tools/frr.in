@@ -613,7 +613,20 @@ case "$1" in
 		NEW_CONFIG_FILE="${2:-$C_PATH/frr.conf}"
 		[ ! -r $NEW_CONFIG_FILE ] && echo "Unable to read new configuration file $NEW_CONFIG_FILE" && exit 1
 		echo "Applying only incremental changes to running configuration from frr.conf"
-		"$RELOAD_SCRIPT" --reload --bindir "$B_PATH" --confdir "$C_PATH" --rundir "$V_PATH" "$C_PATH/frr.conf"
+		
+		# NEW FEATURE: Check if there's a .d directory with additional config files
+		# This allows splitting configs into multiple files (e.g., bgp.conf, ospf.conf)
+		# The .d directory typically lives at /etc/frr/frr.conf.d/
+		if [ -d "$C_PATH/frr.conf.d" ]; then
+			# Directory exists - reload will include all .conf files from it
+			echo "Reloading with frr.conf.d directory: $C_PATH/frr.conf.d"
+			# Pass the --confdir-d parameter to tell frr-reload.py about the .d directory
+			"$RELOAD_SCRIPT" --reload --bindir "$B_PATH" --confdir "$C_PATH" --rundir "$V_PATH" "$C_PATH/frr.conf" --confdir-d "$C_PATH/frr.conf.d"
+		else
+			# No .d directory - use traditional single-file reload
+			echo "Reloading without frr.conf.d directory"
+			"$RELOAD_SCRIPT" --reload --bindir "$B_PATH" --confdir "$C_PATH" --rundir "$V_PATH" "$C_PATH/frr.conf"
+		fi
 		exit $?
 		;;
 
