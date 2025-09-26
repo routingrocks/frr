@@ -73,6 +73,37 @@ vtysh_b ()
 	if [ "$vtysh_enable" = 2 -a -f $C_PATH/frr.conf ]; then
 		$VTYSH -b
 	fi
+	
+	# NEW FEATURE: Automatically load modular config files on startup
+	# After loading the main frr.conf, also load any .conf files from frr.conf.d/
+	# This allows splitting your config into logical pieces:
+	#   - /etc/frr/frr.conf.d/10-interfaces.conf (interface configurations)
+	#   - /etc/frr/frr.conf.d/20-ospf.conf (OSPF routing)
+	#   - /etc/frr/frr.conf.d/30-bgp.conf (BGP routing)
+	if [ -d "$C_PATH/frr.conf.d" ]; then
+		# Find all .conf files and sort them alphabetically
+		# This ensures files load in order: 10-xxx.conf before 20-xxx.conf
+		# The -P flag prevents following symbolic links for security
+		conffiles=$(find -P "$C_PATH/frr.conf.d" -name "*.conf" -type f 2>/dev/null | sort)
+		if [ -n "$conffiles" ]; then
+			echo "Loading configuration files from $C_PATH/frr.conf.d during startup"
+			# Load each config file one by one
+			for conffile in $conffiles; do
+				if [ -r "$conffile" ]; then
+					echo "  Loading: $conffile"
+					# Use vtysh -f to load the config file
+					$VTYSH -f "$conffile" >/dev/null 2>&1
+					if [ $? -ne 0 ]; then
+						# Don't stop on error - continue with other files
+						echo "  WARNING: Failed to load $conffile"
+					fi
+				fi
+			done
+		fi
+	else
+		# Information message - not an error
+		echo "No frr.conf.d directory found at $C_PATH/frr.conf.d"
+	fi
 }
 
 # Check if the daemon is activated and if its executable and config files
@@ -583,7 +614,20 @@ case "$1" in
 		NEW_CONFIG_FILE="${2:-$C_PATH/frr.conf}"
 		[ ! -r $NEW_CONFIG_FILE ] && echo "Unable to read new configuration file $NEW_CONFIG_FILE" && exit 1
 		echo "Applying only incremental changes to running configuration from frr.conf"
-		"$RELOAD_SCRIPT" --reload --bindir "$B_PATH" --confdir "$C_PATH" --rundir "$V_PATH" "$C_PATH/frr.conf"
+		
+		# NEW FEATURE: Check if there's a .d directory with additional config files
+		# This allows splitting configs into multiple files (e.g., bgp.conf, ospf.conf)
+		# The .d directory typically lives at /etc/frr/frr.conf.d/
+		if [ -d "$C_PATH/frr.conf.d" ]; then
+			# Directory exists - reload will include all .conf files from it
+			echo "Reloading with frr.conf.d directory: $C_PATH/frr.conf.d"
+			# Pass the --confdir-d parameter to tell frr-reload.py about the .d directory
+			"$RELOAD_SCRIPT" --reload --bindir "$B_PATH" --confdir "$C_PATH" --rundir "$V_PATH" "$C_PATH/frr.conf" --confdir-d "$C_PATH/frr.conf.d"
+		else
+			# No .d directory - use traditional single-file reload
+			echo "Reloading without frr.conf.d directory"
+			"$RELOAD_SCRIPT" --reload --bindir "$B_PATH" --confdir "$C_PATH" --rundir "$V_PATH" "$C_PATH/frr.conf"
+		fi
 		exit $?
 		;;
 

@@ -79,6 +79,32 @@ vtysh_b () {
 
 	log_success_msg "Sending config with '$cmd'"
 	eval "$cmd"
+	
+	# NEW FEATURE: Load modular config files from .d directory during startup
+	# This is the same logic as in frr.in but for systems using frrcommon.sh
+	# Benefits:
+	#   - Keep interface configs separate from routing protocols
+	#   - Version control individual pieces of configuration
+	#   - Generate configs dynamically (e.g., per-tenant VRF configs)
+	if [ -d "$C_PATH/frr.conf.d" ]; then
+		# Find all .conf files, sorted alphabetically for predictable ordering
+		# The -P flag prevents following symbolic links for security
+		conffiles=$(find -P "$C_PATH/frr.conf.d" -name "*.conf" -type f 2>/dev/null | sort)
+		if [ -n "$conffiles" ]; then
+			log_success_msg "Loading configuration files from $C_PATH/frr.conf.d"
+			for conffile in $conffiles; do
+				if [ -r "$conffile" ]; then
+					log_success_msg "  Loading: $conffile"
+					# Load with namespace option if running in a namespace
+					$VTYSH $nsopt -f "$conffile" >/dev/null 2>&1
+					if [ $? -ne 0 ]; then
+						# Warning only - don't fail the entire startup
+						log_warning_msg "  WARNING: Failed to load $conffile"
+					fi
+				fi
+			done
+		fi
+	fi
 }
 
 daemon_inst() {
