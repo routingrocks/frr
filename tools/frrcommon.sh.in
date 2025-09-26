@@ -88,7 +88,8 @@ vtysh_b () {
 	#   - Generate configs dynamically (e.g., per-tenant VRF configs)
 	if [ -d "$C_PATH/frr.conf.d" ]; then
 		# Find all .conf files, sorted alphabetically for predictable ordering
-		conffiles=$(find "$C_PATH/frr.conf.d" -name "*.conf" -type f 2>/dev/null | sort)
+		# The -P flag prevents following symbolic links for security
+		conffiles=$(find -P "$C_PATH/frr.conf.d" -name "*.conf" -type f 2>/dev/null | sort)
 		if [ -n "$conffiles" ]; then
 			log_success_msg "Loading configuration files from $C_PATH/frr.conf.d"
 			for conffile in $conffiles; do

@@ -431,7 +431,8 @@ class Config(object):
             # SECURITY CHECK: Make sure the file is actually inside the config directory
             # This prevents loading files from outside via symlinks or ../.. paths
             conf_file_abs = os.path.realpath(conf_file)
-            if not conf_file_abs.startswith(confdir_abs + os.sep):
+            # Check if the file is within the directory OR is the directory itself
+            if not (conf_file_abs.startswith(confdir_abs + os.sep) or conf_file_abs == confdir_abs):
                 log.error(f"Security: {conf_file} is outside {confdir}")
                 continue
 
@@ -448,7 +449,8 @@ class Config(object):
                         os.path.join(os.path.dirname(conf_file), link_target)
                     )
 
-                if not target_abs.startswith(confdir_abs + os.sep):
+                # Check if the target is within the directory OR is the directory itself
+                if not (target_abs.startswith(confdir_abs + os.sep) or target_abs == confdir_abs):
                     log.error(f"Security: symlink {conf_file} points outside {confdir}")
                     continue
 
