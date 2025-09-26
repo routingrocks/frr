@@ -3584,7 +3584,7 @@ void subgroup_process_announce_selected(struct update_subgroup *subgrp,
 		 * returns false if the path info in the current function call
 		 * is not the best path and add path is Not configured.
 		 */
-		announce = subgroup_announce_check(dest, selected, subgrp, p, &attr, NULL);
+		announce = subgroup_announce_check(dest, selected, subgrp, p, pattr, NULL);
 		if (announce) {
 			/* Route is selected, if the route is already installed
 			 * in FIB, then it is advertised
@@ -3598,15 +3598,20 @@ void subgroup_process_announce_selected(struct update_subgroup *subgrp,
 					zlog_debug("%s: p=%pFX,  withdrawal %d", __func__, p,
 						   withdrawal);
 
-				if (!withdrawal)
-					bgp_adj_out_set_subgroup(dest, subgrp, &attr, selected);
-				else
+				if (!withdrawal) {
+					if (!bgp_adj_out_set_subgroup(dest, subgrp, pattr, selected))
+						bgp_attr_flush(pattr);
+				} else {
 					bgp_adj_out_unset_subgroup(
 						dest, subgrp, 1, addpath_tx_id);
+					bgp_attr_flush(pattr);
+				}
 			} else {
 				if (debug)
 					zlog_debug("%s: p=%pFX, check_advertise returned FALSE",
 						   __func__, p);
+
+				bgp_attr_flush(pattr);
 			}
 		} else {
 			if (debug)
@@ -3614,6 +3619,7 @@ void subgroup_process_announce_selected(struct update_subgroup *subgrp,
 					   __func__, p, advertise);
 
 			bgp_adj_out_unset_subgroup(dest, subgrp, 1, addpath_tx_id);
+			bgp_attr_flush(pattr);
 		}
 	}
 

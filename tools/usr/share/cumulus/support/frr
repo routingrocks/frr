@@ -15,20 +15,100 @@ jexec=
 
 func_frr()
 {
+    # FRR General Commands
     exec_cmd frr.show_ver vtysh -c "show version"
+    exec_cmd frr.show_running vtysh -c "show running-config"
+    exec_cmd frr.thread_cpu vtysh -c "show thread cpu"
+    exec_cmd frr.thread_poll vtysh -c "show thread poll"
+    exec_cmd frr.memory vtysh -c "show memory"
+    exec_cmd frr.debug_hashtable vtysh -c "show debug hashtable"
+    exec_cmd frr.work_queues vtysh -c "show work-queues"
+    exec_cmd frr.modules vtysh -c "show modules"
     exec_cmd frr.show_debug vtysh -c "show debugging"
     exec_cmd frr.show_log vtysh -c "show logging"
+    exec_cmd frr.bgp_yang vtysh -c "show yang operational-data bgpd"
+    exec_cmd frr.zebra_yang vtysh -c "show yang operational-data zebra"
 
+    # Zebra Daemon Commands
     exec_cmd $jexec zebra.metaq vtysh -c "show zebra metaq $json"
+    exec_cmd zebra.vrf vtysh -c "show vrf"
+    exec_cmd zebra.detail vtysh -c "show zebra"
+    exec_cmd zebra.csm vtysh -c "show zebra csm"
+    exec_cmd zebra.dplane vtysh -c "show zebra dplane"
+    exec_cmd zebra.vrf.vni vtysh -c "show vrf vni"
+    exec_cmd zebra.intf vtysh -c "show interface vrf all"
+    exec_cmd zebra.route vtysh -c "show ip route vrf all nexthop-group"
+    exec_cmd zebra.ipv6_route vtysh -c "show ipv6 route vrf all nexthop-group"
+    exec_cmd zebra.nhg vtysh -c "show nexthop-group rib"
+    exec_cmd zebra.client vtysh -c "show zebra client"
+    exec_cmd $jexec zebra.srv6.sid vtysh -c "show segment-routing srv6 sid $json"
+    exec_cmd zebra.table_summary vtysh -c "show zebra router table summary"
+    exec_cmd zebra.nht vtysh -c "show ip nht vrf all"
+    exec_cmd zebra.ipv6_nht vtysh -c "show ipv6 nht vrf all"
+
+    # BGP Daemon Commands
+    exec_cmd bgp.show_running vtysh -c "show running bgpd"
+    exec_cmd bgp.router vtysh -c "show bgp router"
+    exec_cmd $jexec bgp.summary vtysh -c "show ip bgp vrf all summary $json"
+    exec_cmd $jexec bgp.neighbors vtysh -c "show ip bgp vrf all neighbors $json"
+    exec_cmd bgp.nexthop vtysh -c "show ip bgp vrf all nexthop"
+    exec_cmd bgp.update_group vtysh -c "show ip bgp vrf all update-group"
+    exec_cmd bgp.route vtysh -c "show ip bgp vrf all"
+    exec_cmd $jexec bgp.vrfs vtysh -c "show bgp vrfs $json"
+    exec_cmd $jexec bgp.ipv6_summary vtysh -c "show bgp vrf all ipv6 uni summary $json"
+    exec_cmd bgp.ipv6_update_group vtysh -c "show bgp vrf all ipv6 uni update-group"
+    exec_cmd $jexec bgp.ipv6_route vtysh -c "show bgp vrf all ipv6 uni $json"
+    exec_cmd bgp.ipv4_vpn_all vtysh -c "show bgp ipv4 vpn all"
+    exec_cmd bgp.ipv6_vpn_all vtysh -c "show bgp ipv6 vpn all"
+    exec_cmd bgp.ipv4_soo vtysh -c "show bgp ipv4 unicast soo route"
+    exec_cmd bgp.ipv6_soo vtysh -c "show bgp ipv6 unicast soo route"
+    exec_cmd $jexec bgp.ipv4_vpn_route_leak vtysh -c "show bgp vrf all ipv4 unicast route-leak $json"
+    exec_cmd $jexec bgp.ipv6_vpn_route_leak vtysh -c "show bgp vrf all ipv6 unicast route-leak $json"
+
+    # BGP EVPN Commands
+    exec_cmd $jexec bgp.evpn.summary vtysh -c "show bgp l2vpn evpn summary $json"
+    exec_cmd bgp.evpn.route.vni.all vtysh -c "show bgp vni all"
+    exec_cmd $jexec bgp.evpn.es.detail vtysh -c "show bgp l2vpn evpn es detail $json"
+    exec_cmd $jexec bgp.evpn.es_evi.detail vtysh -c "show bgp l2vpn evpn es-evi detail $json"
+    exec_cmd $jexec bgp.evpn.es_vrf vtysh -c "show bgp l2vpn evpn es-vrf $json"
+    exec_cmd $jexec bgp.evpn.vni vtysh -c "show bgp l2vpn evpn vni $json"
+    exec_cmd bgp.evpn.route vtysh -c "show bgp l2vpn evpn route"
+    exec_cmd bgp.evpn.route.mac_ip_evi_es vtysh -c "show bgp l2vpn evpn route mac-ip-evi-es"
+    exec_cmd bgp.evpn.route.mac_ip_global_es vtysh -c "show bgp l2vpn evpn route mac-ip-global-es"
+    exec_cmd $jexec bgp.evpn.vrfimportrt vtysh -c "show bgp l2vpn evpn vrf-import-rt $json"
+    exec_cmd $jexec bgp.evpn.importrt vtysh -c "show bgp l2vpn evpn import-rt $json"
+    exec_cmd bgp.evpn.update_group vtysh -c "show bgp l2vpn evpn update-groups"
+    exec_cmd bgp.mac_hash vtysh -c "show bgp mac hash"
+    exec_cmd $jexec bgp.evpn.nexthops vtysh -c "show bgp l2vpn evpn next-hops $json"
+
+    # EVPN Commands
+    # NOTE - Don't enable json version of these cmds without scale testing.
+    # json version was removed because these cmds were leading to memory pileup on scale
+    exec_cmd $jexec evpn.vni.detail vtysh -c "show evpn vni detail $json"
+    exec_cmd $jexec evpn vtysh -c "show evpn $json"
+    exec_cmd $jexec evpn.arp_nd_redirect vtysh -c "show evpn arp-nd-redirect $json"
+    exec_cmd $jexec evpn.es.detail vtysh -c "show evpn es detail $json"
+    exec_cmd $jexec evpn.es_evi.detail vtysh -c "show evpn es-evi detail $json"
+    exec_cmd $jexec evpn.l2_nh vtysh -c "show evpn l2-nh $json"
+    exec_cmd evpn.mac.vni vtysh -c "show evpn mac vni all"
+    exec_cmd evpn.arp_cache.vni vtysh -c "show evpn arp-cache vni all"
+    exec_cmd $jexec evpn.rmac.vni vtysh -c "show evpn rmac vni all $json"
+    exec_cmd $jexec evpn.nexthop.vni vtysh -c "show evpn next-hops vni all $json"
+    exec_cmd $jexec evpn.vlan.vni vtysh -c "show evpn access-vlan $json"
+    exec_cmd evpn.local_mac.all  vtysh -c "show evpn local-mac"
+
+    # OSPF Daemon Commands
+    exec_cmd ospf.show_running vtysh -c "show running ospfd"
+    exec_cmd ospf.vrfs vtysh -c "show ip ospf vrfs"
     exec_cmd $jexec ospf vtysh -c "show ip ospf vrf all $json"
     exec_cmd $jexec ospf.neighbor vtysh -c "show ip ospf vrf all neighbor $json"
     exec_cmd $jexec ospf.interface vtysh -c "show ip ospf vrf all interface $json"
     exec_cmd ospf.database vtysh -c "show ip ospf vrf all database"
     exec_cmd ospf.borderrouters vtysh -c "show ip ospf vrf all border-routers"
     exec_cmd ospf.database.router vtysh -c "show ip ospf vrf all database router"
-    exec_cmd ospf.vrfs vtysh -c "show ip ospf vrfs"
-    exec_cmd ospf.show_running vtysh -c "show running ospfd"
 
+    # OSPF6 Daemon Commands
+    exec_cmd ospf6.show_running vtysh -c "show running ospf6d"
     exec_cmd ospf6 vtysh -c "show ipv6 ospf6"
     exec_cmd ospf6.neighbor vtysh -c "show ipv6 ospf6 neighbor"
     exec_cmd ospf6.interface vtysh -c "show ipv6 ospf6 interface"
@@ -37,50 +117,8 @@ func_frr()
     exec_cmd ospf6.spf.tree vtysh -c "show ipv6 ospf6 spf tree"
     exec_cmd ospf6.database.router vtysh -c "show ipv6 ospf6 database router"
     exec_cmd ospf6.route_summary vtysh -c "show ipv6 ospf6 route summary"
-    exec_cmd ospf6.show_running vtysh -c "show running ospf6d"
 
-    exec_cmd bgp.show_running vtysh -c "show running bgpd"
-    exec_cmd $jexec bgp.summary vtysh -c "show ip bgp vrf all summary $json"
-    exec_cmd $jexec bgp.neighbors vtysh -c "show ip bgp vrf all neighbors $json"
-    exec_cmd bgp.nexthop vtysh -c "show ip bgp vrf all nexthop"
-    exec_cmd bgp.update_group vtysh -c "show ip bgp vrf all update-group"
-    exec_cmd bgp.route vtysh -c "show ip bgp vrf all"
-    exec_cmd $jexec bgp.route.ipv4_vrf_all_detail vtysh -c "show bgp vrf all ipv4 unicast detail $json"
-    exec_cmd $jexec bgp.route.ipv6_vrf_all_detail vtysh -c "show bgp vrf all ipv6 unicast detail $json"
-    exec_cmd $jexec bgp.vrfs vtysh -c "show bgp vrfs $json"
-
-    exec_cmd $jexec bgp.ipv6_summary vtysh -c "show bgp vrf all ipv6 uni summary $json"
-    exec_cmd bgp.ipv6_update_group vtysh -c "show bgp vrf all ipv6 uni update-group"
-    exec_cmd $jexec bgp.ipv6_route vtysh -c "show bgp vrf all ipv6 uni $json"
-
-    exec_cmd $jexec bgp.ipv4_vpn_route_leak vtysh -c "show bgp vrf all ipv4 unicast route-leak $json"
-    exec_cmd $jexec bgp.ipv6_vpn_route_leak vtysh -c "show bgp vrf all ipv6 unicast route-leak $json"
-    exec_cmd bgp.ipv4_vpn_all vtysh -c "show bgp ipv4 vpn all"
-    exec_cmd bgp.ipv6_vpn_all vtysh -c "show bgp ipv6 vpn all"
-    exec_cmd bgp.ipv4_lu vtysh -c "show bgp ipv4 labeled-unicast"
-    exec_cmd bgp.ipv6_lu vtysh -c "show bgp ipv6 labeled-unicast"
-    exec_cmd bgp.ipv4_soo vtysh -c "show bgp ipv4 unicast soo route"
-    exec_cmd bgp.ipv6_soo vtysh -c "show bgp ipv6 unicast soo route"
-
-    exec_cmd frr.show_running vtysh -c "show running-config"
-
-    exec_cmd zebra.vrf vtysh -c "show vrf"
-    exec_cmd zebra.detail vtysh -c "show zebra"
-    exec_cmd zebra.csm vtysh -c "show zebra csm"
-    exec_cmd zebra.dplane vtysh -c "show zebra dplane"
-    exec_cmd zebra.vrf.vni vtysh -c "show vrf vni"
-    exec_cmd zebra.intf vtysh -c "show interface vrf all"
-    exec_cmd zebra.nht vtysh -c "show ip nht vrf all"
-    exec_cmd zebra.ipv6_nht vtysh -c "show ipv6 nht vrf all"
-    exec_cmd zebra.route vtysh -c "show ip route vrf all nexthop-group"
-    exec_cmd zebra.ipv6_route vtysh -c "show ipv6 route vrf all nexthop-group"
-    exec_cmd zebra.client vtysh -c "show zebra client"
-    exec_cmd zebra.table_summary vtysh -c "show zebra router table summary"
-    exec_cmd zebra.mpls_table vtysh -c "show mpls table"
-    exec_cmd zebra.mpls_fec vtysh -c "show mpls fec"
-    exec_cmd zebra.nhg vtysh -c "show nexthop-group rib"
-    exec_cmd $jexec zebra.srv6.sid vtysh -c "show segment-routing srv6 sid $json"
-
+    # PIM Daemon Commands
     exec_cmd $jexec pim.upstream vtysh -c "show ip pim vrf all upstream $json"
     exec_cmd $jexec pim.join vtysh -c "show ip pim vrf all join $json"
     exec_cmd $jexec pim.mroutes vtysh -c "show ip mroute vrf all $json"
@@ -101,52 +139,15 @@ func_frr()
     exec_cmd $jexec pim.msdp.sa vtysh -c "show ip msdp vrf all sa detail $json"
     exec_cmd $jexec pim.msdp.mesh vtysh -c "show ip msdp vrf all mesh-group $json"
 
-    # NOTE - Don't enable json version of these cmds without scale testing.
-    # json version was removed because these cmds were leading to memory pileup on scale
-    exec_cmd $jexec evpn.vni.detail vtysh -c "show evpn vni detail $json"
-    exec_cmd $jexec evpn vtysh -c "show evpn $json"
-    exec_cmd $jexec evpn.arp_nd_redirect vtysh -c "show evpn arp-nd-redirect $json"
-    exec_cmd $jexec evpn.es.detail vtysh -c "show evpn es detail $json"
-    exec_cmd $jexec evpn.es_evi.detail vtysh -c "show evpn es-evi detail $json"
-    exec_cmd $jexec evpn.l2_nh vtysh -c "show evpn l2-nh $json"
-    exec_cmd evpn.mac.vni vtysh -c "show evpn mac vni all"
-    exec_cmd evpn.arp_cache.vni vtysh -c "show evpn arp-cache vni all"
-    exec_cmd $jexec evpn.rmac.vni vtysh -c "show evpn rmac vni all $json"
-    exec_cmd $jexec evpn.nexthop.vni vtysh -c "show evpn next-hops vni all $json"
-    exec_cmd $jexec bgp.evpn.summary vtysh -c "show bgp l2vpn evpn summary $json"
-    exec_cmd $jexec bgp.evpn.es.detail vtysh -c "show bgp l2vpn evpn es detail $json"
-    exec_cmd $jexec bgp.evpn.es_evi.detail vtysh -c "show bgp l2vpn evpn es-evi detail $json"
-    exec_cmd $jexec bgp.evpn.es_vrf vtysh -c "show bgp l2vpn evpn es-vrf $json"
-    exec_cmd $jexec bgp.evpn.vni vtysh -c "show bgp l2vpn evpn vni $json"
-    exec_cmd bgp.evpn.route vtysh -c "show bgp l2vpn evpn route"
-    exec_cmd bgp.evpn.route.vni.all vtysh -c "show bgp vni all"
-    exec_cmd bgp.evpn.route.mac_ip_evi_es vtysh -c "show bgp l2vpn evpn route mac-ip-evi-es"
-    exec_cmd bgp.evpn.route.mac_ip_global_es vtysh -c "show bgp l2vpn evpn route mac-ip-global-es"
-    exec_cmd $jexec evpn.vlan.vni vtysh -c "show evpn access-vlan $json"
-    exec_cmd $jexec bgp.evpn.vrfimportrt vtysh -c "show bgp l2vpn evpn vrf-import-rt $json"
-    exec_cmd $jexec bgp.evpn.importrt vtysh -c "show bgp l2vpn evpn import-rt $json"
-    exec_cmd bgp.evpn.update_group vtysh -c "show bgp l2vpn evpn update-groups"
-    exec_cmd bgp.mac_hash vtysh -c "show bgp mac hash"
-    exec_cmd $jexec bgp.evpn.nexthops vtysh -c "show bgp l2vpn evpn next-hops $json"
-    exec_cmd bgp.router vtysh -c "show bgp router"
-
+    # PBR Commands
     exec_cmd $jexec pbr.map vtysh -c "show pbr map $json"
     exec_cmd $jexec pbr.intf vtysh -c "show pbr interface $json"
     exec_cmd $jexec pbr.nhop.group vtysh -c "show pbr nexthop-groups $json"
 
+    # VRRP Commands
     exec_cmd vrrp.summary vtysh -c "show vrrp"
 
-    exec_cmd frr.thread_cpu vtysh -c "show thread cpu"
-    exec_cmd frr.thread_poll vtysh -c "show thread poll"
-    exec_cmd frr.debug_hashtable vtysh -c "show debug hashtable"
-    exec_cmd frr.work_queues vtysh -c "show work-queues"
-    exec_cmd frr.memory vtysh -c "show memory"
-    exec_cmd frr.modules vtysh -c "show modules"
-    exec_cmd frr.bgp_yang vtysh -c "show yang operational-data bgpd"
-    exec_cmd frr.zebra_yang vtysh -c "show yang operational-data zebra"
-
-    exec_cmd evpn.local_mac.all  vtysh -c "show evpn local-mac"
-
+    # Cleanup sensitive information
     sed -i -e 's/authentication-key [^ ]*/ authentication-key SSSS/' -e '/password /s/ [^ ]*$/ SSSS/' -e '/message-digest/s/md5 [^ ]*/md5 SSSS/' -e '/authentication string/s/ [^ ]*$/ SSSS/' -e '/key-string/s/ [^ ]*$/ SSSS/' *.show_running
 
     [ $SUP_SECURE -eq 0 ] && {
@@ -195,6 +196,8 @@ func_bgpsootable()
 
 func_bgptable()
 {
+    exec_cmd bgp.ipv4_lu vtysh -c "show bgp ipv4 labeled-unicast"
+    exec_cmd bgp.ipv6_lu vtysh -c "show bgp ipv6 labeled-unicast"
     exec_cmd $jexec bgp.route.ipv4_vrf_all_detail vtysh -c "show bgp vrf all ipv4 unicast detail $json"
     exec_cmd $jexec bgp.route.ipv6_vrf_all_detail vtysh -c "show bgp vrf all ipv6 unicast detail $json"
 }
