@@ -6820,7 +6820,7 @@ void zebra_vxlan_stale_hrep_add(struct ipaddr vtep_ip, vni_t vni)
 	zevpn = zebra_evpn_lookup(vni);
 	if (!zevpn || !zevpn->vxlan_if) {
 		if (IS_ZEBRA_DEBUG_VXLAN)
-			zlog_debug("EVPN-GR: Add HREP %pI4, VNI %u,could not find EVPN inst/intf (%p)",
+			zlog_debug("EVPN-GR: Add HREP %pIA, VNI %u,could not find EVPN inst/intf (%p)",
 				   &vtep_ip, vni, zevpn);
 		return;
 	}
@@ -6854,7 +6854,7 @@ void zebra_vxlan_stale_remote_mac_add_l3vni(struct zebra_l3vni *zl3vni, struct e
 	zrmac = zl3vni_rmac_lookup(zl3vni, macaddr);
 	if (zrmac) {
 		if (IS_ZEBRA_DEBUG_VXLAN)
-			zlog_debug("EVPN-GR: RMAC %pEA (%p) zl3vni %p,VTEP %pI4 L3VNI %d exists",
+			zlog_debug("EVPN-GR: RMAC %pEA (%p) zl3vni %p,VTEP %pIA L3VNI %d exists",
 				   macaddr, zrmac, zl3vni, &vtep_ip, zl3vni->vni);
 		return;
 	}
@@ -6862,7 +6862,7 @@ void zebra_vxlan_stale_remote_mac_add_l3vni(struct zebra_l3vni *zl3vni, struct e
 	/* Create the RMAC entry*/
 	zrmac = zl3vni_rmac_add(zl3vni, macaddr);
 	if (!zrmac) {
-		zlog_debug("EVPN-GR: Failed to add RMAC %pEA. VTEP %pI4 L3VNI %u", macaddr,
+		zlog_debug("EVPN-GR: Failed to add RMAC %pEA. VTEP %pIA L3VNI %u", macaddr,
 			   &vtep_ip, zl3vni->vni);
 		return;
 	}
@@ -6870,7 +6870,7 @@ void zebra_vxlan_stale_remote_mac_add_l3vni(struct zebra_l3vni *zl3vni, struct e
 	zrmac->fwd_info.r_vtep_ip = vtep_ip;
 
 	if (IS_ZEBRA_DEBUG_VXLAN)
-		zlog_debug("EVPN-GR: Added stale RMAC %pEA (%p) zl3vni %p, VTEP %pI4 L3VNI %d",
+		zlog_debug("EVPN-GR: Added stale RMAC %pEA (%p) zl3vni %p, VTEP %pIA L3VNI %d",
 			   macaddr, zrmac, zl3vni, &vtep_ip, zl3vni->vni);
 }
 
