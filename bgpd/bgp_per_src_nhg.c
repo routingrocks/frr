@@ -71,6 +71,8 @@ extern struct in6_addr *bgp_path_info_to_ipv6_nexthop(struct bgp_path_info *path
 static void bgp_per_src_nhg_del_send(struct bgp_per_src_nhg_hash_entry *nhe);
 static void bgp_per_src_nhg_timer_slot_run(void *item);
 static void bgp_per_src_nhg_move_to_zebra_nhid_cb(struct hash_bucket *bucket, void *ctx);
+static void bgp_per_src_nhg_nc_del_nh_ll_and_global(struct bgp_per_src_nhg_hash_entry *nhe,
+						     struct bgp_path_info *pi);
 static void bgp_soo_zebra_route_install(struct bgp_per_src_nhg_hash_entry *nhe,
 					struct bgp_dest *dest);
 
@@ -1068,6 +1070,13 @@ static void bgp_per_src_nhg_nc_add(afi_t afi, struct bgp_per_src_nhg_hash_entry 
 	if (BGP_DEBUG(per_src_nhg, PER_SRC_NHG))
 		zlog_debug("Linked pi to bnc nhg %pFX(%d)(%s) peer %p", &bnc->prefix, bnc->ifindex,
 			   nhe->bgp->name_pretty, pi->peer);
+
+	/* Delete link-local nexthop if IPv6 with both global and local addresses and prefer global is set */
+	if (afi == AFI_IP6 &&
+	    pi->attr->mp_nexthop_len == BGP_ATTR_NHLEN_IPV6_GLOBAL_AND_LL &&
+	    pi->attr->mp_nexthop_prefer_global) {
+		bgp_per_src_nhg_nc_del_nh_ll_and_global(nhe, pi);
+	}
 }
 
 /* Delete from SOO NHG nexthop cache */
@@ -1110,6 +1119,36 @@ static void bgp_per_src_nhg_nc_del(afi_t afi, struct bgp_per_src_nhg_hash_entry 
 	UNSET_FLAG(nhe->flags, PER_SRC_NEXTHOP_GROUP_SOO_ROUTE_DO_WECMP);
 	SET_FLAG(nhe->flags, PER_SRC_NEXTHOP_GROUP_INSTALL_PENDING);
 	bnc_nhg_free(bnc);
+}
+
+/* Delete local link nexthop from SOO NHG nexthop cache */
+static void bgp_per_src_nhg_nc_del_nh_ll_and_global(struct bgp_per_src_nhg_hash_entry *nhe,
+						     struct bgp_path_info *pi)
+{
+	struct prefix p = { 0 };
+	struct bgp_nhg_nexthop_cache *bnc;
+	ifindex_t ifindex;
+
+	if (!pi->attr) {
+		zlog_err("pi attr is NULL for bgp_per_src_nhg_nc_del_nh_ll_and_global");
+		return;
+	}
+
+	/* Create prefix for mp_nexthop_local */
+	p.family = AF_INET6;
+	p.u.prefix6 = pi->attr->mp_nexthop_local;
+	p.prefixlen = IPV6_MAX_BITLEN;
+
+	ifindex = pi->peer->connection->su.sin6.sin6_scope_id;
+
+	bnc = bnc_nhg_find(&nhe->nhg_nexthop_cache_table, &p, ifindex);
+	if (bnc) {
+		if (BGP_DEBUG(per_src_nhg, PER_SRC_NHG))
+			zlog_debug("Unlink and free pi bnc nhg %pFX(%d) peer %p (local)",
+				   &bnc->prefix, bnc->ifindex, pi->peer);
+		SET_FLAG(nhe->flags, PER_SRC_NEXTHOP_GROUP_INSTALL_PENDING);
+		bnc_nhg_free(bnc);
+	}
 }
 
 static struct bgp_dest_soo_hash_entry *bgp_dest_soo_add(struct bgp_per_src_nhg_hash_entry *nhe,
