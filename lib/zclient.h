@@ -30,6 +30,9 @@ struct zclient;
 #include "srte.h"
 #include "srv6.h"
 
+/* External access to platform multipath capability for validation */
+extern uint32_t zclient_global_platform_multipath_num;
+
 #ifdef __cplusplus
 extern "C" {
 #endif

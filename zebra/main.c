@@ -456,6 +456,9 @@ int main(int argc, char **argv)
 
 	zrouter.master = frr_init();
 
+	/* Initialize platform detection hooks */
+	zebra_platform_init();
+
 	/* Zebra related initialize. */
 	zebra_router_init(asic_offload, notify_on_ack, v6_with_v4_nexthop);
 	zserv_init();

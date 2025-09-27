@@ -11,6 +11,7 @@
 #include "lib/hook.h"
 
 #include "zebra_router.h"
+#include "zebra_router_cl.h"
 #include "zebra_pbr.h"
 #include "zebra_vxlan.h"
 #include "zebra_mlag.h"
@@ -358,22 +359,8 @@ void zebra_router_init(bool asic_offload, bool notify_on_ack,
 					       "TC (filter) Hash");
 
 	/*
-	 * Cumulus does this by default
+	 * Basic initialization - platform-specific logic moved to nos_initialize_data hook
 	 */
-	struct stat pfile;
-	if (stat("/usr/bin/platform-detect", &pfile) >= 0) {
-		int rc = 0;
-
-		if ((rc = system("/usr/bin/platform-detect | grep vx")) == 0)
-			zrouter.zav.asic_offloaded = false;
-		else
-			zrouter.zav.asic_offloaded = true;
-
-		if (WIFSIGNALED(rc) && WTERMSIG(rc) == SIGINT)
-			raise(SIGINT);
-	} else
-		zrouter.zav.asic_offloaded = asic_offload;
-
 	zrouter.zav.asic_offloaded = asic_offload;
 	zrouter.zav.notify_on_ack = notify_on_ack;
 	zrouter.zav.v6_with_v4_nexthop = v6_with_v4_nexthop;

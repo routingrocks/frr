@@ -791,7 +791,7 @@ static void bgp_per_src_nhg_add_send(struct bgp_per_src_nhg_hash_entry *nhe)
 			continue;
 
 		/* Don't overrun the zapi buffer. */
-		if (api_nhg.nexthop_num == MULTIPATH_NUM)
+		if (api_nhg.nexthop_num == multipath_num)
 			break;
 
 		/* convert to zapi format */

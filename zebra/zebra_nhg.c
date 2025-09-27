@@ -2165,7 +2165,7 @@ static int resolve_backup_nexthops(const struct nexthop *nexthop,
 		}
 
 		/* We can't handle any new map entries at this point. */
-		if (map->map_count == MULTIPATH_NUM)
+		if (map->map_count == zrouter.zav.multipath_num)
 			break;
 
 		/* Need to create/copy a new backup */

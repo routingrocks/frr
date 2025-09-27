@@ -62,6 +62,9 @@ socklen_t zclient_addr_len;
 /* This file local debug flag. */
 static int zclient_debug;
 
+/* Platform multipath capability for low-level encoding functions */
+uint32_t zclient_global_platform_multipath_num = MULTIPATH_NUM;
+
 /* Allocate zclient structure. */
 struct zclient *zclient_new(struct event_loop *master,
 			    const struct zclient_options *opt,
@@ -1167,11 +1170,19 @@ static int zapi_nhg_encode(struct stream *s, int cmd, struct zapi_nhg *api_nhg)
 		return -1;
 	}
 
-	if (api_nhg->nexthop_num > MULTIPATH_NUM ||
-	    api_nhg->backup_nexthop_num > MULTIPATH_NUM) {
-		flog_err(EC_LIB_ZAPI_ENCODE,
-			 "%s: zapi NHG encode with invalid input", __func__);
-		return -1;
+	uint32_t max_nexthops = zclient_global_platform_multipath_num;
+	if (api_nhg->nexthop_num > max_nexthops) {
+		flog_warn(EC_LIB_ZAPI_ENCODE,
+			  "%s: truncating %u nexthops to platform maximum %u", 
+			  __func__, api_nhg->nexthop_num, max_nexthops);
+		api_nhg->nexthop_num = max_nexthops;
+	}
+
+	if (api_nhg->backup_nexthop_num > max_nexthops) {
+		flog_warn(EC_LIB_ZAPI_ENCODE,
+			  "%s: truncating %u backup nexthops to platform maximum %u", 
+			  __func__, api_nhg->backup_nexthop_num, max_nexthops);
+		api_nhg->backup_nexthop_num = max_nexthops;
 	}
 
 	stream_reset(s);
@@ -1268,13 +1279,14 @@ int zapi_route_encode(uint8_t cmd, struct stream *s, struct zapi_route *api)
 	/* Nexthops.  */
 	if (CHECK_FLAG(api->message, ZAPI_MESSAGE_NEXTHOP)) {
 		/* limit the number of nexthops if necessary */
-		if (api->nexthop_num > MULTIPATH_NUM) {
-			flog_err(
+		uint32_t max_nexthops = zclient_global_platform_multipath_num;
+		if (api->nexthop_num > max_nexthops) {
+			flog_warn(
 				EC_LIB_ZAPI_ENCODE,
-				"%s: prefix %pFX: can't encode %u nexthops (maximum is %u)",
+				"%s: prefix %pFX: truncating %u nexthops to platform maximum %u",
 				__func__, &api->prefix, api->nexthop_num,
-				MULTIPATH_NUM);
-			return -1;
+				max_nexthops);
+			api->nexthop_num = max_nexthops;
 		}
 
 		/* We canonicalize the nexthops by sorting them; this allows
@@ -1310,13 +1322,14 @@ int zapi_route_encode(uint8_t cmd, struct stream *s, struct zapi_route *api)
 	/* Backup nexthops  */
 	if (CHECK_FLAG(api->message, ZAPI_MESSAGE_BACKUP_NEXTHOPS)) {
 		/* limit the number of nexthops if necessary */
-		if (api->backup_nexthop_num > MULTIPATH_NUM) {
-			flog_err(
+		uint32_t max_nexthops = zclient_global_platform_multipath_num;
+		if (api->backup_nexthop_num > max_nexthops) {
+			flog_warn(
 				EC_LIB_ZAPI_ENCODE,
-				"%s: prefix %pFX: can't encode %u backup nexthops (maximum is %u)",
+				"%s: prefix %pFX: truncating %u backup nexthops to platform maximum %u",
 				__func__, &api->prefix, api->backup_nexthop_num,
-				MULTIPATH_NUM);
-			return -1;
+				max_nexthops);
+			api->backup_nexthop_num = max_nexthops;
 		}
 
 		/* Note that we do not sort the list of backup nexthops -
@@ -1565,10 +1578,10 @@ int zapi_route_decode(struct stream *s, struct zapi_route *api)
 	/* Nexthops. */
 	if (CHECK_FLAG(api->message, ZAPI_MESSAGE_NEXTHOP)) {
 		STREAM_GETW(s, api->nexthop_num);
-		if (api->nexthop_num > MULTIPATH_NUM) {
+		if (api->nexthop_num > zclient_global_platform_multipath_num) {
 			flog_err(EC_LIB_ZAPI_ENCODE,
-				 "%s: invalid number of nexthops (%u)",
-				 __func__, api->nexthop_num);
+				 "%s: invalid number of nexthops (%u) exceeds platform maximum (%u)",
+				 __func__, api->nexthop_num, zclient_global_platform_multipath_num);
 			return -1;
 		}
 
@@ -1585,10 +1598,10 @@ int zapi_route_decode(struct stream *s, struct zapi_route *api)
 	/* Backup nexthops. */
 	if (CHECK_FLAG(api->message, ZAPI_MESSAGE_BACKUP_NEXTHOPS)) {
 		STREAM_GETW(s, api->backup_nexthop_num);
-		if (api->backup_nexthop_num > MULTIPATH_NUM) {
+		if (api->backup_nexthop_num > zclient_global_platform_multipath_num) {
 			flog_err(EC_LIB_ZAPI_ENCODE,
-				 "%s: invalid number of backup nexthops (%u)",
-				 __func__, api->backup_nexthop_num);
+				 "%s: invalid number of backup nexthops (%u) exceeds platform maximum (%u)",
+				 __func__, api->backup_nexthop_num, zclient_global_platform_multipath_num);
 			return -1;
 		}
 
@@ -3992,12 +4005,12 @@ int zapi_labels_encode(struct stream *s, int cmd, struct zapi_labels *zl)
 		stream_putw(s, zl->route.instance);
 	}
 
-	if (zl->nexthop_num > MULTIPATH_NUM) {
+	if (zl->nexthop_num > zclient_global_platform_multipath_num) {
 		flog_err(
 			EC_LIB_ZAPI_ENCODE,
-			"%s: label %u: can't encode %u nexthops (maximum is %u)",
+			"%s: label %u: can't encode %u nexthops (platform maximum is %u)",
 			__func__, zl->local_label, zl->nexthop_num,
-			MULTIPATH_NUM);
+			zclient_global_platform_multipath_num);
 		return -1;
 	}
 	stream_putw(s, zl->nexthop_num);
@@ -4011,12 +4024,12 @@ int zapi_labels_encode(struct stream *s, int cmd, struct zapi_labels *zl)
 
 	if (CHECK_FLAG(zl->message, ZAPI_LABELS_HAS_BACKUPS)) {
 
-		if (zl->backup_nexthop_num > MULTIPATH_NUM) {
+		if (zl->backup_nexthop_num > zclient_global_platform_multipath_num) {
 			flog_err(
 				EC_LIB_ZAPI_ENCODE,
-				"%s: label %u: can't encode %u nexthops (maximum is %u)",
-				__func__, zl->local_label, zl->nexthop_num,
-				MULTIPATH_NUM);
+				"%s: label %u: can't encode %u backup nexthops (platform maximum is %u)",
+				__func__, zl->local_label, zl->backup_nexthop_num,
+				zclient_global_platform_multipath_num);
 			return -1;
 		}
 		stream_putw(s, zl->backup_nexthop_num);
@@ -4087,15 +4100,15 @@ int zapi_labels_decode(struct stream *s, struct zapi_labels *zl)
 
 	STREAM_GETW(s, zl->nexthop_num);
 
-	if (zl->nexthop_num > MULTIPATH_NUM) {
+	if (zl->nexthop_num > zclient_global_platform_multipath_num) {
 		flog_warn(
 			EC_LIB_ZAPI_ENCODE,
 			"%s: Prefix %pFX has %d nexthops, but we can only use the first %d",
 			__func__, &zl->route.prefix, zl->nexthop_num,
-			MULTIPATH_NUM);
+			zclient_global_platform_multipath_num);
 	}
 
-	zl->nexthop_num = MIN(MULTIPATH_NUM, zl->nexthop_num);
+	zl->nexthop_num = MIN(zclient_global_platform_multipath_num, zl->nexthop_num);
 
 	for (int i = 0; i < zl->nexthop_num; i++) {
 		znh = &zl->nexthops[i];
@@ -4115,15 +4128,15 @@ int zapi_labels_decode(struct stream *s, struct zapi_labels *zl)
 	if (CHECK_FLAG(zl->message, ZAPI_LABELS_HAS_BACKUPS)) {
 		STREAM_GETW(s, zl->backup_nexthop_num);
 
-		if (zl->backup_nexthop_num > MULTIPATH_NUM) {
+		if (zl->backup_nexthop_num > zclient_global_platform_multipath_num) {
 			flog_warn(
 				EC_LIB_ZAPI_ENCODE,
 				"%s: Prefix %pFX has %d backup nexthops, but we can only use the first %d",
 				__func__, &zl->route.prefix,
-				zl->backup_nexthop_num,	MULTIPATH_NUM);
+				zl->backup_nexthop_num, zclient_global_platform_multipath_num);
 		}
 
-		zl->backup_nexthop_num = MIN(MULTIPATH_NUM,
+		zl->backup_nexthop_num = MIN(zclient_global_platform_multipath_num,
 					     zl->backup_nexthop_num);
 
 		for (int i = 0; i < zl->backup_nexthop_num; i++) {
@@ -4242,6 +4255,12 @@ static int zclient_capability_decode(ZAPI_CALLBACK_ARGS)
 	cap.graceful_restart = !!gr;
 	STREAM_GETC(s, maint);
 	cap.maint_mode = !!maint;
+
+	/* Store platform multipath capability for validation */
+	zclient_global_platform_multipath_num = cap.ecmp;
+	
+	/* Generic logging for multipath capability */
+	zlog_info("zclient: Received platform multipath capability: %u (stored for validation)", cap.ecmp);
 
 	if (zclient->zebra_capabilities)
 		(*zclient->zebra_capabilities)(&cap);

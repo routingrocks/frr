@@ -2903,7 +2903,7 @@ static void bgp_evpn_l3nhg_zebra_add_v4_or_v6(struct bgp_evpn_es_vrf *es_vrf,
 			continue;
 
 		/* Don't overrun the zapi buffer. */
-		if (api_nhg.nexthop_num == MULTIPATH_NUM)
+		if (api_nhg.nexthop_num == multipath_num)
 			break;
 
 		/* overwrite the gw */

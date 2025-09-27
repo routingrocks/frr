@@ -104,6 +104,7 @@ zebra_zebra_SOURCES = \
 	zebra/zebra_pw.c \
 	zebra/zebra_rib.c \
 	zebra/zebra_router.c \
+	zebra/zebra_router_cl.c \
 	zebra/zebra_rnh.c \
 	zebra/zebra_routemap.c \
 	zebra/zebra_routemap_nb.c \
@@ -192,6 +193,7 @@ noinst_HEADERS += \
 	zebra/zebra_routemap.h \
 	zebra/zebra_routemap_nb.h \
 	zebra/zebra_router.h \
+	zebra/zebra_router_cl.h \
 	zebra/zebra_script.h \
 	zebra/zebra_srte.h \
 	zebra/zebra_tc.h \
