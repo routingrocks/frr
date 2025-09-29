@@ -552,7 +552,7 @@ static int bgp_evpn_mh_route_delete(struct bgp *bgp, struct bgp_evpn_es *es,
 			&es->originator_ip);
 
 	frrtrace(4, frr_bgp, evpn_mh_local_ead_es_evi_route_del, &es->esi,
-		 (vpn ? vpn->vni : 0), p->prefix.route_type, es->originator_ip);
+		 (vpn ? vpn->vni : 0), p->prefix.route_type, &es->originator_ip);
 	/* Next, locate route node in the global EVPN routing table.
 	 * Note that this table is a 2-level tree (RD-level + Prefix-level)
 	 */
@@ -3644,7 +3644,7 @@ static enum zclient_send_status bgp_evpn_es_evi_vtep_del(struct bgp *bgp,
 
 	frrtrace(4, frr_bgp, evpn_mh_es_evi_vtep_del,
 		 &evi_vtep->es_evi->es->esi, evi_vtep->es_evi->vpn->vni,
-		 evi_vtep->vtep_ip, ead_es);
+		 &evi_vtep->vtep_ip, ead_es);
 
 	if (ead_es)
 		UNSET_FLAG(evi_vtep->flags, BGP_EVPN_EVI_VTEP_EAD_PER_ES);

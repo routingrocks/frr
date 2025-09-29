@@ -325,7 +325,7 @@ TRACEPOINT_EVENT(
 	TP_FIELDS(
 		ctf_integer(bool, action, add)
 		ctf_array(unsigned char, esi, &es->esi, sizeof(esi_t))
-		ctf_integer_network_hex(unsigned int, vtep, es_vtep->vtep_ip.s_addr)
+		ctf_array(unsigned char, vtep, &es_vtep->vtep_ip, sizeof(struct ipaddr))
 	)
 )
 TRACEPOINT_LOGLEVEL(frr_bgp, evpn_mh_vtep_zsend, TRACE_INFO)
@@ -352,7 +352,7 @@ TRACEPOINT_EVENT(
 		struct bgp_evpn_es_vrf *, es_vrf),
 	TP_FIELDS(
 		ctf_integer(unsigned int, nhg, nhg_id)
-		ctf_integer_network_hex(unsigned int, vtep, vtep->vtep_ip.s_addr)
+		ctf_array(unsigned char, vtep, &vtep->vtep_ip, sizeof(struct ipaddr))
 		ctf_integer(int, svi, es_vrf->bgp_vrf->l3vni_svi_ifindex)
 	)
 )
@@ -375,11 +375,11 @@ TRACEPOINT_LOGLEVEL(frr_bgp, evpn_nh_rmac_zsend, TRACE_INFO)
 TRACEPOINT_EVENT(
 	frr_bgp,
 	evpn_mh_local_es_add_zrecv,
-	TP_ARGS(esi_t *, esi, struct in_addr, vtep,
+	TP_ARGS(esi_t *, esi, struct ipaddr *, vtep,
 		uint8_t, active, uint8_t, bypass, uint16_t, df_pref),
 	TP_FIELDS(
 		ctf_array(unsigned char, esi, esi, sizeof(esi_t))
-		ctf_integer_network_hex(unsigned int, vtep, vtep.s_addr)
+		ctf_array(unsigned char, vtep, vtep, sizeof(struct ipaddr))
 		ctf_integer(uint8_t, active, active)
 		ctf_integer(uint8_t, bypass, bypass)
 		ctf_integer(uint16_t, df_pref, df_pref)
@@ -422,12 +422,12 @@ TRACEPOINT_LOGLEVEL(frr_bgp, evpn_mh_local_es_evi_del_zrecv, TRACE_INFO)
 TRACEPOINT_EVENT(
 	frr_bgp,
 	evpn_mh_es_evi_vtep_add,
-	TP_ARGS(esi_t *, esi, vni_t, vni, struct in_addr, vtep,
+	TP_ARGS(esi_t *, esi, vni_t, vni, struct ipaddr *, vtep,
 		uint8_t, ead_es),
 	TP_FIELDS(
 		ctf_array(unsigned char, esi, esi, sizeof(esi_t))
 		ctf_integer(vni_t, vni, vni)
-		ctf_integer_network_hex(unsigned int, vtep, vtep.s_addr)
+		ctf_array(unsigned char, vtep, vtep, sizeof(struct ipaddr))
 		ctf_integer(uint8_t, ead_es, ead_es)
 	)
 )
@@ -436,12 +436,12 @@ TRACEPOINT_LOGLEVEL(frr_bgp, evpn_mh_es_evi_vtep_add, TRACE_INFO)
 TRACEPOINT_EVENT(
 	frr_bgp,
 	evpn_mh_es_evi_vtep_del,
-	TP_ARGS(esi_t *, esi, vni_t, vni, struct in_addr, vtep,
+	TP_ARGS(esi_t *, esi, vni_t, vni, struct ipaddr *, vtep,
 		uint8_t, ead_es),
 	TP_FIELDS(
 		ctf_array(unsigned char, esi, esi, sizeof(esi_t))
 		ctf_integer(vni_t, vni, vni)
-		ctf_integer_network_hex(unsigned int, vtep, vtep.s_addr)
+		ctf_array(unsigned char, vtep, vtep, sizeof(struct ipaddr))
 		ctf_integer(uint8_t, ead_es, ead_es)
 	)
 )
