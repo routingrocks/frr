@@ -175,9 +175,6 @@ struct bgp_soo_route_walk {
 	bool detail;
 };
 
-static struct peer_group *listen_range_exists(struct bgp *bgp,
-					      struct prefix *range, int exact);
-
 static enum node_type bgp_node_type(afi_t afi, safi_t safi)
 {
 	switch (afi) {
