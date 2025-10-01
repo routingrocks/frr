@@ -3047,14 +3047,22 @@ bool subgroup_announce_check(struct bgp_dest *dest, struct bgp_path_info *pi,
 	if (nh_reset &&
 	    bgp_path_info_mpath_chkwtd(bgp, pi) &&
 	    (cum_bw = bgp_path_info_mpath_cumbw(pi)) != 0 &&
-	    !CHECK_FLAG(attr->rmap_change_flags, BATTR_RMAP_LINK_BW_SET))
-		bgp_attr_set_ecommunity(
-			attr,
-			ecommunity_replace_linkbw(
-				bgp->as, bgp_attr_get_ecommunity(attr), cum_bw,
-				CHECK_FLAG(
-					peer->flags,
-					PEER_FLAG_DISABLE_LINK_BW_ENCODING_IEEE)));
+	    !CHECK_FLAG(attr->rmap_change_flags, BATTR_RMAP_LINK_BW_SET)) {
+		struct ecommunity *old_ecom;
+		struct ecommunity *new_ecom;
+
+		old_ecom = bgp_attr_get_ecommunity(attr);
+		new_ecom = ecommunity_replace_linkbw(
+			bgp->as, old_ecom, cum_bw,
+			CHECK_FLAG(peer->flags,
+				   PEER_FLAG_DISABLE_LINK_BW_ENCODING_IEEE));
+
+		/* Free old ecommunity if not reference counted elsewhere */
+		if (old_ecom && !old_ecom->refcnt)
+			ecommunity_free(&old_ecom);
+
+		bgp_attr_set_ecommunity(attr, new_ecom);
+	}
 
 	return true;
 }
