@@ -3094,7 +3094,6 @@ void nb_init(struct event_loop *tm,
 					     running_config_entry_cmp,
 					     "Running Configuration Entries");
 
-	zlog_err("Testing with current subscription cache");
 	/* Allocate current cache to keep track*/
 	nb_current_subcr_cache = XCALLOC(MTYPE_NB_CONFIG, sizeof(struct nb_subscription_cache));
 
