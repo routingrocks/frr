@@ -354,19 +354,6 @@ static struct timeval *time_elapsed(struct timeval *result,
 	return result;
 }
 
-/* Check if the system appears to be in shutdown process */
-static bool is_shutting_down(void)
-{
-	if (gs.phase != PHASE_NONE)
-		return true;
-
-	/* If more than half of daemons are down, likely a shutdown is happening */
-	if (gs.numdown > (gs.numdaemons / 2))
-		return true;
-
-	return false;
-}
-
 static void restart_kill(struct event *t_kill)
 {
 	struct restart_info *restart = EVENT_ARG(t_kill);
