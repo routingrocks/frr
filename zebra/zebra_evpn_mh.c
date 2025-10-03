@@ -1743,7 +1743,7 @@ static void zebra_evpn_mh_vtep_uplink_sph_ingress_tc_setup(struct zebra_evpn_mh_
 		}
 
 		handle = EVPN_MH_SKB_MARK_BASE + mh_vtep->sph_offset;
-		inet_ntop(AF_INET, &mh_vtep->vtep_ip, buf1, sizeof(buf1));
+		ipaddr2str(&mh_vtep->vtep_ip, buf1, sizeof(buf1));
 		snprintf(cmd, sizeof(cmd),
 			 "%s%s filter replace dev %s ingress prot ip pref %u flower ip_proto udp src_ip %s dst_port 4789 skip_hw action skbedit mark %u",
 			 TC_SUDO_STR, TC_BIN_STR, zif->ifp->name, handle, buf1, handle);
