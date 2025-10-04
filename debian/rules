@@ -100,7 +100,7 @@ override_dh_auto_configure:
 		--disable-zeromq \
 		--enable-ospfapi \
 		--disable-bgp-vnc \
-		--enable-multipath=128 \
+		--enable-multipath=256 \
 		\
 		--enable-user=frr \
 		--enable-group=frr \

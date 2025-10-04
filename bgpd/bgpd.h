@@ -47,6 +47,11 @@ DECLARE_HOOK(bgp_hook_config_write_vrf, (struct vty *vty, struct vrf *vrf),
 /* Default interval for IPv6 RAs when triggered by BGP unnumbered neighbor. */
 #define BGP_UNNUM_DEFAULT_RA_INTERVAL 10
 
+/* Max number of peers to process without rescheduling */
+#define BGP_CONN_ERROR_DEQUEUE_MAX 10
+/* Limit the number of clearing dests we'll process per callback */
+#define BGP_CLEARING_BATCH_MAX_DESTS 100
+
 struct update_subgroup;
 struct bpacket;
 struct bgp_pbr_config;
@@ -99,6 +104,9 @@ enum bgp_af_index {
 extern struct frr_pthread *bgp_pth_io;
 extern struct frr_pthread *bgp_pth_ka;
 
+/* FIFO list for peer connections */
+PREDECL_LIST(peer_connection_fifo);
+
 /* BGP master for system wide configurations and variables.  */
 struct bgp_master {
 	/* BGP instance list.  */
@@ -112,6 +120,11 @@ struct bgp_master {
 
 	/* BGP port number.  */
 	uint16_t port;
+
+	/* FIFO list head for peer connections */
+	struct peer_connection_fifo_head connection_fifo;
+	struct event *e_process_packet;
+	pthread_mutex_t peer_connection_mtx;
 
 	/* Listener addresses */
 	struct list *addresses;
@@ -208,6 +221,16 @@ struct bgp_master {
 	struct event *t_bgp_zebra_l2_vni;
 	/* To preserve ordering of processing of L2 VNIs in BGP */
 	struct zebra_l2_vni_head zebra_l2_vni_head;
+
+	/* ID value for peer clearing batches */
+	uint32_t peer_clearing_batch_id;
+
+	/* Limits for batched peer clearing code:
+	 * Max number of errored peers to process without rescheduling
+	 */
+	uint32_t peer_conn_errs_dequeue_limit;
+	/* Limit the number of clearing dests we'll process per callback */
+	uint32_t peer_clearing_batch_max_dests;
 
 	QOBJ_FIELDS;
 };
@@ -437,6 +460,81 @@ struct as_confed {
 struct bgp_mplsvpn_nh_label_bind_cache;
 PREDECL_RBTREE_UNIQ(bgp_mplsvpn_nh_label_bind_cache);
 
+/* List of peers that have connection errors in the io pthread */
+PREDECL_DLIST(bgp_peer_conn_errlist);
+
+/* List of info about peers that are being cleared from BGP RIBs in a batch */
+PREDECL_DLIST(bgp_clearing_info);
+
+/* Hash of peers in clearing info object */
+PREDECL_HASH(bgp_clearing_hash);
+
+/* List of dests that need to be processed in a clearing batch */
+PREDECL_LIST(bgp_clearing_destlist);
+
+struct bgp_clearing_dest {
+	struct bgp_dest *dest;
+	struct bgp_clearing_destlist_item link;
+};
+
+/* Info about a batch of peers that need to be cleared from the RIB.
+ * If many peers need to be cleared, we process them in batches, taking
+ * one walk through the RIB for each batch. This is only used for "all"
+ * afi/safis, typically when processing peer connection errors.
+ */
+struct bgp_clearing_info {
+	/* Owning bgp instance */
+	struct bgp *bgp;
+
+	/* Hash of peers */
+	struct bgp_clearing_hash_head peers;
+
+	/* Batch ID, for debugging/logging */
+	uint32_t id;
+
+	/* Flags */
+	uint32_t flags;
+
+	/* List of dests - wrapped by a small wrapper struct */
+	struct bgp_clearing_destlist_head destlist;
+
+	/* Event to schedule/reschedule processing */
+	struct event *t_sched;
+
+	/* Info for rescheduling the RIB walk */
+	afi_t last_afi;
+	safi_t last_safi;
+	struct prefix last_pfx;
+
+	/* For some afi/safi (vpn/evpn e.g.), bgp may do an inner walk
+	 * for a related table; the 'last' info represents the outer walk,
+	 * and this info represents the inner walk.
+	 */
+	afi_t inner_afi;
+	safi_t inner_safi;
+	struct prefix inner_pfx;
+
+	/* Map of afi/safi so we don't re-walk any tables */
+	uint8_t table_map[AFI_MAX][SAFI_MAX];
+
+	/* Counters: current iteration, overall total, and processed count. */
+	uint32_t curr_counter;
+	uint32_t total_counter;
+	uint32_t total_processed;
+
+	/* TODO -- id, serial number, for debugging/logging? */
+
+	/* Linkage for list of batches per bgp */
+	struct bgp_clearing_info_item link;
+};
+
+/* Batch is open, new peers can be added */
+#define BGP_CLEARING_INFO_FLAG_OPEN  (1 << 0)
+/* Batch is resuming iteration after yielding */
+#define BGP_CLEARING_INFO_FLAG_RESUME (1 << 1)
+/* Batch has 'inner' resume info set */
+#define BGP_CLEARING_INFO_FLAG_INNER (1 << 2)
+
 /* BGP instance structure.  */
 struct bgp {
 	/* AS number of this BGP instance.  */
@@ -513,6 +611,8 @@ struct bgp {
 	char *confed_id_pretty;
 	struct as_confed *confed_peers;
 	int confed_peers_cnt;
+
+	struct event *clearing_end;
 
 	uint32_t v_maxmed_onstartup; /* Duration of max-med on start-up */
 #define BGP_MAXMED_ONSTARTUP_UNCONFIGURED  0 /* 0 means off, its the default */
@@ -948,6 +1048,21 @@ struct bgp {
 	uint16_t tcp_keepalive_intvl;
 	uint16_t tcp_keepalive_probes;
 
+	/* List of peers that have connection errors in the IO pthread */
+	struct bgp_peer_conn_errlist_head peer_conn_errlist;
+
+	/* Mutex that guards the connection-errors list */
+	pthread_mutex_t peer_errs_mtx;
+
+	/* Event indicating that there have been connection errors; this
+	 * is typically signalled in the IO pthread; it's handled in the
+	 * main pthread.
+	 */
+	struct event *t_conn_errors;
+
+	/* List of batches of peers being cleared from BGP RIBs */
+	struct bgp_clearing_info_head clearing_list;
+
 	struct timeval ebgprequirespolicywarning;
 #define FIFTEENMINUTE2USEC (int64_t)15 * 60 * 1000000
 
@@ -1314,13 +1429,24 @@ struct peer_connection {
 	struct event *t_pmax_restart;
 
 	struct event *t_routeadv;
-	struct event *t_process_packet;
-	struct event *t_process_packet_error;
+
+	/* Linkage for list connections with errors, from IO pthread */
+	struct bgp_peer_conn_errlist_item conn_err_link;
+
+	/* Connection error code */
+	uint16_t connection_errcode;
 
 	union sockunion su;
 #define BGP_CONNECTION_SU_UNSPEC(connection)                                   \
 	(connection->su.sa.sa_family == AF_UNSPEC)
+
+	/* For FIFO list */
+	struct peer_connection_fifo_item fifo_item;
 };
+
+/* Declare the FIFO list implementation */
+DECLARE_LIST(peer_connection_fifo, struct peer_connection, fifo_item);
+
 extern struct peer_connection *bgp_peer_connection_new(struct peer *peer);
 extern void bgp_peer_connection_free(struct peer_connection **connection);
 extern void bgp_peer_connection_buffers_free(struct peer_connection *connection);
@@ -1597,6 +1723,8 @@ struct peer {
 #define PEER_FLAG_GRACEFUL_SHUTDOWN (1ULL << 35)
 #define PEER_FLAG_CAPABILITY_SOFT_VERSION (1ULL << 36)
 #define PEER_FLAG_CAPABILITY_FQDN (1ULL << 37)  /* fqdn capability */
+/* Peer is part of a batch clearing its routes */
+#define PEER_FLAG_CLEARING_BATCH (1ULL << 42)
 
 	/*
 	 *GR-Disabled mode means unset PEER_FLAG_GRACEFUL_RESTART
@@ -1987,6 +2115,9 @@ struct peer {
 
 	/* Add-Path Best selected paths number to advertise */
 	uint8_t addpath_best_selected[AFI_MAX][SAFI_MAX];
+
+	/* Linkage for hash of clearing peers being cleared in a batch */
+	struct bgp_clearing_hash_item clear_hash_link;
 
 	QOBJ_FIELDS;
 };
@@ -2633,6 +2764,11 @@ extern void bgp_process_fast_down(bool upgrade);
 int bgp_global_gr_init(struct bgp *bgp);
 int bgp_peer_gr_init(struct peer *peer);
 
+/* APIs for the per-bgp peer connection error list */
+int bgp_enqueue_conn_err(struct bgp *bgp, struct peer_connection *connection,
+			 int errcode);
+struct peer_connection *bgp_dequeue_conn_err(struct bgp *bgp, bool *more_p);
+void bgp_conn_err_reschedule(struct bgp *bgp);
 static inline bool bgp_gr_supported_for_afi_safi(afi_t afi, safi_t safi);
 
 #define BGP_GR_ROUTER_DETECT_AND_SEND_CAPABILITY_TO_ZEBRA(_bgp, _peer_list)    \
@@ -2973,6 +3109,27 @@ extern bool bgp_path_attribute_treat_as_withdraw(struct peer *peer, char *buf,
 						 size_t size);
 
 extern void srv6_function_free(struct bgp_srv6_function *func);
+
+/* If a clearing batch is available for 'peer', add it and return 'true',
+ * else return 'false'.
+ */
+bool bgp_clearing_batch_add_peer(struct bgp *bgp, struct peer *peer);
+/* Add a prefix/dest to a clearing batch */
+void bgp_clearing_batch_add_dest(struct bgp_clearing_info *cinfo,
+				 struct bgp_dest *dest);
+/* Check whether a dest's peer is relevant to a clearing batch */
+bool bgp_clearing_batch_check_peer(struct bgp_clearing_info *cinfo,
+				   const struct peer *peer);
+/* Check whether a clearing batch has any dests to process */
+bool bgp_clearing_batch_dests_present(struct bgp_clearing_info *cinfo);
+/* Returns the next dest for batch clear processing */
+struct bgp_dest *bgp_clearing_batch_next_dest(struct bgp_clearing_info *cinfo);
+/* Done with a peer clearing batch; deal with refcounts, free memory */
+void bgp_clearing_batch_completed(struct bgp_clearing_info *cinfo);
+/* Start a new batch of peers to clear */
+void bgp_clearing_batch_begin(struct bgp *bgp);
+/* End a new batch of peers to clear */
+void bgp_clearing_batch_end_event_start(struct bgp *bgp);
 
 extern void bgp_session_reset_safe(struct peer *peer, struct listnode **nnode);
 
