@@ -2511,6 +2511,7 @@ void zebra_vxlan_process_l3vni_oper_up(struct zebra_l3vni *zl3vni)
 		return;
 
 	/* send l3vni add to BGP */
+	frrtrace(2, frr_zebra, send_l3vni_oper_to_client, zl3vni->vrf_id, zl3vni->vni, 0);
 	zl3vni_send_add_to_client(zl3vni);
 }
 
@@ -2520,6 +2521,7 @@ void zebra_vxlan_process_l3vni_oper_down(struct zebra_l3vni *zl3vni)
 		return;
 
 	/* send l3-vni del to BGP*/
+	frrtrace(2, frr_zebra, send_l3vni_oper_to_client, zl3vni->vrf_id, zl3vni->vni, 1);
 	zl3vni_send_del_to_client(zl3vni);
 }
 
