@@ -2150,6 +2150,22 @@ TRACEPOINT_EVENT(
 
 TRACEPOINT_LOGLEVEL(frr_zebra, evpn_arp_nd_udp_sock_create, TRACE_INFO)
 
+TRACEPOINT_EVENT(
+        frr_zebra,
+        send_l3vni_oper_to_client,
+        TP_ARGS(
+        vrf_id_t, vrf_id,
+        vni_t, vni,
+        uint8_t, loc),
+        TP_FIELDS(
+                ctf_integer(vrf_id_t, vrf_id, vrf_id)
+                ctf_integer(vni_t, vni, vni)
+                ctf_integer(uint8_t, location, loc)
+       )
+   )
+
+TRACEPOINT_LOGLEVEL(frr_zebra, send_l3vni_oper_to_client, TRACE_INFO)
+
 /* clang-format on */
 #include <lttng/tracepoint-event.h>
 

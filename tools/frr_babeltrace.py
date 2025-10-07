@@ -1286,6 +1286,14 @@ def parse_frr_zebra_zebra_ptm_bfd_reg_info(event):
         4: "BFD Client Deregister"
     }.get(x, f"Unknown BFD operation {x}")}
     parse_event(event, field_parsers)
+
+def parse_frr_zebra_send_l3vni_oper_to_client(event):
+    field_parsers = {"location": lambda x: {
+        0: "l3vni oper up",
+        1: "l3vni oper down"
+    }.get(x, f"Unknown l3vni oper event {x}")}
+    parse_event(event, field_parsers)
+
 ############################ Misc parsers end #############################
 
 def main():
@@ -1556,6 +1564,8 @@ def main():
                      parse_frr_zebra_zread_nhg_add,
                      "frr_zebra:zread_nhg_del":
                      parse_frr_zebra_zread_nhg_del,
+                     "frr_zebra:send_l3vni_oper_to_client":
+                     parse_frr_zebra_send_l3vni_oper_to_client,
 
 }
 
