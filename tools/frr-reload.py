@@ -1542,6 +1542,13 @@ def ignore_delete_re_add_lines(lines_to_add, lines_to_del):
         if del_line[1] is None and 'service password-obfuscation' in del_line[0]:
             validate_by_decrypt = True
 
+    # Build existing_entries set ONCE for performance with large prefix-lists (30K+ entries)
+    # This avoids O(n²) complexity when processing deletions
+    existing_entries = set()
+    for ctx in lines_to_add:
+        if ctx[0]:
+            existing_entries.add(ctx[0][0])
+
     index = -1
     for ctx_keys, line in lines_to_del:
         deleted = False
@@ -1897,14 +1904,11 @@ def ignore_delete_re_add_lines(lines_to_add, lines_to_del):
                 + re_acl_pfxlst.group(5)
                 + re_acl_pfxlst.group(6)
             )
-            existing_entries = set()
-            for ctx in lines_to_add:
-                if ctx[0]:
-                    existing_entries.add(ctx[0][0])
-                if ctx[0][0] == tmpline:
-                    lines_to_del_to_del.append((ctx_keys, None))
-                    lines_to_add_to_del.append(((tmpline,), None))
-                    found = True
+            # Use pre-built existing_entries set for O(1) lookup instead of O(n) loop
+            if tmpline in existing_entries:
+                lines_to_del_to_del.append((ctx_keys, None))
+                lines_to_add_to_del.append(((tmpline,), None))
+                found = True
             # If prefix-lists or access-lists are being deleted and not added
             # (see comment above), add command with 'no' to lines_to_add and
             # remove from lines_to_del to improve scaling performance.
