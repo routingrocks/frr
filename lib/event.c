@@ -879,7 +879,9 @@ static int fd_poll(struct event_loop *m, const struct timeval *timer_wait,
 	int num;
 
 	if (timer_wait != NULL && m->selectpoll_timeout == 0) {
-		/* use the default value */
+		/* for a value lesser than 1000usec, timer_wait->tv_usec/1000 will truncate to 0
+        /* For ppoll, we'll do a direct conversion from timeval to timespec later
+        /* to preserve microsecond precision. */
 		timeout = (timer_wait->tv_sec * 1000)
 			  + (timer_wait->tv_usec / 1000);
 	} else if (m->selectpoll_timeout > 0) {
@@ -927,8 +929,14 @@ static int fd_poll(struct event_loop *m, const struct timeval *timer_wait,
 	struct timespec ts, *tsp;
 
 	if (timeout >= 0) {
-		ts.tv_sec = timeout / 1000;
-		ts.tv_nsec = (timeout % 1000) * 1000000;
+		/* Convert to timespec for ppoll */
+		if (timer_wait != NULL && m->selectpoll_timeout == 0) {
+			ts.tv_sec = timer_wait->tv_sec;
+			ts.tv_nsec = timer_wait->tv_usec * 1000; /* microseconds to nanoseconds */
+		} else {
+			ts.tv_sec = timeout / 1000;
+			ts.tv_nsec = (timeout % 1000) * 1000000; /* milliseconds to nanoseconds */
+		}
 		tsp = &ts;
 	} else
 		tsp = NULL;
