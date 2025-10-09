@@ -404,13 +404,11 @@ static void frr_csm_handle_up_down_trigger(Module mod, Mode mode, State state,
 
 	if (IS_MODE_MAINTENANCE(mode)) {
 		frr_csm_enter_maintenance_mode();
-	} else if ((IS_BOOT_FAST(mode)) ||
-		   (IS_BOOT_WARM(mode) && IS_BOOT_WARM(curr_mode))) {
+	} else if (IS_BOOT_FAST(mode) || IS_BOOT_WARM(mode)) {
 		/*
-		 * When zebra gets a GoDown with the mode as 'warm', it should
-		 * execute fast shutdown only if the current mode is 'warm';
-		 * otherwise, it should effectively do nothing (i.e., act as if
-		 * the request is for a cold boot)
+		 * Perform fast shutdown when zebra gets a GoDown
+		 * from csmgr with mode as warm or fast irrespective of
+		 * current mode.
 		 */
 		char buf1[256];
 		char buf2[256];
