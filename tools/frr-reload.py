@@ -1549,6 +1549,30 @@ def ignore_delete_re_add_lines(lines_to_add, lines_to_del):
         if ctx[0]:
             existing_entries.add(ctx[0][0])
 
+    # Build index of lines_to_add for O(1) lookups instead of O(n) nested loops
+    lines_to_add_dict = {}
+    for ctx_keys, line in lines_to_add:
+        # Index by context only for faster context-level lookups
+        ctx_tuple = tuple(ctx_keys) if isinstance(ctx_keys, list) else ctx_keys
+        if ctx_tuple not in lines_to_add_dict:
+            lines_to_add_dict[ctx_tuple] = []
+        lines_to_add_dict[ctx_tuple].append((ctx_keys, line))
+
+    # Create optimized line_exist function using the dictionary index
+    def line_exist_fast(target_ctx_keys, target_line, exact_match=True):
+        """Optimized version of line_exist using dictionary index - O(1) vs O(n)"""
+        ctx_tuple = tuple(target_ctx_keys) if isinstance(target_ctx_keys, list) else target_ctx_keys
+        if ctx_tuple not in lines_to_add_dict:
+            return False
+        for ctx_keys, line in lines_to_add_dict[ctx_tuple]:
+            if exact_match:
+                if line == target_line:
+                    return True
+            else:
+                if line and line.startswith(target_line):
+                    return True
+        return False
+
     index = -1
     for ctx_keys, line in lines_to_del:
         deleted = False
@@ -1639,11 +1663,11 @@ def ignore_delete_re_add_lines(lines_to_add, lines_to_del):
                         swpx_interface = "neighbor %s interface v6only" % swpx
 
                     swpx_peergroup = "neighbor %s peer-group %s" % (swpx, peergroup)
-                    found_add_swpx_interface = line_exist(
-                        lines_to_add, ctx_keys, swpx_interface
+                    found_add_swpx_interface = line_exist_fast(
+                        ctx_keys, swpx_interface
                     )
-                    found_add_swpx_peergroup = line_exist(
-                        lines_to_add, ctx_keys, swpx_peergroup
+                    found_add_swpx_peergroup = line_exist_fast(
+                        ctx_keys, swpx_peergroup
                     )
                     tmp_ctx_keys = tuple(list(ctx_keys))
 
@@ -1651,16 +1675,16 @@ def ignore_delete_re_add_lines(lines_to_add, lines_to_del):
                         tmp_ctx_keys = list(ctx_keys)
                         tmp_ctx_keys.append("address-family ipv4 unicast")
                         tmp_ctx_keys = tuple(tmp_ctx_keys)
-                        found_add_swpx_peergroup = line_exist(
-                            lines_to_add, tmp_ctx_keys, swpx_peergroup
+                        found_add_swpx_peergroup = line_exist_fast(
+                            tmp_ctx_keys, swpx_peergroup
                         )
 
                         if not found_add_swpx_peergroup:
                             tmp_ctx_keys = list(ctx_keys)
                             tmp_ctx_keys.append("address-family ipv6 unicast")
                             tmp_ctx_keys = tuple(tmp_ctx_keys)
-                            found_add_swpx_peergroup = line_exist(
-                                lines_to_add, tmp_ctx_keys, swpx_peergroup
+                            found_add_swpx_peergroup = line_exist_fast(
+                                tmp_ctx_keys, swpx_peergroup
                             )
 
                     if found_add_swpx_interface and found_add_swpx_peergroup:
@@ -1823,11 +1847,11 @@ def ignore_delete_re_add_lines(lines_to_add, lines_to_del):
                         swpx_interface = "neighbor %s interface v6only" % swpx
 
                     swpx_remoteas = "neighbor %s remote-as %s" % (swpx, remoteas)
-                    found_add_swpx_interface = line_exist(
-                        lines_to_add, ctx_keys, swpx_interface
+                    found_add_swpx_interface = line_exist_fast(
+                        ctx_keys, swpx_interface
                     )
-                    found_add_swpx_remoteas = line_exist(
-                        lines_to_add, ctx_keys, swpx_remoteas
+                    found_add_swpx_remoteas = line_exist_fast(
+                        ctx_keys, swpx_remoteas
                     )
                     tmp_ctx_keys = tuple(list(ctx_keys))
 
@@ -1849,7 +1873,7 @@ def ignore_delete_re_add_lines(lines_to_add, lines_to_del):
                     "^bgp\s+bestpath\s+as-path\s+multipath-relax$", line
                 )
                 old_asrelax_cmd = "bgp bestpath as-path multipath-relax no-as-set"
-                found_asrelax_old = line_exist(lines_to_add, ctx_keys, old_asrelax_cmd)
+                found_asrelax_old = line_exist_fast( ctx_keys, old_asrelax_cmd)
 
                 if re_asrelax_new and found_asrelax_old:
                     deleted = True
@@ -1861,7 +1885,7 @@ def ignore_delete_re_add_lines(lines_to_add, lines_to_del):
             # needed to avoid installing all routes in the RIB the second the
             # 'no table-map' is issued.
             if line.startswith("table-map"):
-                found_table_map = line_exist(lines_to_add, ctx_keys, "table-map", False)
+                found_table_map = line_exist_fast( ctx_keys, "table-map", False)
 
                 if found_table_map:
                     lines_to_del_to_del.append((ctx_keys, line))
@@ -2014,8 +2038,8 @@ def ignore_delete_re_add_lines(lines_to_add, lines_to_del):
                 found_route_target_export_line = line_exist(
                     lines_to_del, ctx_keys, route_target_export_line
                 )
-                found_route_target_both_line = line_exist(
-                    lines_to_add, ctx_keys, route_target_both_line
+                found_route_target_both_line = line_exist_fast(
+                    ctx_keys, route_target_both_line
                 )
 
                 # If the running configs has
@@ -2045,7 +2069,7 @@ def ignore_delete_re_add_lines(lines_to_add, lines_to_del):
                 lines_to_del_to_del.append((ctx_keys, line))
 
         if not deleted:
-            found_add_line = line_exist(lines_to_add, ctx_keys, line)
+            found_add_line = line_exist_fast( ctx_keys, line)
 
             if found_add_line:
                 lines_to_del_to_del.append((ctx_keys, line))
@@ -2074,7 +2098,7 @@ def ignore_delete_re_add_lines(lines_to_add, lines_to_del):
                     tmp_ctx_keys = list(ctx_keys)[:-1]
                     tmp_ctx_keys = tuple(tmp_ctx_keys)
 
-                    found_add_line = line_exist(lines_to_add, tmp_ctx_keys, line)
+                    found_add_line = line_exist_fast( tmp_ctx_keys, line)
 
                     if found_add_line:
                         lines_to_del_to_del.append((ctx_keys, line))
