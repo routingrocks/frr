@@ -2143,10 +2143,10 @@ void zebra_evpn_neigh_remote_macip_add(struct zebra_evpn *zevpn, struct zebra_vr
 		n->gr_refresh_time = monotime_nano();
 	}
 
-        if (!n || !CHECK_FLAG(n->flags, ZEBRA_NEIGH_REMOTE) ||
-           is_router != !!CHECK_FLAG(n->flags, ZEBRA_NEIGH_ROUTER_FLAG) ||
-           (memcmp(&n->emac, &mac->macaddr, sizeof(struct ethaddr)) != 0) ||
-           !ipaddr_is_same(&n->r_vtep_ip, vtep_ip) || seq != n->rem_seq)            
+	if (!n || !CHECK_FLAG(n->flags, ZEBRA_NEIGH_REMOTE) ||
+	    is_router != !!CHECK_FLAG(n->flags, ZEBRA_NEIGH_ROUTER_FLAG) ||
+	    (memcmp(&n->emac, &mac->macaddr, sizeof(struct ethaddr)) != 0) ||
+	    !ipaddr_is_same(&n->r_vtep_ip, vtep_ip) || seq != n->rem_seq)
 		update_neigh = 1;
 
 	if (update_neigh) {

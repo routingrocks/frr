@@ -2002,7 +2002,7 @@ static int zebra_evpn_es_vtep_cmp(void *p1, void *p2)
 }
 
 static struct zebra_evpn_es_vtep *zebra_evpn_es_vtep_new(struct zebra_evpn_es *es,
-                                                        struct ipaddr *vtep_ip)                
+							 struct ipaddr *vtep_ip)
 {
 	struct zebra_evpn_es_vtep *es_vtep;
 

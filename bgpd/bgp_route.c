@@ -11005,10 +11005,10 @@ void route_vty_out(struct vty *vty, const struct prefix *p, struct bgp_path_info
 						     "used");
 		} else {
 			if (nexthop_hostname)
-				len = vty_out(vty, "%s(%s)%s", nexthop, nexthop_hostname,
+				len = vty_out(vty, "%s (%s)%s", nexthop, nexthop_hostname,
 					      vrf_id_str);
 			else
-				len = vty_out(vty, "%s%s", nexthop, vrf_id_str);
+				len = vty_out(vty, "%s %s", nexthop, vrf_id_str);
 
 			len = wide ? (41 - len) : (16 - len);
 			if (len < 1)

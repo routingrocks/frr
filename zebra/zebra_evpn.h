@@ -41,7 +41,7 @@ struct zebra_evpn_show {
  * Right now, this just has each remote VTEP's IP address.
  */
 struct zebra_vtep {
-	/* Remote IP. */
+	/* Remote IP (IPv4/IPv6) */
 	struct ipaddr vtep_ip;
 	/* Flood mode (one of enum vxlan_flood_control) based on the PMSI
 	 * tunnel type advertised by the remote VTEP
@@ -216,7 +216,7 @@ struct zebra_vtep *zebra_evpn_vtep_add(struct zebra_evpn *zevpn, struct ipaddr *
 int zebra_evpn_vtep_del(struct zebra_evpn *zevpn, struct zebra_vtep *zvtep);
 int zebra_evpn_vtep_del_all(struct zebra_evpn *zevpn, int uninstall, struct l2vni_walk_ctx *l2_wctx);
 int zebra_evpn_vtep_install(struct zebra_evpn *zevpn, struct zebra_vtep *zvtep);
-int zebra_evpn_vtep_uninstall(struct zebra_evpn *zevpn, struct ipaddr *vtep_ip);                              
+int zebra_evpn_vtep_uninstall(struct zebra_evpn *zevpn, struct ipaddr *vtep_ip);
 void zebra_evpn_handle_flooding_remote_vteps(struct hash_bucket *bucket,
 					     void *zvrf);
 void zebra_evpn_cleanup_all(struct hash_bucket *bucket, void *arg);

@@ -1400,8 +1400,9 @@ static int zl3vni_rmac_uninstall(struct zebra_l3vni *zl3vni,
 	frrtrace(5, frr_zebra, evpn_dplane_remote_rmac_del, zrmac,
 		 &zrmac->fwd_info.r_vtep_ip, vni->vni, vid, zl3vni->vxlan_if);
 
-       res = dplane_rem_mac_del(zl3vni->vxlan_if, br_ifp, vid, &zrmac->macaddr, vni->vni,
-                                &zrmac->fwd_info.r_vtep_ip);                                 
+	res = dplane_rem_mac_del(zl3vni->vxlan_if, br_ifp, vid, &zrmac->macaddr, vni->vni,
+				 &zrmac->fwd_info.r_vtep_ip);
+
 	if (res != ZEBRA_DPLANE_REQUEST_FAILURE)
 		return 0;
 	else
@@ -1547,9 +1548,9 @@ static void zl3vni_remote_rmac_del(struct zebra_l3vni *zl3vni,
 
 			zrmac->fwd_info.r_vtep_ip = found_ip_vtep;
 			if (IS_ZEBRA_DEBUG_VXLAN)
-                               zlog_debug("L3VNI %u Remote VTEP nh change(%pIA -> %pIA) for RMAC %pEA",
-                                          zl3vni->vni, vtep_ip, &zrmac->fwd_info.r_vtep_ip,                                        
-					  &zrmac->macaddr);
+				zlog_debug("L3VNI %u Remote VTEP nh change(%pIA -> %pIA) for RMAC %pEA",
+					   zl3vni->vni, vtep_ip, &zrmac->fwd_info.r_vtep_ip,
+					   &zrmac->macaddr);
 
 			frrtrace(4, frr_zebra, l3vni_remote_vtep_nh_upd, zl3vni->vni, vtep_ip,
 				 &zrmac->fwd_info.r_vtep_ip, zrmac->macaddr);
@@ -4519,10 +4520,10 @@ void zebra_vxlan_remote_macip_del(ZAPI_HANDLER_ARGS)
 
 		l += res_length;
 		if (IS_ZEBRA_DEBUG_VXLAN)
-                        zlog_debug("Recv MACIP DEL VNI %u MAC %pEA%s%s Remote VTEP %pIA from %s",
-                                   vni, &macaddr, ipa_len ? " IP " : "",
-                                   ipa_len ? ipaddr2str(&ip, buf1, sizeof(buf1)) : "", &vtep_ip,
-                                   zebra_route_string(client->proto));                
+			zlog_debug("Recv MACIP DEL VNI %u MAC %pEA%s%s Remote VTEP %pIA from %s",
+				   vni, &macaddr, ipa_len ? " IP " : "",
+				   ipa_len ? ipaddr2str(&ip, buf1, sizeof(buf1)) : "", &vtep_ip,
+				   zebra_route_string(client->proto));
 
 		frrtrace(5, frr_zebra, zebra_vxlan_remote_macip_del, &macaddr, &ip, vni, &vtep_ip,
 			 ipa_len);
@@ -4575,11 +4576,11 @@ void zebra_vxlan_remote_macip_add(ZAPI_HANDLER_ARGS)
 				esi_to_str(&esi, esi_buf, sizeof(esi_buf));
 			else
 				strlcpy(esi_buf, "-", ESI_STR_LEN);
-                        zlog_debug("Recv %sMACIP ADD VNI %u MAC %pEA%s%s flags 0x%x seq %u VTEP %pIA ESI %s from %s",
-                                   (flags & ZEBRA_MACIP_TYPE_SYNC_PATH) ? "sync-" : "", vni,
-                                   &macaddr, ipa_len ? " IP " : "",
-                                   ipa_len ? ipaddr2str(&ip, buf1, sizeof(buf1)) : "", flags, seq,
-                                   &vtep_ip, esi_buf, zebra_route_string(client->proto));                                
+			zlog_debug("Recv %sMACIP ADD VNI %u MAC %pEA%s%s flags 0x%x seq %u VTEP %pIA ESI %s from %s",
+				   (flags & ZEBRA_MACIP_TYPE_SYNC_PATH) ? "sync-" : "", vni,
+				   &macaddr, ipa_len ? " IP " : "",
+				   ipa_len ? ipaddr2str(&ip, buf1, sizeof(buf1)) : "", flags, seq,
+				   &vtep_ip, esi_buf, zebra_route_string(client->proto));
 		}
 		frrtrace(6, frr_zebra, zebra_vxlan_remote_macip_add, &macaddr, &ip, vni, &vtep_ip,
 			 flags, &esi);
@@ -5020,7 +5021,7 @@ void zebra_vxlan_remote_vtep_del(vrf_id_t vrf_id, vni_t vni, struct ipaddr *vtep
  * Handle message from client to add a remote VTEP for an EVPN.
  */
 void zebra_vxlan_remote_vtep_add(vrf_id_t vrf_id, vni_t vni, struct ipaddr *vtep_ip,
-                                int flood_control)                                 
+				 int flood_control)
 {
 	struct zebra_evpn *zevpn;
 	struct interface *ifp;
@@ -5136,12 +5137,11 @@ void zebra_vxlan_remote_vtep_add_zapi(ZAPI_HANDLER_ARGS)
 
 		STREAM_GET_IPADDR(s, &vtep_ip);
 		l += 2 + IPADDRSZ(&vtep_ip);
-
 		STREAM_GETL(s, flood_control);
 		l += 4;
 
 		if (IS_ZEBRA_DEBUG_VXLAN)
-			zlog_debug("Recv VTEP_ADD %pIA VNI %u flood %d from %s", &vtep_ip, vni,
+			zlog_debug("Recv VTEP ADD %pIA VNI %u flood %d from %s", &vtep_ip, vni,
 				   flood_control, zebra_route_string(client->proto));
 		frrtrace(3, frr_zebra, zebra_vxlan_remote_vtep_add, &vtep_ip, vni, flood_control);
 
