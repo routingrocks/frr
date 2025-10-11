@@ -301,7 +301,8 @@ void ospf_zebra_add(struct ospf *ospf, struct prefix_ipv4 *p,
 	}
 
 	for (ALL_LIST_ELEMENTS_RO(or->paths, node, path)) {
-		if (api.nexthop_num >= ospf->max_multipath)
+		if (api.nexthop_num >= ospf_multipath_num)
+		//if (api.nexthop_num >= MULTIPATH_NUM)
 			break;
 
 		ospf_zebra_add_nexthop(ospf, path, &api);
@@ -611,7 +612,7 @@ void ospf_zebra_update_prefix_sid(const struct sr_prefix *srp)
 			if (path->srni.label_out == MPLS_INVALID_LABEL)
 				continue;
 
-			if (zl.nexthop_num >= MULTIPATH_NUM)
+			if (zl.nexthop_num >= ospf_multipath_num)
 				break;
 
 			/*
@@ -2165,6 +2166,25 @@ static int ospf_zebra_client_close_notify(ZAPI_CALLBACK_ARGS)
 	return ret;
 }
 
+static void ospf_zebra_capabilities(struct zclient_capabilities *cap)
+{
+	struct ospf *ospf;
+	struct listnode *node, *nnode;
+
+	/* Update multipath from platform capability */
+	ospf_multipath_num = cap->ecmp;
+
+	/* Update existing OSPF instances that are out of sync and trigger recalculation */
+	for (ALL_LIST_ELEMENTS(om->ospf, node, nnode, ospf)) {
+		if (ospf->max_multipath > ospf_multipath_num) {
+
+			/* Instance is not synchronized with platform capability, update it */
+			ospf->max_multipath = ospf_multipath_num;
+			ospf_restart_spf(ospf);
+		}
+	}
+}
+
 static zclient_handler *const ospf_handlers[] = {
 	[ZEBRA_ROUTER_ID_UPDATE] = ospf_router_id_update_zebra,
 	[ZEBRA_INTERFACE_ADDRESS_ADD] = ospf_interface_address_add,
@@ -2186,6 +2206,7 @@ void ospf_zebra_init(struct event_loop *master, unsigned short instance)
 			      array_size(ospf_handlers));
 	zclient_init(zclient, ZEBRA_ROUTE_OSPF, instance, &ospfd_privs);
 	zclient->zebra_connected = ospf_zebra_connected;
+	zclient->zebra_capabilities = ospf_zebra_capabilities;
 	zclient->nexthop_update = ospf_zebra_import_check_update;
 
 	/* Initialize special zclient for synchronous message exchanges. */

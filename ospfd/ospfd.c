@@ -51,6 +51,9 @@
 
 DEFINE_QOBJ_TYPE(ospf);
 
+/* Global OSPF multipath number (updated by zebra capabilities) */
+unsigned int ospf_multipath_num = MULTIPATH_NUM;
+
 /* OSPF process wide configuration. */
 static struct ospf_master ospf_master;
 
@@ -387,7 +390,7 @@ struct ospf *ospf_new_alloc(unsigned short instance, const char *name)
 			OSPF_LSA_MAXAGE_CHECK_INTERVAL, &new->t_maxage_walker);
 
 	/* Max paths initialization */
-	new->max_multipath = MULTIPATH_NUM;
+	new->max_multipath = ospf_multipath_num;
 
 	/* Distance table init. */
 	new->distance_table = route_table_init();
@@ -889,7 +892,7 @@ static void ospf_finish_final(struct ospf *ospf)
 	close(ospf->fd);
 	stream_free(ospf->ibuf);
 	ospf->fd = -1;
-	ospf->max_multipath = MULTIPATH_NUM;
+	ospf->max_multipath = ospf_multipath_num;
 	ospf_delete(ospf);
 
 	if (vrf)

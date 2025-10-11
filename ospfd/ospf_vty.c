@@ -2772,6 +2772,13 @@ DEFUN (ospf_max_multipath,
 
 	maxpaths = strtol(argv[idx_number]->arg, NULL, 10);
 
+	if (maxpaths > ospf_multipath_num) {
+		vty_out(vty,
+			"%% Maxpaths Specified: %d is > than multipath num specified on platform %d\n",
+			maxpaths, ospf_multipath_num);
+		return CMD_WARNING_CONFIG_FAILED;
+	}
+
 	ospf_maxpath_set(vty, ospf, maxpaths);
 	return CMD_SUCCESS;
 }
@@ -2783,9 +2790,7 @@ DEFUN (no_ospf_max_multipath,
        "Max no of multiple paths for ECMP support\n")
 {
 	VTY_DECLVAR_INSTANCE_CONTEXT(ospf, ospf);
-	uint16_t maxpaths = MULTIPATH_NUM;
-
-	ospf_maxpath_set(vty, ospf, maxpaths);
+	ospf_maxpath_set(vty, ospf, ospf_multipath_num);
 	return CMD_SUCCESS;
 }
 
@@ -13109,7 +13114,7 @@ static int ospf_config_write_one(struct vty *vty, struct ospf *ospf)
 		vty_out(vty, " ospf write-multiplier %d\n",
 			ospf->write_oi_count);
 
-	if (ospf->max_multipath != MULTIPATH_NUM)
+	if (ospf->max_multipath != ospf_multipath_num)
 		vty_out(vty, " maximum-paths %d\n", ospf->max_multipath);
 
 	/* Max-metric router-lsa print */

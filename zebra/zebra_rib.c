@@ -1923,7 +1923,7 @@ no_nexthops:
 			ctxnhg->nexthop != NULL ? "" : " (empty)");
 
 	/* Set the flag about the dedicated fib list */
-	if (zrouter.asic_notification_nexthop_control) {
+	if (zrouter.zav.asic_notification_nexthop_control) {
 		SET_FLAG(re->status, ROUTE_ENTRY_USE_FIB_NHG);
 		if (ctxnhg->nexthop)
 			copy_nexthops(&(re->fib_ng.nexthop), ctxnhg->nexthop,
@@ -2740,7 +2740,7 @@ static void rib_process_dplane_notify(struct zebra_dplane_ctx *ctx)
 	/* Various fib transitions: changed nexthops; from installed to
 	 * not-installed; or not-installed to installed.
 	 */
-	if (zrouter.asic_notification_nexthop_control) {
+	if (zrouter.zav.asic_notification_nexthop_control) {
 		if (start_count > 0 && end_count > 0) {
 			if (debug_p)
 				zlog_debug(
@@ -3144,8 +3144,7 @@ static void process_subq_early_route_add(struct zebra_early_route *ere)
 
 	same = first_same;
 
-	if (!ere->startup && (re->flags & ZEBRA_FLAG_SELFROUTE) &&
-	    zrouter.asic_offloaded) {
+	if (!ere->startup && (re->flags & ZEBRA_FLAG_SELFROUTE) && zrouter.zav.asic_offloaded) {
 		struct route_entry *entry;
 
 		if (!same) {

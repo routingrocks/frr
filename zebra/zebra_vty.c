@@ -227,16 +227,13 @@ static char re_status_output_char(const struct route_entry *re,
 				star_p = true;
 		}
 
-		if (zrouter.asic_offloaded &&
-		    CHECK_FLAG(re->status, ROUTE_ENTRY_QUEUED))
+		if (zrouter.zav.asic_offloaded && CHECK_FLAG(re->status, ROUTE_ENTRY_QUEUED))
 			return 'q';
 
-		if (zrouter.asic_offloaded
-		    && CHECK_FLAG(re->flags, ZEBRA_FLAG_TRAPPED))
+		if (zrouter.zav.asic_offloaded && CHECK_FLAG(re->flags, ZEBRA_FLAG_TRAPPED))
 			return 't';
 
-		if (zrouter.asic_offloaded
-		    && CHECK_FLAG(re->flags, ZEBRA_FLAG_OFFLOAD_FAILED))
+		if (zrouter.zav.asic_offloaded && CHECK_FLAG(re->flags, ZEBRA_FLAG_OFFLOAD_FAILED))
 			return 'o';
 
 		if (CHECK_FLAG(re->flags, ZEBRA_FLAG_OUTOFSYNC))
@@ -4195,7 +4192,7 @@ static inline bool zebra_vty_v6_rr_semantics_used(void)
 	if (zebra_nhg_kernel_nexthops_enabled())
 		return true;
 
-	if (zrouter.v6_rr_semantics)
+	if (zrouter.zav.v6_rr_semantics)
 		return true;
 
 	return false;
@@ -4356,7 +4353,7 @@ DEFPY(show_zebra, show_zebra_cmd, "show zebra [json]", SHOW_STR ZEBRA_STR JSON_S
 
 	if (uj) {
 		json_object_string_addf(json, "os", "%s(%s)", cmd_system_get(), cmd_release_get());
-		json_object_int_add(json, "ecmpMaximum", zrouter.multipath_num);
+		json_object_int_add(json, "ecmpMaximum", zrouter.zav.multipath_num);
 		json_object_string_add(json, "v4Forwarding", ipforward() ? "On" : "Off");
 		json_object_string_add(json, "v6Forwarding", ipforward_ipv6() ? "On" : "Off");
 		json_object_string_add(json, "mpls", mpls_enabled ? "On" : "Off");
@@ -4365,7 +4362,7 @@ DEFPY(show_zebra, show_zebra_cmd, "show zebra [json]", SHOW_STR ZEBRA_STR JSON_S
 	} else {
 		ttable_rowseps(table, 0, BOTTOM, true, '-');
 		ttable_add_row(table, "OS|%s(%s)", cmd_system_get(), cmd_release_get());
-		ttable_add_row(table, "ECMP Maximum|%d", zrouter.multipath_num);
+		ttable_add_row(table, "ECMP Maximum|%d", zrouter.zav.multipath_num);
 		ttable_add_row(table, "v4 Forwarding|%s", ipforward() ? "On" : "Off");
 		ttable_add_row(table, "v6 Forwarding|%s", ipforward_ipv6() ? "On" : "Off");
 		ttable_add_row(table, "MPLS|%s", mpls_enabled ? "On" : "Off");
@@ -4394,7 +4391,7 @@ DEFPY(show_zebra, show_zebra_cmd, "show zebra [json]", SHOW_STR ZEBRA_STR JSON_S
 
 	if (uj) {
 		json_object_string_add(json, "asicOffload",
-				       zrouter.asic_offloaded ? "Used" : "Unavailable");
+				       zrouter.zav.asic_offloaded ? "Used" : "Unavailable");
 		json_object_string_add(json, "ra",
 				       rtadv_compiled_in() ? "Compiled in" : "Not Compiled in");
 		json_object_string_add(json, "rfc5549",
@@ -4402,7 +4399,7 @@ DEFPY(show_zebra, show_zebra_cmd, "show zebra [json]", SHOW_STR ZEBRA_STR JSON_S
 					       ? "BGP is using"
 					       : "BGP is not using");
 		json_object_string_add(json, "kernelNhg",
-				       zrouter.supports_nhgs ? "Available" : "Unavailable");
+				       zrouter.zav.supports_nhgs ? "Available" : "Unavailable");
 		json_object_string_add(json, "allowNonFrrRouteDeletion",
 				       zrouter.allow_delete ? "Yes" : "No");
 		json_object_string_add(json, "v4AllLinkDownRoutes",
@@ -4421,8 +4418,8 @@ DEFPY(show_zebra, show_zebra_cmd, "show zebra [json]", SHOW_STR ZEBRA_STR JSON_S
 				       zrouter.all_mc_forwardingv6 ? "On" : "Off");
 		json_object_string_add(json, "v6DefaultMcForwarding",
 				       zrouter.default_mc_forwardingv6 ? "On" : "Off");
-		if (zrouter.asic_offloaded) {
-			if (!zrouter.notify_on_ack)
+		if (zrouter.zav.asic_offloaded) {
+			if (!zrouter.zav.notify_on_ack)
 				json_object_string_add(json, "asicOffloadNotify", "Unavailable");
 			else
 				json_object_string_add(json, "asicOffloadNotify",
@@ -4430,14 +4427,14 @@ DEFPY(show_zebra, show_zebra_cmd, "show zebra [json]", SHOW_STR ZEBRA_STR JSON_S
 		}
 	} else {
 		ttable_add_row(table, "ASIC offload|%s",
-			       zrouter.asic_offloaded ? "Used" : "Unavailable");
+			       zrouter.zav.asic_offloaded ? "Used" : "Unavailable");
 		ttable_add_row(table, "RA|%s",
 			       rtadv_compiled_in() ? "Compiled in" : "Not Compiled in");
 		ttable_add_row(table, "RFC 5549|%s",
 			       rtadv_get_interfaces_configured_from_bgp() ? "BGP is using"
 									  : "BGP is not using");
 		ttable_add_row(table, "Kernel NHG|%s",
-			       zrouter.supports_nhgs ? "Available" : "Unavailable");
+			       zrouter.zav.supports_nhgs ? "Available" : "Unavailable");
 		ttable_add_row(table, "Allow Non FRR route deletion|%s",
 			       zrouter.allow_delete ? "Yes" : "No");
 		ttable_add_row(table, "v4 All LinkDown Routes|%s",
@@ -4460,8 +4457,8 @@ DEFPY(show_zebra, show_zebra_cmd, "show zebra [json]", SHOW_STR ZEBRA_STR JSON_S
 		vty_out(vty, "%s\n", out);
 		XFREE(MTYPE_TMP, out);
 		ttable_del(table);
-		if (zrouter.asic_offloaded) {
-			if (!zrouter.notify_on_ack)
+		if (zrouter.zav.asic_offloaded) {
+			if (!zrouter.zav.notify_on_ack)
 				vty_out(vty, "Asic Offload is being used\n");
 			else
 				vty_out(vty,

@@ -694,6 +694,7 @@ struct ospf_nbr_nbma {
 /* Extern variables. */
 extern struct ospf_master *om;
 extern unsigned short ospf_instance;
+extern unsigned int ospf_multipath_num;
 extern const int ospf_redistributed_proto_max;
 extern struct zclient *zclient;
 extern struct event_loop *master;

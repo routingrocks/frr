@@ -7,6 +7,7 @@
 #define __ZEBRA_ROUTER_H__
 
 #include "lib/mlag.h"
+#include "lib/hook.h"
 
 #include "zebra/zebra_ns.h"
 
@@ -138,6 +139,31 @@ struct zebra_mlag_info {
 #define RTADV_TIMER_WHEEL_SLOTS_NO  100
 #define ICMPV6_JOIN_TIMER_EXP_MS    100
 
+/*
+ * These are values that are changeable due to some architectural restrictions
+ * of the underlying NOS's actual data plane.  They are sequestered into
+ * their own area such that we don't necessarily want to expose all of zebra_router
+ */
+struct zebra_architectural_values {
+	uint32_t multipath_num;
+
+	bool asic_offloaded;
+	bool notify_on_ack;
+	bool v6_with_v4_nexthop;
+	bool v6_rr_semantics;
+
+	bool supports_nhgs;
+
+	/*
+	 * If the asic is notifying us about successful nexthop
+	 * allocation/control.  Some developers have made their
+	 * asic take control of how many nexthops/ecmp they can
+	 * have and will report what is successfull or not
+	 */
+	bool asic_notification_nexthop_control;
+
+};
+
 struct zebra_router {
 	atomic_bool in_shutdown;
 
@@ -205,8 +231,6 @@ struct zebra_router {
 	 */
 	struct zebra_vrf *evpn_vrf;
 
-	uint32_t multipath_num;
-
 	/* RPF Lookup behavior */
 	enum multicast_mode ipv4_multicast_mode;
 
@@ -218,6 +242,7 @@ struct zebra_router {
 	bool gr_update_pending_time_recorded;
 	time_t gr_completion_time;
 
+	struct zebra_architectural_values zav;
 	/*
 	 * zebra start time and time of sweeping RIB of old routes
 	 */
@@ -250,25 +275,6 @@ struct zebra_router {
 	 */
 	struct hash *nhgs;
 	struct hash *nhgs_id;
-
-	/*
-	 * Does the underlying system provide an asic offload
-	 */
-	bool asic_offloaded;
-	bool notify_on_ack;
-	bool v6_with_v4_nexthop;
-
-	bool v6_rr_semantics;
-
-	/*
-	 * If the asic is notifying us about successful nexthop
-	 * allocation/control.  Some developers have made their
-	 * asic take control of how many nexthops/ecmp they can
-	 * have and will report what is successfull or not
-	 */
-	bool asic_notification_nexthop_control;
-
-	bool supports_nhgs;
 
 	bool all_mc_forwardingv4, default_mc_forwardingv4;
 	bool all_mc_forwardingv6, default_mc_forwardingv6;
@@ -366,7 +372,7 @@ extern bool zebra_router_notify_on_ack(void);
 
 static inline void zebra_router_set_supports_nhgs(bool support)
 {
-	zrouter.supports_nhgs = support;
+	zrouter.zav.supports_nhgs = support;
 }
 
 static inline bool zebra_router_in_shutdown(void)
@@ -402,6 +408,8 @@ static inline uint8_t if_netlink_get_frr_protodown_r_bit(void)
 
 /* zebra_northbound.c */
 extern const struct frr_yang_module_info frr_zebra_info;
+
+DECLARE_HOOK(nos_initialize_data, (struct zebra_architectural_values *), (zav));
 
 #ifdef __cplusplus
 }

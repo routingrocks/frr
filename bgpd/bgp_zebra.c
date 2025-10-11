@@ -3759,6 +3759,9 @@ static void bgp_zebra_capabilities(struct zclient_capabilities *cap)
 
 	if (maint)
 		bgp_process_maintenance_mode(NULL, true);
+
+	/* Update multipath from platform capability */
+	multipath_num = cap->ecmp;
 }
 
 void bgp_zebra_init(struct event_loop *master, unsigned short instance)

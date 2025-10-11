@@ -8,8 +8,10 @@
 #include <sys/stat.h>
 #include <pthread.h>
 #include "lib/frratomic.h"
+#include "lib/hook.h"
 
 #include "zebra_router.h"
+#include "zebra_router_cl.h"
 #include "zebra_pbr.h"
 #include "zebra_vxlan.h"
 #include "zebra_mlag.h"
@@ -24,10 +26,12 @@ DEFINE_MTYPE_STATIC(ZEBRA, RIB_TABLE_INFO, "RIB table info");
 DEFINE_MTYPE_STATIC(ZEBRA, ZEBRA_RT_TABLE, "Zebra VRF table");
 
 struct zebra_router zrouter = {
-	.multipath_num = MULTIPATH_NUM,
+	.zav.multipath_num = MULTIPATH_NUM,
 	.ipv4_multicast_mode = MCAST_NO_CONFIG,
-	.v6_rr_semantics = true,
+	.zav.v6_rr_semantics = true,
 };
+
+DEFINE_HOOK(nos_initialize_data, (struct zebra_architectural_values *zav), (zav));
 
 struct zebra_gr_ctx z_gr_ctx;
 
@@ -293,7 +297,7 @@ void zebra_router_terminate(void)
 
 bool zebra_router_notify_on_ack(void)
 {
-	return !zrouter.asic_offloaded || zrouter.notify_on_ack;
+	return !zrouter.zav.asic_offloaded || zrouter.zav.notify_on_ack;
 }
 
 void zebra_router_init(bool asic_offload, bool notify_on_ack,
@@ -355,24 +359,12 @@ void zebra_router_init(bool asic_offload, bool notify_on_ack,
 					       "TC (filter) Hash");
 
 	/*
-	 * Cumulus does this by default
+	 * Basic initialization - platform-specific logic moved to nos_initialize_data hook
 	 */
-	struct stat pfile;
-	if (stat("/usr/bin/platform-detect", &pfile) >= 0) {
-		int rc = 0;
+	zrouter.zav.asic_offloaded = asic_offload;
+	zrouter.zav.notify_on_ack = notify_on_ack;
+	zrouter.zav.v6_with_v4_nexthop = v6_with_v4_nexthop;
 
-		if ((rc = system("/usr/bin/platform-detect | grep vx")) == 0)
-			zrouter.asic_offloaded = false;
-		else
-			zrouter.asic_offloaded = true;
-
-		if (WIFSIGNALED(rc) && WTERMSIG(rc) == SIGINT)
-			raise(SIGINT);
-	} else
-		zrouter.asic_offloaded = asic_offload;
-
-	zrouter.notify_on_ack = notify_on_ack;
-	zrouter.v6_with_v4_nexthop = v6_with_v4_nexthop;
 	/*
 	 * If you start using asic_notification_nexthop_control
 	 * come talk to the FRR community about what you are doing
@@ -382,9 +374,11 @@ void zebra_router_init(bool asic_offload, bool notify_on_ack,
 	CPP_NOTICE(
 		"Remove zrouter.asic_notification_nexthop_control as that it's not being maintained or used");
 #endif
-	zrouter.asic_notification_nexthop_control = false;
+	zrouter.zav.asic_notification_nexthop_control = false;
 
 	zrouter.nexthop_weight_scale_value = 255;
+
+	hook_call(nos_initialize_data, &zrouter.zav);
 
 #ifdef HAVE_SCRIPTING
 	zebra_script_init();
