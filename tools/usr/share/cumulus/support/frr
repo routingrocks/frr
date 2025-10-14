@@ -97,6 +97,11 @@ func_frr()
     exec_cmd $jexec evpn.vlan.vni vtysh -c "show evpn access-vlan $json"
     exec_cmd evpn.local_mac.all  vtysh -c "show evpn local-mac"
 
+    # BFD Commands
+    exec_cmd bfd.peers vtysh -c "show bfd peers"
+    exec_cmd bfd.peers_counters vtysh -c "show bfd peers counters"
+    exec_cmd bfd.static_route vtysh -c "show bfd static route"
+
     # OSPF Daemon Commands
     exec_cmd ospf.show_running vtysh -c "show running ospfd"
     exec_cmd ospf.vrfs vtysh -c "show ip ospf vrfs"
