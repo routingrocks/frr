@@ -1,8 +1,7 @@
 [Unit]
 Description=FRRouting
 Documentation=https://frrouting.readthedocs.io/en/latest/setup.html
-After=networking.service systemd-sysctl.service csmgrd.service ptmd.service
-Before=lttng-sessiond.service
+After=networking.service systemd-sysctl.service csmgrd.service ptmd.service lttng-sessiond.service
 OnFailure=heartbeat-failed@%n
 
 [Service]
