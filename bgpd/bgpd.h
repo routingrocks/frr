@@ -2003,6 +2003,12 @@ struct peer {
 	/* allowas-in. */
 	char allowas_in[AFI_MAX][SAFI_MAX];
 
+	/* allowas-in with route-map. */
+	struct {
+		char *name;
+		struct route_map *rmap;
+	} allowas_in_rmap[AFI_MAX][SAFI_MAX];
+
 	/* soo */
 	struct ecommunity *soo[AFI_MAX][SAFI_MAX];
 
@@ -2684,6 +2690,9 @@ extern int peer_distribute_unset(struct peer *, afi_t, safi_t, int);
 
 extern int peer_allowas_in_set(struct peer *, afi_t, safi_t, int, int);
 extern int peer_allowas_in_unset(struct peer *, afi_t, safi_t);
+
+extern int peer_allowas_in_route_map_set(struct peer *, afi_t, safi_t, const char *, int, int);
+extern int peer_allowas_in_route_map_unset(struct peer *, afi_t, safi_t);
 
 extern int peer_local_as_set(struct peer *peer, as_t as, bool no_prepend,
 			     bool replace_as, const char *as_str);
