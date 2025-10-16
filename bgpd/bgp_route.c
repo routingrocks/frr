@@ -7061,59 +7061,102 @@ static void clearing_clear_one_pi(struct bgp_table *table, struct bgp_dest *dest
  */
 static void set_clearing_resume_info(struct bgp_clearing_info *cinfo,
 				     const struct bgp_table *table,
-				     const struct bgp_dest *dest, bool inner_p)
+				     const struct prefix *p, bool inner_p)
 {
 	if (bgp_debug_neighbor_events(NULL))
 		zlog_debug("%s: %sinfo for %s/%s %pFX", __func__,
 			   inner_p ? "inner " : "", afi2str(table->afi),
-			   safi2str(table->safi), &dest->rn->p);
+			   safi2str(table->safi), p);
 
 	SET_FLAG(cinfo->flags, BGP_CLEARING_INFO_FLAG_RESUME);
 
 	if (inner_p) {
 		cinfo->inner_afi = table->afi;
 		cinfo->inner_safi = table->safi;
-		cinfo->inner_pfx = dest->rn->p;
+		memcpy(&cinfo->inner_pfx, p, sizeof(struct prefix));
 		SET_FLAG(cinfo->flags, BGP_CLEARING_INFO_FLAG_INNER);
 	} else {
 		cinfo->last_afi = table->afi;
 		cinfo->last_safi = table->safi;
-		cinfo->last_pfx = dest->rn->p;
+		memcpy(&cinfo->last_pfx, p, sizeof(struct prefix));
 	}
 }
 
 /*
  * Helper to establish position in a table, possibly using "resume" info stored
- * during an iteration
+ * during an iteration. Special logic helps navigate the outer/inner tables used
+ * for the VPN safis.
  */
 static struct bgp_dest *clearing_dest_helper(struct bgp_table *table,
 					     struct bgp_clearing_info *cinfo,
 					     bool inner_p)
 {
-	struct bgp_dest *dest;
+	struct bgp_dest *dest = NULL;
 	const struct prefix *pfx;
+	bool outer_level_p;
+	char buf[PREFIX_STRLEN];
 
-	/* Iterate at start of table, or resume using inner or outer prefix */
+	/* Is this a call for the outer/RD table of a VPN safi? */
+	outer_level_p = (CHECK_FLAG(cinfo->flags, BGP_CLEARING_INFO_FLAG_INNER) && !inner_p);
+
+	/* Iterate at start of table, or resume using "inner" or "outer" (RD) prefix */
 	dest = bgp_table_top(table);
 
 	if (CHECK_FLAG(cinfo->flags, BGP_CLEARING_INFO_FLAG_RESUME)) {
-		pfx = NULL;
-		if (inner_p) {
-			if (CHECK_FLAG(cinfo->flags, BGP_CLEARING_INFO_FLAG_INNER))
-				pfx = &(cinfo->inner_pfx);
-		} else {
+		/* We're resuming an in-progress iteration. There are a couple of cases:
+		 * 1. we're resuming in an non-VPN afi/safi; we'll look to locate the
+		 *    closest prefix _after_ the prefix we saved.
+		 * 2. if we're in a VPN safi this will be called twice: first to locate
+		 *    the RD in the "outer" table, and then a second time to locate
+		 *    the closest prefix _after_ the "inner" prefix within the RD table.
+		 */
+		if (inner_p && CHECK_FLAG(cinfo->flags, BGP_CLEARING_INFO_FLAG_INNER))
+			pfx = &(cinfo->inner_pfx);
+		else
 			pfx = &(cinfo->last_pfx);
-		}
 
 		if (pfx) {
-			dest = bgp_node_match(table, pfx);
-			if (dest) {
-				/* if 'dest' matches or precedes the 'last' prefix
-				 * visited, then advance.
+			if (outer_level_p) {
+				/* Outer/RD table: use current RD if possible, advance
+				 * otherwise
 				 */
-				while (dest && (prefix_cmp(&(dest->rn->p), pfx) <= 0))
-					dest = bgp_route_next(dest);
+				if (bgp_debug_neighbor_events(NULL)) {
+					prefix_rd2str((struct prefix_rd *)pfx, buf, sizeof(buf),
+						      ASNOTATION_PLAIN);
+					zlog_debug("%s: using RESUME%s prefix %s", __func__,
+						   inner_p ? " inner" : "", buf);
+				}
+
+				dest = bgp_node_match(table, pfx);
+			} else {
+				/* Normal prefix: look for next prefix */
+				if (bgp_debug_neighbor_events(NULL))
+					zlog_debug("%s: using RESUME%s prefix %pFX", __func__,
+						   inner_p ? " inner" : "", pfx);
+
+				dest = bgp_node_match(table, pfx);
+				if (dest) {
+					/* if 'dest' matches or precedes the 'last' prefix
+					 * visited, then advance.
+					 */
+					while (dest && (prefix_cmp(&(dest->rn->p), pfx) <= 0))
+						dest = bgp_route_next(dest);
+				}
 			}
+		}
+	}
+
+	if (bgp_debug_neighbor_events(NULL)) {
+		if (outer_level_p) {
+			if (dest)
+				prefix_rd2str((struct prefix_rd *)(&dest->rn->p), buf, sizeof(buf),
+					      ASNOTATION_PLAIN);
+			else
+				strlcpy(buf, "NULL", sizeof(buf));
+
+			zlog_debug("%s: returns RD dest %s (%p)", __func__, buf, dest);
+		} else {
+			zlog_debug("%s: returns dest %pBD", __func__, dest);
 		}
 	}
 
@@ -7135,7 +7178,6 @@ static void clear_dests_callback(struct event *event)
 		/* All done, clean up context */
 		bgp_clearing_batch_completed(cinfo);
 	} else {
-		/* Need to resume the work, with 'cinfo' */
 		event_add_event(bm->master, clear_dests_callback, cinfo, 0,
 				&cinfo->t_sched);
 	}
@@ -7153,9 +7195,19 @@ static int walk_batch_table_helper(struct bgp_clearing_info *cinfo,
 	struct bgp_dest *dest;
 	bool force = (cinfo->bgp->process_queue == NULL);
 	uint32_t examined = 0, processed = 0;
+	struct prefix pfx;
 
 	/* Locate starting dest, possibly using "resume" info */
 	dest = clearing_dest_helper(table, cinfo, inner_p);
+
+	/* Reset flags, now that we've used the "resume" info */
+	UNSET_FLAG(cinfo->flags, (BGP_CLEARING_INFO_FLAG_RESUME |
+				  BGP_CLEARING_INFO_FLAG_INNER));
+
+	if (bgp_debug_neighbor_events(NULL))
+		zlog_debug("%s: table %s/%s, dest %pBD", __func__, afi2str(table->afi),
+			   safi2str(table->safi), dest);
+
 	if (dest == NULL) {
 		/* Nothing more to do for this table? */
 		return 0;
@@ -7168,6 +7220,10 @@ static int walk_batch_table_helper(struct bgp_clearing_info *cinfo,
 
 		examined++;
 		cinfo->curr_counter++;
+		cinfo->total_counter++;
+
+		/* Save dest's prefix */
+		memcpy(&pfx, &dest->rn->p, sizeof(struct prefix));
 
 		ain = dest->adj_in;
 		while (ain) {
@@ -7199,14 +7255,13 @@ static int walk_batch_table_helper(struct bgp_clearing_info *cinfo,
 		if (cinfo->curr_counter >= bm->peer_clearing_batch_max_dests) {
 			/* Capture info about last dest seen and break */
 			if (bgp_debug_neighbor_events(NULL))
-				zlog_debug("%s: %s/%s: pfx %pFX reached limit %u",
-					   __func__, afi2str(table->afi),
-					   safi2str(table->safi), &dest->rn->p,
+				zlog_debug("%s: %s/%s: pfx %pFX reached limit %u", __func__,
+					   afi2str(table->afi), safi2str(table->safi), &pfx,
 					   cinfo->curr_counter);
 
 			/* Reset the counter */
 			cinfo->curr_counter = 0;
-			set_clearing_resume_info(cinfo, table, dest, inner_p);
+			set_clearing_resume_info(cinfo, table, &pfx, inner_p);
 			ret = -1;
 			break;
 		}
@@ -7234,15 +7289,23 @@ static int clear_batch_rib_helper(struct bgp_clearing_info *cinfo)
 	safi_t safi;
 	struct bgp_dest *dest;
 	struct bgp_table *table, *outer_table;
+	struct prefix pfx;
+	const char *resume_str = "starting";
+	char pbuf[PREFIX_STRLEN];
 
 	/* Maybe resume afi/safi iteration */
 	if (CHECK_FLAG(cinfo->flags, BGP_CLEARING_INFO_FLAG_RESUME)) {
 		afi = cinfo->last_afi;
 		safi = cinfo->last_safi;
+		resume_str = "resuming";
 	} else {
 		afi = AFI_IP;
 		safi = SAFI_UNICAST;
 	}
+
+	if (bgp_debug_neighbor_events(NULL))
+		zlog_debug("%s: %s: AFI/SAFI %s/%s", __func__, resume_str, afi2str(afi),
+			   safi2str(safi));
 
 	/* Iterate through afi/safi combos */
 	for (; afi < AFI_MAX; afi++) {
@@ -7253,10 +7316,6 @@ static int clear_batch_rib_helper(struct bgp_clearing_info *cinfo)
 			if (bgp_debug_neighbor_events(NULL))
 				zlog_debug("%s: examining AFI/SAFI %s/%s", __func__, afi2str(afi),
 					   safi2str(safi));
-
-			/* Record the tables we've seen and don't repeat */
-			if (cinfo->table_map[afi][safi] > 0)
-				continue;
 
 			if (safi != SAFI_MPLS_VPN && safi != SAFI_ENCAP && safi != SAFI_EVPN) {
 				table = cinfo->bgp->rib[afi][safi];
@@ -7269,9 +7328,6 @@ static int clear_batch_rib_helper(struct bgp_clearing_info *cinfo)
 				ret = walk_batch_table_helper(cinfo, table, false /*inner*/);
 				if (ret != 0)
 					break;
-
-				cinfo->table_map[afi][safi] = 1;
-
 			} else {
 				/* Process "inner" table for these SAFIs */
 				outer_table = cinfo->bgp->rib[afi][safi];
@@ -7279,16 +7335,38 @@ static int clear_batch_rib_helper(struct bgp_clearing_info *cinfo)
 				/* Begin or resume iteration in "outer" table */
 				dest = clearing_dest_helper(outer_table, cinfo, false);
 
+				if (dest)
+					prefix_rd2str((struct prefix_rd *)(&dest->rn->p), pbuf,
+						      sizeof(pbuf), ASNOTATION_PLAIN);
+				else
+					strlcpy(pbuf, "NULL", sizeof(pbuf));
+
+				if (bgp_debug_neighbor_events(NULL))
+					zlog_debug("%s: outer table %s/%s starting dest %s",
+						   __func__, afi2str(outer_table->afi),
+						   safi2str(outer_table->safi), pbuf);
+
 				for (; dest; dest = bgp_route_next(dest)) {
 					table = bgp_dest_get_bgp_table_info(dest);
 					if (!table) {
-						/* If we resumed to an inner afi/safi, but
+						/* If we resumed to an inner table but
 						 * it's no longer valid, reset resume info.
 						 */
 						UNSET_FLAG(cinfo->flags,
 							   BGP_CLEARING_INFO_FLAG_RESUME);
 						continue;
 					}
+
+					prefix_rd2str((struct prefix_rd *)(&dest->rn->p), pbuf,
+						      sizeof(pbuf), ASNOTATION_PLAIN);
+
+					if (bgp_debug_neighbor_events(NULL))
+						zlog_debug("%s: outer table %s/%s, dest %s",
+							   __func__, afi2str(outer_table->afi),
+							   safi2str(outer_table->safi), pbuf);
+
+					/* Capture last prefix */
+					memcpy(&pfx, &dest->rn->p, sizeof(struct prefix));
 
 					/* This will resume the "inner" walk if necessary */
 					ret = walk_batch_table_helper(cinfo, table, true /*inner*/);
@@ -7297,7 +7375,7 @@ static int clear_batch_rib_helper(struct bgp_clearing_info *cinfo)
 						 * capture the resume info we need
 						 * from the outer afi/safi and dest
 						 */
-						set_clearing_resume_info(cinfo, outer_table, dest,
+						set_clearing_resume_info(cinfo, outer_table, &pfx,
 									 false);
 						break;
 					}
@@ -7305,8 +7383,6 @@ static int clear_batch_rib_helper(struct bgp_clearing_info *cinfo)
 
 				if (ret != 0)
 					break;
-
-				cinfo->table_map[afi][safi] = 1;
 			}
 
 			/* We've finished with a table: ensure we don't try to use stale
@@ -7324,8 +7400,10 @@ static int clear_batch_rib_helper(struct bgp_clearing_info *cinfo)
 		if (ret != 0)
 			return ret;
 
+		/* Reset SAFI for next AFI iteration */
 		safi = SAFI_UNICAST;
 	}
+
 	return ret;
 }
 
