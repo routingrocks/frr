@@ -801,7 +801,6 @@ void subgroup_announce_table(struct update_subgroup *subgrp,
  */
 void subgroup_announce_route(struct update_subgroup *subgrp)
 {
-	struct bgp_dest *dest;
 	struct bgp_table *table;
 	struct peer *onlypeer;
 
@@ -825,6 +824,7 @@ void subgroup_announce_route(struct update_subgroup *subgrp)
 		subgroup_announce_table(subgrp, NULL);
 	else {
 		struct bgp_table *rib = update_subgroup_rib(subgrp);
+		struct bgp_dest *dest;
 
 		if (!rib)
 			return;

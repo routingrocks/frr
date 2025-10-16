@@ -3375,8 +3375,13 @@ void bgp_best_selection(struct bgp *bgp, struct bgp_dest *dest,
 					continue;
 				}
 
-			if (!look_thru->peer)
+			if (!look_thru->peer) {
+				if (debug)
+					zlog_debug("%s: %pBD(%s) look_thru peer is NULL",
+						   __func__, dest,
+						   bgp->name_pretty);
 				continue;
+			}
 
 			bgp_path_info_unset_flag(dest, look_thru, BGP_PATH_DMED_CHECK);
 			reason = dest->reason;
