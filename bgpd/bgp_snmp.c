@@ -25,6 +25,7 @@
 #include "bgpd/bgp_attr.h"
 #include "bgpd/bgp_route.h"
 #include "bgpd/bgp_fsm.h"
+#include "bgpd/bgp_snmp.h"
 #include "bgpd/bgp_snmp_bgp4.h"
 #include "bgpd/bgp_snmp_bgp4v2.h"
 #include "bgpd/bgp_mplsvpn_snmp.h"

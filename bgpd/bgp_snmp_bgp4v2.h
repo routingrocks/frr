@@ -94,6 +94,5 @@
 extern int bgp_snmp_bgp4v2_init(struct event_loop *tm);
 extern int bgpv2TrapEstablished(struct peer *peer);
 extern int bgpv2TrapBackwardTransition(struct peer *peer);
-extern void bgp_snmp_bgp4v2_cleanup(void);
 
 #endif /* _FRR_BGP_SNMP_BGP4V2_H_ */
