@@ -7660,19 +7660,6 @@ void bgp_evpn_vrf_delete(struct bgp *bgp_vrf)
 {
 	bgp_evpn_unmap_vrf_from_its_rts(bgp_vrf);
 	bgp_evpn_nh_finish(bgp_vrf);
-
-	/* If this is the EVPN instance being deleted, clean up all auto-created VRF instances */
-	if (bgp_vrf == bgp_get_evpn()) {
-		struct bgp *bgp_iter;
-		struct listnode *node, *next;
-
-		for (ALL_LIST_ELEMENTS(bm->bgp, node, next, bgp_iter)) {
-			if (CHECK_FLAG(bgp_iter->vrf_flags, BGP_VRF_AUTO) &&
-			    !CHECK_FLAG(bgp_iter->flags, BGP_FLAG_DELETE_IN_PROGRESS)) {
-				bgp_delete(bgp_iter);
-			}
-		}
-	}
 }
 
 /*

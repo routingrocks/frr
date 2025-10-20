@@ -4,7 +4,6 @@
  */
 
 void bgp_mpls_l3vpn_module_init(void);
-void bgp_mpls_l3vpn_module_cleanup(void);
 
 #define MPLSL3VPNVRFRTECIDRTYPEOTHER 1
 #define MPLSL3VPNVRFRTECIDRTYPEREJECT 2

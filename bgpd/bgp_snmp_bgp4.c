@@ -806,9 +806,3 @@ int bgp_snmp_bgp4_init(struct event_loop *tm)
 	REGISTER_MIB("mibII/bgp", bgp_variables, variable, bgp_oid);
 	return 0;
 }
-
-void bgp_snmp_bgp4_cleanup(void)
-{
-	/* Unregister BGP4-MIB (RFC 4273) */
-	unregister_mib(bgp_oid, sizeof(bgp_oid)/sizeof(oid));
-}
