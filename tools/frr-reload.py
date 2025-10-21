@@ -1402,8 +1402,9 @@ def bgp_delete_move_lines(lines_to_add, lines_to_del):
         bgp_delete_inst_move_line(lines_to_del)
         if del_nbr_dict:
             bgp_remove_neighbor_cfg(lines_to_del, del_nbr_dict)
-        if lines_to_del_to_app:
-            bgp_cleanup_redundant_neighbor_deletions(lines_to_del, lines_to_del_to_app)
+        else:
+            if lines_to_del_to_app:
+                bgp_cleanup_redundant_neighbor_deletions(lines_to_del, lines_to_del_to_app)
         return (lines_to_add, lines_to_del)
 
     # {'router bgp 65001': {'PG': ['10.1.1.2'], 'PG1': ['10.1.1.21']},
