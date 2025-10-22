@@ -3751,6 +3751,8 @@ static bool bgp_zebra_label_manager_connect(void)
 static void bgp_zebra_capabilities(struct zclient_capabilities *cap)
 {
 	bool gr, maint;
+	struct listnode *node;
+	struct bgp *bgp;
 
 	gr = cap->graceful_restart;
 	maint = cap->maint_mode;
@@ -3760,8 +3762,33 @@ static void bgp_zebra_capabilities(struct zclient_capabilities *cap)
 	if (maint)
 		bgp_process_maintenance_mode(NULL, true);
 
-	/* Update multipath from platform capability */
+	/* Update multipath from platform capability
+	 *
+	 * When the platform multipath value changes, we need to update
+	 * existing BGP instances that still have the old default value.
+	 * Otherwise, config write will incorrectly write out unconfigured
+	 * address-families because they don't match the new default.
+	 */
+	uint16_t old_multipath_num = multipath_num;
 	multipath_num = cap->ecmp;
+
+	if (old_multipath_num != multipath_num) {
+		for (ALL_LIST_ELEMENTS_RO(bm->bgp, node, bgp)) {
+			afi_t afi;
+			safi_t safi;
+
+			FOREACH_AFI_SAFI (afi, safi) {
+				/* Update values that still have the old default */
+				if (bgp->maxpaths[afi][safi].maxpaths_ebgp == old_multipath_num)
+					bgp_maximum_paths_set(bgp, afi, safi, BGP_PEER_EBGP,
+							      multipath_num, 0);
+
+				if (bgp->maxpaths[afi][safi].maxpaths_ibgp == old_multipath_num)
+					bgp_maximum_paths_set(bgp, afi, safi, BGP_PEER_IBGP,
+							      multipath_num, 0);
+			}
+		}
+	}
 }
 
 void bgp_zebra_init(struct event_loop *master, unsigned short instance)
