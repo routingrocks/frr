@@ -95,3 +95,161 @@
    ...
    fun:yang_module_load
 }
+{
+   <liblttng leak not in frr scope>
+   Memcheck:Leak
+   ...
+   fun:calloc
+   ...
+   fun:_dl_allocate_tls
+   ...
+   fun:_dl_init
+}
+{
+   <event handling leak is false positive>
+   Memcheck:Leak
+   ...
+   fun:calloc
+   ...
+   fun:_event_add_event
+   ...
+   fun:frr_config_fork
+}
+{
+   <libsnmp leak not in frr scope>
+   Memcheck:Leak
+   fun:calloc
+   ...
+   fun:bgp_snmp_init
+   fun:hook_call_frr_late_init
+}
+{
+   <libsnmp leak not in frr scope>
+   Memcheck:Leak
+   fun:malloc
+   fun:strdup
+   ...
+   fun:bgp_snmp_init
+   fun:hook_call_frr_late_init
+}
+{
+   <glib leak not in frr scope>
+   Memcheck:Leak
+   fun:malloc
+   ...
+   fun:_dl_map_object_deps
+   ...
+   fun:_dl_open
+   ...
+   fun:dlopen_implementation
+   fun:dlopen@@GLIBC_2.34
+}
+{
+   <libsnmp leak not in frr scope>
+   Memcheck:Leak
+   fun:calloc
+   ...
+   fun:bgp_snmp_init
+}
+{
+   <libgrpc leak not in frr scope>
+   Memcheck:Leak
+   ...
+   fun:Shutdown
+   fun:frr_grpc_finish
+   fun:frr_fini
+   fun:bgp_exit
+}
+{
+   <libgrpc leak not in frr scope>
+   Memcheck:Leak
+   ...
+   fun:Shutdown
+   fun:frr_grpc_finish
+   fun:hook_call_frr_fini
+   fun:frr_fini
+   fun:bgp_exit
+}
+{
+   <zebra dplane_ns false positive
+   Memcheck:Leak
+   fun:calloc
+   ...
+   fun:zebra_dplane_ns_enable
+   fun:zebra_ns_init
+}
+{
+   <zebra dplane_ns false positive
+   Memcheck:Leak
+   fun:calloc
+   ...
+   fun:zebra_dplane_ns_enable
+   fun:zebra_ns_enable
+   fun:zebra_ns_init
+}
+{
+   <zebra dplane init false positive
+   Memcheck:Leak
+   fun:calloc
+   ...
+   fun:dplane_provider_register
+   fun:zebra_dplane_init
+}
+{
+   <zebra dplane init false positive
+   Memcheck:Leak
+   fun:calloc
+   ...
+   fun:dplane_provider_register
+   fun:dplane_provider_init
+   fun:zebra_dplane_init_internal
+   fun:zebra_dplane_init
+}
+{
+   <zebra dplane ns init false positive
+   Memcheck:Leak
+   fun:calloc
+   ...
+   fun:zebra_dplane_startup_stage
+   fun:zebra_ns_init
+}
+{
+   <zebra dplane ns init false positive
+   Memcheck:Leak
+   fun:calloc
+   ...
+   fun:zebra_dplane_startup_stage
+   fun:zebra_ns_enable
+   fun:zebra_ns_init
+}
+{
+   <zebra dplane ns netlink false positive
+   Memcheck:Leak
+   fun:calloc
+   ...
+   fun:netlink_link_change
+   fun:netlink_parse_info
+   ...
+   fun:interface_list
+   fun:zebra_ns_init
+}
+{
+   <zebra dplane ns netlink false positive
+   Memcheck:Leak
+   fun:calloc
+   ...
+   fun:netlink_link_change
+   fun:netlink_parse_info
+   ...
+   fun:interface_list
+   fun:zebra_ns_enable
+   fun:zebra_ns_init
+}
+{
+   <zebra dl init false positive
+   Memcheck:Leak
+   fun:calloc
+   ...
+   fun:_dl_allocate_tls
+   fun:_dl_init
+}
