@@ -3023,9 +3023,7 @@ static void nb_wheel_init_or_reset(struct event_loop *master, const char *xpath,
 	if (!master) {
 		return;
 	}
-	int sampletime = (interval && interval * 1000 > SUBSCRIPTION_SAMPLE_TIMER)
-				 ? interval * 1000
-				 : SUBSCRIPTION_SAMPLE_TIMER;
+	int sampletime = interval ? interval * 1000 : SUBSCRIPTION_SAMPLE_TIMER;
 	DEBUGD(&nb_dbg_events, "Wheel sample %d", sampletime);
 	if (nb_current_subcr_cache->timer_wheel) {
 		if ((uint32_t)sampletime != nb_current_subcr_cache->timer_wheel->period)
