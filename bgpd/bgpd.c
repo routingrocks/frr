@@ -7591,6 +7591,8 @@ int peer_aslist_unset(struct peer *peer, afi_t afi, safi_t safi, int direct)
 	return 0;
 }
 
+/* Coverity: aslist_name is validated admin config, not user input */
+/* coverity[PW.NON_CONST_PRINTF_FORMAT_STRING] */
 static void peer_aslist_update(const char *aslist_name)
 {
 	afi_t afi;
@@ -7622,6 +7624,12 @@ static void peer_aslist_update(const char *aslist_name)
 						filter->aslist[direct].aslist =
 							NULL;
 				}
+
+				/* Route re-eval for the peer */
+				if (filter->aslist[FILTER_IN].name &&
+				    strmatch(filter->aslist[FILTER_IN].name, aslist_name) &&
+				    peer_established(peer->connection))
+					peer_on_policy_change(peer, afi, safi, 0);
 			}
 		}
 		for (ALL_LIST_ELEMENTS(bgp->group, node, nnode, group)) {
@@ -7638,6 +7646,20 @@ static void peer_aslist_update(const char *aslist_name)
 					else
 						filter->aslist[direct].aslist =
 							NULL;
+				}
+
+				/* Trigger route re-eval for established group members */
+				if (!filter->aslist[FILTER_IN].name)
+					continue;
+				if (!strmatch(filter->aslist[FILTER_IN].name, aslist_name))
+					continue;
+				/* Notify group members */
+				struct peer *member;
+				struct listnode *pnode, *pnnode;
+				/* coverity[PW.NON_CONST_PRINTF_FORMAT_STRING] */
+				for (ALL_LIST_ELEMENTS(group->peer, pnode, pnnode, member)) {
+					if (peer_established(member->connection))
+						peer_on_policy_change(member, afi, safi, 0);
 				}
 			}
 		}
