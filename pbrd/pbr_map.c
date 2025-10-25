@@ -64,6 +64,9 @@ static int pbr_map_sequence_compare(const struct pbr_map_sequence *pbrms1,
 
 void pbr_map_sequence_delete(struct pbr_map_sequence *pbrms)
 {
+	if (bf_is_inited(pbrms->installed))
+		bf_free(pbrms->installed);
+
 	XFREE(MTYPE_TMP, pbrms->internal_nhg_name);
 
 	QOBJ_UNREG(pbrms);
@@ -89,14 +92,11 @@ static void pbr_map_interface_list_delete(struct pbr_map_interface *pmi)
 static bool pbrms_is_installed(const struct pbr_map_sequence *pbrms,
 			       const struct pbr_map_interface *pmi)
 {
-	uint64_t is_installed = (uint64_t)1 << pmi->install_bit;
+	if (!bf_is_inited(pbrms->installed) ||
+	    pmi->install_bit >= (pbrms->installed.m * WORD_SIZE))
+		return false;
 
-	is_installed &= pbrms->installed;
-
-	if (is_installed)
-		return true;
-
-	return false;
+	return bf_test_index(pbrms->installed, pmi->install_bit) != 0;
 }
 
 /* If any sequence is installed on the interface, assume installed */
@@ -519,7 +519,7 @@ struct pbr_map_sequence *pbrms_get(const char *name, uint32_t seqno)
 
 		RB_INSERT(pbr_map_entry_head, &pbr_maps, pbrm);
 
-		bf_init(pbrm->ifi_bitfield, 64);
+		bf_init(pbrm->ifi_bitfield, 512);
 		pbr_map_add_interfaces(pbrm);
 	}
 
@@ -542,6 +542,8 @@ struct pbr_map_sequence *pbrms_get(const char *name, uint32_t seqno)
 			PBR_MAP_INVALID_EMPTY |
 			PBR_MAP_INVALID_NO_NEXTHOPS;
 		pbrms->vrf_name[0] = '\0';
+
+		bf_init(pbrms->installed, 512);
 
 		QOBJ_REG(pbrms, pbr_map_sequence);
 		listnode_add_sort(pbrm->seqnumbers, pbrms);

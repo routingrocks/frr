@@ -178,10 +178,7 @@ struct pbr_map_sequence {
 	 */
 	bool nhs_installed;
 
-	/*
-	 * Are we installed
-	 */
-	uint64_t installed;
+	bitfield_t installed;
 
 	/*
 	 * A reason of 0 means we think the pbr_map_sequence is good to go

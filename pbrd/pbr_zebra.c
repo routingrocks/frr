@@ -179,7 +179,6 @@ static int rule_notify_owner(ZAPI_CALLBACK_ARGS)
 	struct pbr_map_sequence *pbrms;
 	struct pbr_map_interface *pmi;
 	char ifname[IFNAMSIZ + 1];
-	uint64_t installed;
 
 	if (!zapi_rule_notify_decode(zclient->ibuf, &seqno, &priority, &unique,
 				     ifname, &note))
@@ -194,32 +193,38 @@ static int rule_notify_owner(ZAPI_CALLBACK_ARGS)
 		return 0;
 	}
 
-	if (pmi->install_bit >= 64) {
+	if (!pmi) {
 		DEBUGD(&pbr_dbg_zebra,
-				"%s: Interface %s has install_bit %u >= 64, skipping state tracking",
-				__func__, ifname, pmi->install_bit);
+		       "%s: No interface found for pbrms %u ifname %s",
+		       __func__, unique, ifname);
 		return 0;
 	}
 
-	installed = 1ULL << pmi->install_bit;
+	if (!bf_is_inited(pbrms->installed) ||
+	    pmi->install_bit >= (pbrms->installed.m * WORD_SIZE)) {
+		DEBUGD(&pbr_dbg_zebra,
+		       "%s: Bitfield not ready or install_bit %u out of range for pbrms %u",
+		       __func__, pmi->install_bit, unique);
+		pbr_map_final_interface_deletion(pbrms->parent, pmi);
+		return 0;
+	}
 
 	switch (note) {
 	case ZAPI_RULE_FAIL_INSTALL:
-		pbrms->installed &= ~installed;
+		bf_release_index(pbrms->installed, pmi->install_bit);
 		break;
 	case ZAPI_RULE_INSTALLED:
-		pbrms->installed |= installed;
+		bf_set_bit(pbrms->installed, pmi->install_bit);
 		break;
 	case ZAPI_RULE_FAIL_REMOVE:
-		/* Don't change state on rule removal failure */
 		break;
 	case ZAPI_RULE_REMOVED:
-		pbrms->installed &= ~installed;
+		bf_release_index(pbrms->installed, pmi->install_bit);
 		break;
 	}
 
-	DEBUGD(&pbr_dbg_zebra, "%s: Received %s: %" PRIu64, __func__,
-	       zapi_rule_notify_owner2str(note), pbrms->installed);
+	DEBUGD(&pbr_dbg_zebra, "%s: Received %s for install_bit %u", __func__,
+	       zapi_rule_notify_owner2str(note), pmi->install_bit);
 
 	pbr_map_final_interface_deletion(pbrms->parent, pmi);
 
@@ -600,26 +605,12 @@ bool pbr_send_pbr_map(struct pbr_map_sequence *pbrms,
 {
 	struct pbr_map *pbrm = pbrms->parent;
 	struct stream *s;
-	uint64_t is_installed = 0;
+	bool is_installed = false;
 
+	if (bf_is_inited(pbrms->installed) &&
+	    pmi->install_bit < (pbrms->installed.m * WORD_SIZE))
+		is_installed = bf_test_index(pbrms->installed, pmi->install_bit) != 0;
 
-	/* Protect against bit positions >= 64,
-		when the install_bit is >= 64,
-		treat it as not installed, this forces rule
-		to sent to Kernel */
-	if (pmi->install_bit < 64) {
-		is_installed = 1ULL << pmi->install_bit;
-		is_installed &= pbrms->installed;
-	}
-
-
-	/*
-	 * If we are installed and asked to do so again and the config
-	 * has not changed, just return.
-	 *
-	 * If we are not installed and asked
-	 * to delete just return.
-	 */
 	if (install && is_installed && !changed)
 		return false;
 
