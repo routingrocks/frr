@@ -1902,20 +1902,48 @@ void bgp_peer_clear_soo_routes(struct peer *peer, afi_t afi, safi_t safi, struct
 }
 
 /* Check and send if a new 'SOO route' up on router ID change*/
-void bgp_per_src_nhg_handle_router_id_update(struct bgp *bgp, const struct in_addr *id)
+void bgp_per_src_nhg_handle_soo_addr_update(struct bgp *bgp, const struct in_addr *new_soo_addr)
 {
 	char soo[INET_ADDRSTRLEN + 6];
 	struct ecommunity *ecomm_soo;
 	char addrbuf[BUFSIZ];
 	afi_t afi;
 	safi_t safi;
-	const struct in_addr *soo_ip;
+	struct in_addr prev_soo_addr;
 
 	/* Use custom SOO source IP if set, otherwise use router ID */
-	soo_ip = bgp->soo_source_ip_set ? &bgp->soo_source_ip : id;
+	prev_soo_addr = bgp->soo_source_ip;
 
-	if (soo_ip->s_addr != INADDR_ANY) {
-		snprintf(soo, sizeof(soo), "%s:%X", inet_ntoa(*soo_ip),
+	/* if old soo ip is same as new soo ip, then do nothing */
+	if (IPV4_ADDR_SAME(&prev_soo_addr, new_soo_addr)) {
+	    if (BGP_DEBUG(per_src_nhg, PER_SRC_NHG)) {
+	        zlog_debug("%s: bgp per src nhg soo addr is same as new soo addr %pI4", __func__,
+			   new_soo_addr);
+		}
+		return;
+	}
+	/*
+	soo source transition:
+	1. prev soo ip is router id, new soo ip is custom soo ip
+	2. prev soo ip is router id, new soo ip is router id
+	3. prev soo ip is custom soo ip, new soo ip is router id
+	4. prev soo ip is custom soo ip, new soo ip is custom soo ip
+	*/
+
+	/* do not update soo source ip if bgp->soo_source_ip_set is true
+	 and if new soo ip is same as router id */
+	if (bgp->soo_source_ip_set && IPV4_ADDR_SAME(&bgp->router_id, new_soo_addr)) {
+	    if (BGP_DEBUG(per_src_nhg, PER_SRC_NHG)) {
+	        zlog_debug("%s: bgp per src nhg ignore router id update soo %pI4, new router id %pI4",
+			   __func__, &prev_soo_addr, new_soo_addr);
+		}
+		return;
+	}
+
+	bgp->soo_source_ip = *new_soo_addr;
+
+	if (new_soo_addr->s_addr != INADDR_ANY) {
+		snprintf(soo, sizeof(soo), "%s:%X", inet_ntoa(*new_soo_addr),
 			 SOO_LOCAL_ADMINISTRATOR_VALUE_PER_SOURCE_NHG);
 		ecomm_soo = ecommunity_str2com(soo, ECOMMUNITY_SITE_ORIGIN, 0);
 		if (!ecomm_soo)
@@ -1929,18 +1957,22 @@ void bgp_per_src_nhg_handle_router_id_update(struct bgp *bgp, const struct in_ad
 			if (CHECK_FLAG(bgp->per_src_nhg_flags[afi][safi],
 				       BGP_FLAG_ADVERTISE_ORIGIN)) {
 				bgp_static_set(NULL, bgp, true,
-					       ipaddr_afi_to_str(&bgp->router_id, addrbuf, BUFSIZ,
+					       ipaddr_afi_to_str(&prev_soo_addr, addrbuf, BUFSIZ,
 								 afi),
 					       NULL, NULL, afi, safi, NULL, 0,
 					       BGP_INVALID_LABEL_INDEX, 0, NULL, NULL, NULL, NULL,
 					       true, false);
 				bgp_static_set(NULL, bgp, false,
-					       ipaddr_afi_to_str(soo_ip, addrbuf, BUFSIZ, afi), NULL,
+					       ipaddr_afi_to_str(new_soo_addr, addrbuf, BUFSIZ, afi), NULL,
 					       NULL, afi, safi, NULL, 0, BGP_INVALID_LABEL_INDEX, 0,
 					       NULL, NULL, NULL, NULL, true, false);
 			}
 		}
 	} else {
+		if (BGP_DEBUG(per_src_nhg, PER_SRC_NHG)){
+			zlog_debug("%s: bgp per src nhg got soo addr 0, prev soo addr %pI4", __func__,
+				   &prev_soo_addr);
+		}
 		if (bgp->per_source_nhg_soo) {
 			ecommunity_free(&bgp->per_source_nhg_soo);
 			bgp->per_source_nhg_soo = NULL;
@@ -1950,7 +1982,7 @@ void bgp_per_src_nhg_handle_router_id_update(struct bgp *bgp, const struct in_ad
 			if (CHECK_FLAG(bgp->per_src_nhg_flags[afi][safi],
 				       BGP_FLAG_ADVERTISE_ORIGIN)) {
 				bgp_static_set(NULL, bgp, true,
-					       ipaddr_afi_to_str(&bgp->router_id, addrbuf, BUFSIZ,
+					       ipaddr_afi_to_str(&prev_soo_addr, addrbuf, BUFSIZ,
 								 afi),
 					       NULL, NULL, afi, safi, NULL, 0,
 					       BGP_INVALID_LABEL_INDEX, 0, NULL, NULL, NULL, NULL,

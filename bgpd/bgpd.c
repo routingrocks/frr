@@ -311,7 +311,7 @@ static int bgp_router_id_set(struct bgp *bgp, const struct in_addr *id,
 	if (IPV4_ADDR_SAME(&bgp->router_id, id))
 		return 0;
 
-	bgp_per_src_nhg_handle_router_id_update(bgp, id);
+	bgp_per_src_nhg_handle_soo_addr_update(bgp, id);
 
 	/* EVPN uses router id in RD, withdraw them */
 	if (is_evpn_enabled())
