@@ -3216,7 +3216,7 @@ route_set_ecommunity_lb(void *rule, const struct prefix *prefix, void *object)
 	/* Build link bandwidth extended community */
 	as = (peer->bgp->as > BGP_AS_MAX) ? BGP_AS_TRANS : peer->bgp->as;
 	if (rels->lb_type == RMAP_ECOMM_LB_SET_VALUE) {
-		bw_bytes = (rels->bw * 1000 * 1000) / 8;
+		bw_bytes = (rels->bw * 1000ULL * 1000ULL) / 8;
 	} else if (rels->lb_type == RMAP_ECOMM_LB_SET_CUMUL) {
 		/* process this only for the best path. */
 		if (!CHECK_FLAG(path->flags, BGP_PATH_SELECTED))
@@ -3232,7 +3232,7 @@ route_set_ecommunity_lb(void *rule, const struct prefix *prefix, void *object)
 		if (!CHECK_FLAG(path->flags, BGP_PATH_SELECTED))
 			return RMAP_OKAY;
 
-		bw_bytes = (peer->bgp->lb_ref_bw * 1000 * 1000) / 8;
+		bw_bytes = (peer->bgp->lb_ref_bw * 1000ULL * 1000ULL) / 8;
 		mpath_count = bgp_path_info_mpath_count(path);
 		bw_bytes *= mpath_count;
 	}
