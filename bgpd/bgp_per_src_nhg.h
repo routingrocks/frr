@@ -29,7 +29,7 @@ struct bgp_nhg_nexthop_cache {
 	ifindex_t ifindex;
 	struct prefix prefix;
 	struct nexthop nh;
-	uint32_t nh_weight;
+	uint64_t nh_weight;
 	/* RB-tree entry. */
 	struct bgp_nhg_nexthop_cache_item entry;
 	struct bgp_nhg_nexthop_cache_head *tree;

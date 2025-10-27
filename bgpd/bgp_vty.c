@@ -21585,7 +21585,7 @@ static void show_bgp_soo_entry_vty_detail(struct bgp_per_src_nhg_hash_entry *soo
 	tree = &soo_entry->nhg_nexthop_cache_table;
 
 	frr_each (bgp_nhg_nexthop_cache, tree, bnc_iter) {
-		vty_out(vty, "      %pFX NH ifidx: %d type: %d flags: %d lbw: %d\n",
+		vty_out(vty, "      %pFX NH ifidx: %d type: %d flags: %d lbw: %" PRIu64 "\n",
 			&bnc_iter->prefix, bnc_iter->nh.ifindex, bnc_iter->nh.type,
 			bnc_iter->nh.flags, bnc_iter->nh_weight);
 	}

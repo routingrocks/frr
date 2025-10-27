@@ -947,7 +947,7 @@ static void bgp_per_src_nhg_nc_add(afi_t afi, struct bgp_per_src_nhg_hash_entry 
 	ifindex_t ifindex = 0;
 	struct prefix p = { 0 };
 	struct bgp_nhg_nexthop_cache *bnc;
-	uint32_t nh_weight;
+	uint64_t nh_weight;
 	bool do_wt_ecmp = false;
 
 	if (!pi->attr) {
@@ -1050,7 +1050,7 @@ static void bgp_per_src_nhg_nc_add(afi_t afi, struct bgp_per_src_nhg_hash_entry 
 		SET_FLAG(bnc->nh.flags, BGP_NEXTHOP_VALID);
 		SET_FLAG(nhe->flags, PER_SRC_NEXTHOP_GROUP_INSTALL_PENDING);
 		if (BGP_DEBUG(per_src_nhg, PER_SRC_NHG))
-			zlog_debug("Allocated bnc nhg %pFX(%d)(%s) peer %p refcnt:%d wei::%d attr wei:%d afi:%d ecmp:%d",
+			zlog_debug("Allocated bnc nhg %pFX(%d)(%s) peer %p refcnt:%d wei::%" PRIu64 " attr wei:%" PRIu64 " afi:%d ecmp:%d",
 				   &bnc->prefix, bnc->ifindex, nhe->bgp->name_pretty, pi->peer,
 				   nhe->refcnt, bnc->nh_weight, pi->attr->link_bw, afi, do_wt_ecmp);
 	} else {
@@ -1062,7 +1062,7 @@ static void bgp_per_src_nhg_nc_add(afi_t afi, struct bgp_per_src_nhg_hash_entry 
 			}
 		}
 		if (BGP_DEBUG(per_src_nhg, PER_SRC_NHG))
-			zlog_debug("Found existing bnc nhg %pFX(%d)(%s) peer %p refcnt:%d wei:%d attr wei:%d ecmp:%d",
+			zlog_debug("Found existing bnc nhg %pFX(%d)(%s) peer %p refcnt:%d wei:%" PRIu64 " attr wei:%" PRIu64 " ecmp:%d",
 				   &bnc->prefix, bnc->ifindex, nhe->bgp->name_pretty, pi->peer,
 				   nhe->refcnt, bnc->nh_weight, pi->attr->link_bw, do_wt_ecmp);
 	}
