@@ -21441,7 +21441,7 @@ static void show_bgp_soo_entry_json_detail(struct bgp_per_src_nhg_hash_entry *so
 		json_object_int_add(json_nexthop_cache_object, "ifIndex", bnc_iter->nh.ifindex);
 		json_object_int_add(json_nexthop_cache_object, "type", bnc_iter->nh.type);
 		json_object_int_add(json_nexthop_cache_object, "flags", bnc_iter->nh.flags);
-		json_object_int_add(json_nexthop_cache_object, "lbw", bnc_iter->nh_weight);
+		json_object_int_add(json_nexthop_cache_object, "lbw", bnc_iter->link_bw);
 		json_object_array_add(json_nexthop_cache_array, json_nexthop_cache_object);
 	}
 
@@ -21587,7 +21587,7 @@ static void show_bgp_soo_entry_vty_detail(struct bgp_per_src_nhg_hash_entry *soo
 	frr_each (bgp_nhg_nexthop_cache, tree, bnc_iter) {
 		vty_out(vty, "      %pFX NH ifidx: %d type: %d flags: %d lbw: %" PRIu64 "\n",
 			&bnc_iter->prefix, bnc_iter->nh.ifindex, bnc_iter->nh.type,
-			bnc_iter->nh.flags, bnc_iter->nh_weight);
+			bnc_iter->nh.flags, bnc_iter->link_bw);
 	}
 
 	vty_out(vty, "  Peer BitIndex Mappings:\n");
