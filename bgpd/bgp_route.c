@@ -6884,7 +6884,6 @@ static void bgp_clear_route_table(struct peer *peer, afi_t afi, safi_t safi,
 	if (!table)
 		return;
 
-	bgp_peer_clear_soo_routes(peer, afi, safi, table);
 	for (dest = bgp_table_top(table); dest; dest = bgp_route_next(dest)) {
 		struct bgp_path_info *pi, *next;
 		struct bgp_adj_in *ain;
@@ -7446,6 +7445,18 @@ void bgp_clear_route_all(struct peer *peer)
 
 	if (bgp_debug_neighbor_events(peer))
 		zlog_debug("%s: peer %pBP", __func__, peer);
+
+	/* Prioritize SOO route clearing before the clearing batch operations.
+	 * SOO routes are few in number and have higher priority, so clear them
+	 * immediately without waiting for batching.
+	 */
+	FOREACH_AFI_SAFI (afi, safi) {
+		if ((afi == AFI_IP || afi == AFI_IP6) && safi == SAFI_UNICAST) {
+			struct bgp_table *table = peer->bgp->rib[afi][safi];
+			if (table)
+				bgp_peer_clear_soo_routes(peer, afi, safi, table);
+		}
+	}
 
 	/* We may be able to batch multiple peers' clearing work: check
 	 * and see.
