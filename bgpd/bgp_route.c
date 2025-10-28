@@ -5119,6 +5119,15 @@ void bgp_rib_remove(struct bgp_dest *dest, struct bgp_path_info *pi,
 	if (!CHECK_FLAG(pi->flags, BGP_PATH_HISTORY)) {
 		bgp_path_info_delete(dest, pi); /* keep historical info */
 
+		if ((CHECK_FLAG(peer->bgp->per_src_nhg_flags[afi][safi], BGP_FLAG_NHG_PER_ORIGIN)) &&
+		    (safi != SAFI_EVPN) && bgp_check_is_soo_route(peer->bgp, dest, pi)) {
+			if (BGP_DEBUG(per_src_nhg, PER_SRC_NHG)) {
+				zlog_debug("bgp per src nhg %s %s trigger SOO NHG update to Zebra on SOO route deletion",
+					   get_afi_safi_str(afi, safi, false),
+					   bgp_dest_get_prefix_str(dest));
+			}
+			bgp_per_src_nhg_upd_msg_check(peer->bgp, afi, safi, dest);
+		}
 		/* If the selected path is removed, reset BGP_NODE_SELECT_DEFER
 		 * flag
 		 */
