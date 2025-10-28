@@ -1220,7 +1220,7 @@ void subgroup_default_withdraw_packet(struct update_subgroup *subgrp)
 	 * +/- (just in case)         +  1
 	 * null terminator            +  1
 	 * ============================ 29 */
-	char tx_id_buf[30];
+	char tx_id_buf[30] = {};
 
 	if (addpath_capable)
 		snprintf(tx_id_buf, sizeof(tx_id_buf), " with addpath ID %u",
