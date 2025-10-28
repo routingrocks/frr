@@ -797,7 +797,7 @@ static void bgp_per_src_nhg_add_send(struct bgp_per_src_nhg_hash_entry *nhe)
 		/* convert to zapi format */
 		api_nh = &api_nhg.nexthops[api_nhg.nexthop_num];
 		zapi_nexthop_from_nexthop(api_nh, &bnc_iter->nh);
-		api_nh->weight = bnc_iter->nh_weight;
+		api_nh->weight = bnc_iter->link_bw;
 		++api_nhg.nexthop_num;
 	}
 
@@ -947,7 +947,7 @@ static void bgp_per_src_nhg_nc_add(afi_t afi, struct bgp_per_src_nhg_hash_entry 
 	ifindex_t ifindex = 0;
 	struct prefix p = { 0 };
 	struct bgp_nhg_nexthop_cache *bnc;
-	uint32_t nh_weight;
+	uint64_t link_bw;
 	bool do_wt_ecmp = false;
 
 	if (!pi->attr) {
@@ -981,7 +981,7 @@ static void bgp_per_src_nhg_nc_add(afi_t afi, struct bgp_per_src_nhg_hash_entry 
 		    sizeof(struct in6_addr)) == 0))
 		ifindex = pi->peer->connection->su.sin6.sin6_scope_id;
 
-	nh_weight = 0;
+	link_bw = 0;
 	/* Determine if we're doing weighted ECMP or not */
 	do_wt_ecmp = bgp_path_info_mpath_chkwtd(nhe->bgp, pi);
 	if (do_wt_ecmp) {
@@ -1044,27 +1044,27 @@ static void bgp_per_src_nhg_nc_add(afi_t afi, struct bgp_per_src_nhg_hash_entry 
 		SET_FLAG(bnc->nh.flags, NEXTHOP_FLAG_RECURSIVE);
 
 		if (do_wt_ecmp && pi->attr)
-			bgp_zebra_use_nhop_weighted(nhe->bgp, pi->attr, &nh_weight);
+			bgp_zebra_use_nhop_weighted(nhe->bgp, pi->attr, &link_bw);
 
-		bnc->nh_weight = nh_weight;
+		bnc->link_bw = link_bw;
 		SET_FLAG(bnc->nh.flags, BGP_NEXTHOP_VALID);
 		SET_FLAG(nhe->flags, PER_SRC_NEXTHOP_GROUP_INSTALL_PENDING);
 		if (BGP_DEBUG(per_src_nhg, PER_SRC_NHG))
-			zlog_debug("Allocated bnc nhg %pFX(%d)(%s) peer %p refcnt:%d wei::%d attr wei:%d afi:%d ecmp:%d",
+			zlog_debug("Allocated bnc nhg %pFX(%d)(%s) peer %p refcnt:%d lbw:%" PRIu64 " attr lbw:%" PRIu64 " afi:%d ecmp:%d",
 				   &bnc->prefix, bnc->ifindex, nhe->bgp->name_pretty, pi->peer,
-				   nhe->refcnt, bnc->nh_weight, pi->attr->link_bw, afi, do_wt_ecmp);
+				   nhe->refcnt, bnc->link_bw, pi->attr->link_bw, afi, do_wt_ecmp);
 	} else {
 		if (do_wt_ecmp) {
-			bgp_zebra_use_nhop_weighted(nhe->bgp, pi->attr, &nh_weight);
-			if (bnc->nh_weight != nh_weight) {
-				bnc->nh_weight = nh_weight;
+			bgp_zebra_use_nhop_weighted(nhe->bgp, pi->attr, &link_bw);
+			if (bnc->link_bw != link_bw) {
+				bnc->link_bw = link_bw;
 				SET_FLAG(nhe->flags, PER_SRC_NEXTHOP_GROUP_INSTALL_PENDING);
 			}
 		}
 		if (BGP_DEBUG(per_src_nhg, PER_SRC_NHG))
-			zlog_debug("Found existing bnc nhg %pFX(%d)(%s) peer %p refcnt:%d wei:%d attr wei:%d ecmp:%d",
+			zlog_debug("Found existing bnc nhg %pFX(%d)(%s) peer %p refcnt:%d lbw:%" PRIu64 " attr lbw:%" PRIu64 " ecmp:%d",
 				   &bnc->prefix, bnc->ifindex, nhe->bgp->name_pretty, pi->peer,
-				   nhe->refcnt, bnc->nh_weight, pi->attr->link_bw, do_wt_ecmp);
+				   nhe->refcnt, bnc->link_bw, pi->attr->link_bw, do_wt_ecmp);
 	}
 
 	if (BGP_DEBUG(per_src_nhg, PER_SRC_NHG))

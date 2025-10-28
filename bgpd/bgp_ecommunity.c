@@ -996,15 +996,15 @@ static int ecommunity_rt_soo_str(char *buf, size_t bufsz, const uint8_t *pnt,
 					      ECOMMUNITY_SIZE);
 }
 
-/* Helper function to convert IEEE-754 Floating Point to uint32 */
-static uint32_t ieee_float_uint32_to_uint32(uint32_t u)
+/* Helper function to convert IEEE-754 Floating Point to uint64 */
+static uint64_t ieee_float_uint32_to_uint64(uint32_t u)
 {
 	union {
 		float r;
 		uint32_t d;
 	} f = {.d = u};
 
-	return (uint32_t)f.r;
+	return (uint64_t)f.r;
 }
 
 static int ecommunity_lb_str(char *buf, size_t bufsz, const uint8_t *pnt,
@@ -1012,7 +1012,8 @@ static int ecommunity_lb_str(char *buf, size_t bufsz, const uint8_t *pnt,
 {
 	int len = 0;
 	as_t as;
-	uint32_t bw_tmp, bw;
+	uint32_t bw_tmp;
+	uint64_t bw;
 	char bps_buf[20] = {0};
 
 #define ONE_GBPS_BYTES (1000 * 1000 * 1000 / 8)
@@ -1024,21 +1025,25 @@ static int ecommunity_lb_str(char *buf, size_t bufsz, const uint8_t *pnt,
 	(void)ptr_get_be32(pnt, &bw_tmp);
 
 	bw = disable_ieee_floating ? bw_tmp
-				   : ieee_float_uint32_to_uint32(bw_tmp);
+				   : ieee_float_uint32_to_uint64(bw_tmp);
 
+	/* Use double (not float) for type consistency with uint64_t and to
+	 * safely handle large bandwidth values that IEEE float encoding
+	 * can represent (double has ~15 digits precision vs float's ~7).
+	 */
 	if (bw >= ONE_GBPS_BYTES)
 		snprintf(bps_buf, sizeof(bps_buf), "%.3f Gbps",
-			 (float)(bw / ONE_GBPS_BYTES));
+			 (double)(bw / ONE_GBPS_BYTES));
 	else if (bw >= ONE_MBPS_BYTES)
 		snprintf(bps_buf, sizeof(bps_buf), "%.3f Mbps",
-			 (float)(bw / ONE_MBPS_BYTES));
+			 (double)(bw / ONE_MBPS_BYTES));
 	else if (bw >= ONE_KBPS_BYTES)
 		snprintf(bps_buf, sizeof(bps_buf), "%.3f Kbps",
-			 (float)(bw / ONE_KBPS_BYTES));
+			 (double)(bw / ONE_KBPS_BYTES));
 	else
-		snprintf(bps_buf, sizeof(bps_buf), "%u bps", bw * 8);
+		snprintf(bps_buf, sizeof(bps_buf), "%" PRIu64 " bps", bw * 8);
 
-	len = snprintf(buf, bufsz, "LB:%u:%u (%s)", as, bw, bps_buf);
+	len = snprintf(buf, bufsz, "LB:%u:%" PRIu64 " (%s)", as, bw, bps_buf);
 	return len;
 }
 
@@ -1794,7 +1799,7 @@ ecommunity_add_origin_validation_state(enum rpki_states rpki_state,
  * return the BGP link bandwidth extended community, if present;
  * the actual bandwidth is returned via param
  */
-const uint8_t *ecommunity_linkbw_present(struct ecommunity *ecom, uint32_t *bw)
+const uint8_t *ecommunity_linkbw_present(struct ecommunity *ecom, uint64_t *bw)
 {
 	const uint8_t *eval;
 	uint32_t i;
@@ -1823,8 +1828,7 @@ const uint8_t *ecommunity_linkbw_present(struct ecommunity *ecom, uint32_t *bw)
 			if (bw)
 				*bw = ecom->disable_ieee_floating
 					      ? bwval
-					      : ieee_float_uint32_to_uint32(
-							bwval);
+					      : ieee_float_uint32_to_uint64(bwval);
 			return eval;
 		}
 	}
@@ -1841,7 +1845,7 @@ struct ecommunity *ecommunity_replace_linkbw(as_t as, struct ecommunity *ecom,
 	struct ecommunity_val lb_eval;
 	const uint8_t *eval;
 	uint8_t type;
-	uint32_t cur_bw;
+	uint64_t cur_bw;
 
 	/* Nothing to replace if link-bandwidth doesn't exist or
 	 * is non-transitive - just return existing extcommunity.
@@ -1863,8 +1867,6 @@ struct ecommunity *ecommunity_replace_linkbw(as_t as, struct ecommunity *ecom,
 	 * extcommunity for this - refer to AS-Path replace function
 	 * for reference.
 	 */
-	if (cum_bw > 0xFFFFFFFF)
-		cum_bw = 0xFFFFFFFF;
 	encode_lb_extcomm(as > BGP_AS_MAX ? BGP_AS_TRANS : as, cum_bw, false,
 			  &lb_eval, disable_ieee_floating);
 	new = ecommunity_dup(ecom);

@@ -1212,7 +1212,7 @@ bool update_ipv6nh_for_route_install(int nh_othervrf, struct bgp *nh_bgp, struct
 	return true;
 }
 
-bool bgp_zebra_use_nhop_weighted(struct bgp *bgp, struct attr *attr, uint32_t *nh_weight)
+bool bgp_zebra_use_nhop_weighted(struct bgp *bgp, struct attr *attr, uint64_t *link_bw)
 {
 	/* zero link-bandwidth and link-bandwidth not present are treated
 	 * as the same situation.
@@ -1223,9 +1223,9 @@ bool bgp_zebra_use_nhop_weighted(struct bgp *bgp, struct attr *attr, uint32_t *n
 		 */
 		if (bgp->lb_handling == BGP_LINK_BW_SKIP_MISSING)
 			return false;
-		*nh_weight = BGP_ZEBRA_DEFAULT_NHOP_WEIGHT;
+		*link_bw = BGP_ZEBRA_DEFAULT_LINK_BW;
 	} else
-		*nh_weight = attr->link_bw;
+		*link_bw = attr->link_bw;
 
 	return true;
 }
@@ -1276,7 +1276,7 @@ static void bgp_zebra_announce_parse_nexthop(struct bgp_dest *dest, struct bgp_p
 	for (; mpinfo; mpinfo = bgp_path_info_mpath_next(mpinfo)) {
 		labels = NULL;
 		num_labels = 0;
-		uint32_t nh_weight;
+		uint64_t link_bw;
 		bool is_evpn;
 		bool is_parent_evpn;
 
@@ -1284,7 +1284,7 @@ static void bgp_zebra_announce_parse_nexthop(struct bgp_dest *dest, struct bgp_p
 			break;
 
 		*mpinfo_cp = *mpinfo;
-		nh_weight = 0;
+		link_bw = 0;
 
 		/* Get nexthop address-family */
 		if (p->family == AF_INET &&
@@ -1298,12 +1298,12 @@ static void bgp_zebra_announce_parse_nexthop(struct bgp_dest *dest, struct bgp_p
 			continue;
 
 		/* If processing for weighted ECMP, determine the next hop's
-		 * weight. Based on user setting, we may skip the next hop
+		 * link bandwidth. Based on user setting, we may skip the next hop
 		 * in some situations.
 		 */
 		if (do_wt_ecmp) {
 			if (!bgp_zebra_use_nhop_weighted(bgp, mpinfo->attr,
-							 &nh_weight))
+							 &link_bw))
 				continue;
 		}
 		api_nh = &api->nexthops[*valid_nh_count];
@@ -1417,7 +1417,7 @@ static void bgp_zebra_announce_parse_nexthop(struct bgp_dest *dest, struct bgp_p
 			memcpy(&api_nh->rmac, &(mpinfo->attr->rmac),
 			       sizeof(struct ethaddr));
 
-		api_nh->weight = nh_weight;
+		api_nh->weight = link_bw;
 
 		if (((mpinfo->attr->srv6_l3vpn &&
 		      !sid_zero_ipv6(&mpinfo->attr->srv6_l3vpn->sid)) ||
@@ -1518,8 +1518,9 @@ static void bgp_debug_zebra_nh(struct zapi_route *api)
 			snprintf(eth_buf, sizeof(eth_buf), " RMAC %s",
 				 prefix_mac2str(&api_nh->rmac, buf1,
 						sizeof(buf1)));
-		zlog_debug("  nhop [%d]: %s if %u VRF %u wt %u %s %s %s", i + 1,
-			   nh_buf, api_nh->ifindex, api_nh->vrf_id,
+		zlog_debug("  nhop [%d]: %s if %u VRF %u lbw %" PRIu64
+			   " %s %s %s",
+			   i + 1, nh_buf, api_nh->ifindex, api_nh->vrf_id,
 			   api_nh->weight, label_buf, segs_buf, eth_buf);
 	}
 }
