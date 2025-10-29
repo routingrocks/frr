@@ -5119,6 +5119,15 @@ void bgp_rib_remove(struct bgp_dest *dest, struct bgp_path_info *pi,
 	if (!CHECK_FLAG(pi->flags, BGP_PATH_HISTORY)) {
 		bgp_path_info_delete(dest, pi); /* keep historical info */
 
+		if ((CHECK_FLAG(peer->bgp->per_src_nhg_flags[afi][safi], BGP_FLAG_NHG_PER_ORIGIN)) &&
+		    (safi != SAFI_EVPN) && bgp_check_is_soo_route(peer->bgp, dest, pi)) {
+			if (BGP_DEBUG(per_src_nhg, PER_SRC_NHG)) {
+				zlog_debug("bgp per src nhg %s %s trigger SOO NHG update to Zebra on SOO route deletion",
+					   get_afi_safi_str(afi, safi, false),
+					   bgp_dest_get_prefix_str(dest));
+			}
+			bgp_per_src_nhg_upd_msg_check(peer->bgp, afi, safi, dest);
+		}
 		/* If the selected path is removed, reset BGP_NODE_SELECT_DEFER
 		 * flag
 		 */
@@ -6884,7 +6893,6 @@ static void bgp_clear_route_table(struct peer *peer, afi_t afi, safi_t safi,
 	if (!table)
 		return;
 
-	bgp_peer_clear_soo_routes(peer, afi, safi, table);
 	for (dest = bgp_table_top(table); dest; dest = bgp_route_next(dest)) {
 		struct bgp_path_info *pi, *next;
 		struct bgp_adj_in *ain;
@@ -7446,6 +7454,18 @@ void bgp_clear_route_all(struct peer *peer)
 
 	if (bgp_debug_neighbor_events(peer))
 		zlog_debug("%s: peer %pBP", __func__, peer);
+
+	/* Prioritize SOO route clearing before the clearing batch operations.
+	 * SOO routes are few in number and have higher priority, so clear them
+	 * immediately without waiting for batching.
+	 */
+	FOREACH_AFI_SAFI (afi, safi) {
+		if ((afi == AFI_IP || afi == AFI_IP6) && safi == SAFI_UNICAST) {
+			struct bgp_table *table = peer->bgp->rib[afi][safi];
+			if (table)
+				bgp_peer_clear_soo_routes(peer, afi, safi, table);
+		}
+	}
 
 	/* We may be able to batch multiple peers' clearing work: check
 	 * and see.
