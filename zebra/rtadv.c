@@ -214,7 +214,7 @@ static void rtadv_send_packet(int sock, struct interface *ifp,
 	struct in6_pktinfo *pkt;
 	struct sockaddr_in6 addr;
 	unsigned char buf[RTADV_MSG_SIZE];
-	char adata[RTADV_ADATA_SIZE];
+	char adata[RTADV_ADATA_SIZE] = {0};
 
 	struct nd_router_advert *rtadv;
 	int ret;
