@@ -3344,9 +3344,9 @@ void bgp_best_selection(struct bgp *bgp, struct bgp_dest *dest,
 				 */
 				if (debug)
 					zlog_debug("%s: %pBD(%s) pi from %s %p in holddown",
-						   __func__, dest,
-						   bgp->name_pretty,
-						   look_thru->peer->host,
+						   __func__, dest, bgp->name_pretty,
+						   look_thru->peer ? look_thru->peer->host
+								   : "Unknown",
 						   look_thru);
 
 				if (CHECK_FLAG(look_thru->flags,
@@ -3374,6 +3374,14 @@ void bgp_best_selection(struct bgp *bgp, struct bgp_dest *dest,
 
 					continue;
 				}
+
+			if (!look_thru->peer) {
+				if (debug)
+					zlog_debug("%s: %pBD(%s) look_thru peer is NULL",
+						   __func__, dest,
+						   bgp->name_pretty);
+				continue;
+			}
 
 			bgp_path_info_unset_flag(dest, look_thru, BGP_PATH_DMED_CHECK);
 			reason = dest->reason;
