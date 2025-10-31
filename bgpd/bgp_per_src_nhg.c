@@ -1911,6 +1911,8 @@ void bgp_per_src_nhg_handle_router_id_update(struct bgp *bgp, const struct in_ad
 		snprintf(soo, sizeof(soo), "%s:%X", inet_ntoa(*id),
 			 SOO_LOCAL_ADMINISTRATOR_VALUE_PER_SOURCE_NHG);
 		ecomm_soo = ecommunity_str2com(soo, ECOMMUNITY_SITE_ORIGIN, 0);
+		if (!ecomm_soo)
+			return;
 		if (bgp->per_source_nhg_soo)
 			ecommunity_free(&bgp->per_source_nhg_soo);
 		bgp->per_source_nhg_soo = ecomm_soo;

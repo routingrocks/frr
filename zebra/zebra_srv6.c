@@ -1601,6 +1601,9 @@ static int get_srv6_sid_dynamic(struct zebra_srv6_sid **sid,
 			}
 		}
 		if (memcmp(&s->ctx, ctx, sizeof(struct srv6_sid_ctx)) == 0) {
+			if (!s->sid)
+				continue;
+
 			if (IS_ZEBRA_DEBUG_SRV6)
 				zlog_debug("%s: returning existing SID %s %pI6",
 					   __func__,

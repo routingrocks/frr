@@ -5668,6 +5668,12 @@ void rib_update_route_count(vrf_id_t vrf_id, int type, afi_t afi, safi_t safi,
 		 * be updated with a total PBR count from all tables */
 		struct route_table *vrf_table =
 			zebra_vrf_table(afi, safi, vrf_id);
+		if (!vrf_table) {
+			if (IS_ZEBRA_DEBUG_RIB)
+				zlog_debug("VRF table not found for afi %d safi %d vrf_id %d",
+					   afi, safi, vrf_id);
+			return;
+		}
 		struct rib_table_info *info = route_table_get_info(vrf_table);
 		if (info) {
 			if (add)
