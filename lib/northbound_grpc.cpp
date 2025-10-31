@@ -1234,7 +1234,7 @@ int frr_grpc_empty_notification()
 	/* If subscription cache has been requested once return */
 	int ret = 0;
 	// Create a gRPC channel to send telemetry data to the routing application
-	frr::SubscriptionCacheRequest cache;
+	frr::SubscriptionCacheRequest cache{};
 	ret = frr_grpc_send_async(cache);
 	if (ret == -1)
 		zlog_err("%s: failed to send gRPC message", __func__);
@@ -1349,7 +1349,7 @@ static int frr_grpc_notification_send(const char *xpath, struct list *arguments)
 	struct nb_node *nb_node = NULL;
 	grpc::Status status;
 	int ret = 0;
-	frr::SubscriptionCacheRequest cache;
+	frr::SubscriptionCacheRequest cache{};
 	// Find the node in the data tree using the provided XPath
 	nb_node = nb_node_find(xpath);
 	if (!nb_node) {
