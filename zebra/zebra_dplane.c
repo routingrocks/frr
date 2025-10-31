@@ -4529,7 +4529,8 @@ dplane_route_update_internal(struct route_node *rn,
 			    !CHECK_FLAG(re->status, ROUTE_ENTRY_INSTALLED))
 				SET_FLAG(re->status, ROUTE_ENTRY_INSTALLED);
 
-			zebra_gr_increment_processed_rt_count(rn, re->vrf_id, true);
+			if (re)
+				zebra_gr_increment_processed_rt_count(rn, re->vrf_id, true);
 
 			dplane_ctx_free(&ctx);
 			return ZEBRA_DPLANE_REQUEST_SUCCESS;

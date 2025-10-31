@@ -737,7 +737,7 @@ static void zebra_gr_delete_stale_route_table_afi(struct event *event)
 	if (!zvrf)
 		goto done;
 
-	LOG_GR("GR: Deleting stale routes for %s, afi %d", VRF_LOGNAME(zvrf->vrf), gac->afi);
+	LOG_GR("GR: Deleting stale routes for %s, afi %d", zvrf->vrf ? VRF_LOGNAME(zvrf->vrf) : "unknown", gac->afi);
 
 	frrtrace(2, frr_zebra, gr_delete_stale_route_table_afi, zvrf->vrf->vrf_id, gac->afi);
 

@@ -3498,10 +3498,12 @@ static int bgp_zebra_process_srv6_locator_add(ZAPI_CALLBACK_ARGS)
 {
 	struct srv6_locator loc = {};
 	struct bgp *bgp = bgp_get_default();
-	const char *loc_name = bgp->srv6_locator_name;
+	const char *loc_name;
 
 	if (!bgp || !bgp->srv6_enabled)
 		return 0;
+
+	loc_name = bgp->srv6_locator_name;
 
 	if (zapi_srv6_locator_decode(zclient->ibuf, &loc) < 0)
 		return -1;
