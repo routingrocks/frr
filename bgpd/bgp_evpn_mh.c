@@ -1473,8 +1473,7 @@ bgp_zebra_send_remote_es_vtep(struct bgp *bgp, struct bgp_evpn_es_vtep *es_vtep,
 		add ? ZEBRA_REMOTE_ES_VTEP_ADD : ZEBRA_REMOTE_ES_VTEP_DEL,
 		bgp->vrf_id);
 	stream_put(s, &es->esi, sizeof(esi_t));
-	//TODO: V6 aware
-	stream_put_ipv4(s, es_vtep->vtep_ip.ipaddr_v4.s_addr);
+	stream_put_ipaddr(s, &es_vtep->vtep_ip);
 	if (add) {
 		stream_putl(s, flags);
 		stream_putc(s, es_vtep->df_alg);

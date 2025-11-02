@@ -3076,9 +3076,7 @@ void zebra_evpn_proc_remote_es(ZAPI_HANDLER_ARGS)
 	s = msg;
 
 	STREAM_GET(&esi, s, sizeof(esi_t));
-       /* Temporary until BGP supports IPv6 VTEP */
-       SET_IPADDR_V4(&vtep_ip);
-       STREAM_GET(&vtep_ip.ipaddr_v4.s_addr, s, sizeof(vtep_ip.ipaddr_v4.s_addr));
+	STREAM_GET_IPADDR(s, &vtep_ip);
 
 	frrtrace(3, frr_zebra, zebra_evpn_proc_remote_es, &vtep_ip, &esi, hdr->command);
 	if (hdr->command == ZEBRA_REMOTE_ES_VTEP_ADD) {
