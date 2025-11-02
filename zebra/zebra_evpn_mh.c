@@ -1723,7 +1723,8 @@ static void zebra_evpn_mh_vtep_uplink_sph_ingress_tc_setup(struct zebra_evpn_mh_
 {
 	char cmd[TC_CMD_STR_LEN];
 	uint32_t handle;
-	char buf1[INET_ADDRSTRLEN];
+	char buf1[INET6_ADDRSTRLEN];
+	char proto[5] = { 0 };
 
 	if (add) {
 		/* If this is the first attempt to add a TC filter on an uplink
@@ -1744,9 +1745,15 @@ static void zebra_evpn_mh_vtep_uplink_sph_ingress_tc_setup(struct zebra_evpn_mh_
 
 		handle = EVPN_MH_SKB_MARK_BASE + mh_vtep->sph_offset;
 		ipaddr2str(&mh_vtep->vtep_ip, buf1, sizeof(buf1));
+		/* tc rule uses ip vs ipv6 protocol type for v4 vs. v6 VTEP address */
+		if (IS_IPADDR_V4(&mh_vtep->vtep_ip))
+			strncpy(proto, "ip", sizeof(proto));
+		else
+			strncpy(proto, "ipv6", sizeof(proto));
+
 		snprintf(cmd, sizeof(cmd),
-			 "%s%s filter replace dev %s ingress prot ip pref %u flower ip_proto udp src_ip %s dst_port 4789 skip_hw action skbedit mark %u",
-			 TC_SUDO_STR, TC_BIN_STR, zif->ifp->name, handle, buf1, handle);
+			 "%s%s filter replace dev %s ingress prot %s pref %u flower ip_proto udp src_ip %s dst_port 4789 skip_hw action skbedit mark %u",
+			 TC_SUDO_STR, TC_BIN_STR, zif->ifp->name, proto, handle, buf1, handle);
 		zebra_evpn_mh_tc_program(cmd);
 	} else {
 		handle = EVPN_MH_SKB_MARK_BASE + mh_vtep->sph_offset;
@@ -1897,7 +1904,7 @@ static void zebra_evpn_es_vtep_sph_egress_tc_setup(struct zebra_evpn_es_vtep *es
 			return;
 		es_vtep->flags |= ZEBRA_EVPNES_VTEP_SPH_SET;
 		if (IS_ZEBRA_DEBUG_EVPN_MH_ES)
-			zlog_debug("es %s vtep %pI4 egress sph add intf %s oper %u",
+			zlog_debug("es %s vtep %pIA egress sph add intf %s oper %u",
 				   es_vtep->es->esi_str, &es_vtep->vtep_ip, zif->ifp->name,
 				   if_is_operative(zif->ifp));
 
@@ -1927,7 +1934,7 @@ static void zebra_evpn_es_vtep_sph_egress_tc_setup(struct zebra_evpn_es_vtep *es
 			return;
 		es_vtep->flags &= ~ZEBRA_EVPNES_VTEP_SPH_SET;
 		if (IS_ZEBRA_DEBUG_EVPN_MH_ES)
-			zlog_debug("es %s vtep %pI4 egress sph del", es_vtep->es->esi_str,
+			zlog_debug("es %s vtep %pIA egress sph del", es_vtep->es->esi_str,
 				   &es_vtep->vtep_ip);
 
 		handle = EVPN_MH_SKB_MARK_BASE + mh_vtep->sph_offset;
@@ -1974,7 +1981,7 @@ static void zebra_evpn_es_vtep_local_clear(struct zebra_evpn_es_vtep *es_vtep)
 		return;
 
 	if (IS_ZEBRA_DEBUG_EVPN_MH_ES)
-		zlog_debug("es %s vtep %pI4 local clear", es_vtep->es->esi_str, &es_vtep->vtep_ip);
+		zlog_debug("es %s vtep %pIA local clear", es_vtep->es->esi_str, &es_vtep->vtep_ip);
 
 	es_vtep->flags &= ~ZEBRA_EVPNES_VTEP_LOCAL;
 	mh_vtep = es_vtep->mh_vtep;
