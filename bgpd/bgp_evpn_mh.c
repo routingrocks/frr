@@ -2952,13 +2952,21 @@ static void bgp_evpn_l3nhg_zebra_add_v4_or_v6(struct bgp_evpn_es_vrf *es_vrf,
 		if (api_nhg.nexthop_num == multipath_num)
 			break;
 
-		//TODO:
-		/* overwrite the gw */
-		if (v4_nhg)
-			nh.gate.ipv4 = es_vtep->vtep_ip.ipaddr_v4;
-		else
-			ipv4_to_ipv4_mapped_ipv6(&nh.gate.ipv6, es_vtep->vtep_ip.ipaddr_v4);
-
+		/* for V4 VTEP sync v4_nhg or v6 mapped v6_nhg
+		 * for V6 VTEP sync V6 nhg and v4 is noop.
+		 */
+		if (IS_IPADDR_V4(&es_vtep->vtep_ip)) {
+			/* overwrite the gw */
+			if (v4_nhg)
+				nh.gate.ipv4 = es_vtep->vtep_ip.ipaddr_v4;
+			else
+				ipv4_to_ipv4_mapped_ipv6(&nh.gate.ipv6, es_vtep->vtep_ip.ipaddr_v4);
+		} else if (IS_IPADDR_V6(&es_vtep->vtep_ip)) {
+			if (v4_nhg) {
+				nh.gate.ipv4 = es_vtep->vtep_ip.ipaddr_v4;
+			} else
+				IPV6_ADDR_COPY(&nh.gate.ipv6, &es_vtep->vtep_ip.ipaddr_v6);
+		}
 		/* convert to zapi format */
 		api_nh = &api_nhg.nexthops[api_nhg.nexthop_num];
 		zapi_nexthop_from_nexthop(api_nh, &nh);
@@ -3318,6 +3326,8 @@ bool bgp_evpn_path_es_use_nhg(struct bgp *bgp_vrf, struct bgp_path_info *pi,
 	struct bgp_path_info *mpinfo;
 	bool use_l3nhg = false;
 	bool is_l3nhg_active = false;
+	bool is_ipv6_vtep = false;
+	uint8_t nhfamily;
 
 	*nhg_p = 0;
 
@@ -3359,8 +3369,15 @@ bool bgp_evpn_path_es_use_nhg(struct bgp *bgp_vrf, struct bgp_path_info *pi,
 	if (!is_l3nhg_active)
 		return true;
 
+	/* EVPN imported IPv4 or IPv6 routes whose next hop is IPv6,
+	 * it implies that the IPv6 VTEP must use an IPv6 next-hop group
+	 */
+	nhfamily = NEXTHOP_FAMILY(pi->attr->mp_nexthop_len);
+	if (nhfamily == AF_INET6)
+		is_ipv6_vtep = true;
+
 	/* this needs to be set the v6NHG if v6route */
-	if (is_evpn_prefix_ipaddr_v6(evp))
+	if (is_evpn_prefix_ipaddr_v6(evp) || is_ipv6_vtep)
 		*nhg_p = es_vrf->v6_nhg_id;
 	else
 		*nhg_p = es_vrf->nhg_id;
