@@ -131,23 +131,51 @@ void zebra_evpn_arp_nd_if_print(struct vty *vty, struct zebra_if *zif)
 /* Send to the ES peer VTEP-IP */
 static void zebra_evpn_arp_nd_udp_send(struct ipaddr vtep_ip, uint8_t *data, int len)
 {
-	struct sockaddr_in sin;
+	struct sockaddr_storage ss;
+	struct sockaddr_in *sin;
+	struct sockaddr_in6 *sin6;
+	socklen_t addrlen;
 	ssize_t sent_len;
 
-	memset(&sin, 0, sizeof(sin));
-	sin.sin_family = AF_INET;
+	memset(&ss, 0, sizeof(ss));
 	/* XXX - the VxLAN UDP port is user configurable so we
 	 * need to get that info via if_netlink instead of using the
 	 * standard port
 	 */
-	sin.sin_port = htons(ZEBRA_EVPN_VXLAN_UDP_PORT);
-	sin.sin_addr = IS_IPADDR_V4(&vtep_ip) ? vtep_ip.ipaddr_v4 : (struct in_addr){ 0 };
+	if (IS_IPADDR_V4(&vtep_ip)) {
+		/* IPv4 VTEP address */
+		sin = (struct sockaddr_in *)&ss;
+		sin->sin_family = AF_INET;
+		sin->sin_port = htons(ZEBRA_EVPN_VXLAN_UDP_PORT);
+		sin->sin_addr = vtep_ip.ipaddr_v4;
+		addrlen = sizeof(struct sockaddr_in);
 
-	sent_len = sendto(zevpn_arp_nd_info.udp_fd, data, len, 0, (struct sockaddr *)&sin,
-			  sizeof(sin));
-	if (sent_len < 0) {
+		sent_len = sendto(zevpn_arp_nd_info.udp_fd, data, len, 0, (struct sockaddr *)&ss,
+				  addrlen);
+		if (sent_len < 0) {
+			if (IS_ZEBRA_DEBUG_EVPN_MH_ARP_ND_PKT)
+				zlog_debug("evpn arp_nd UDP sendto %pIA failed: %s", &vtep_ip,
+					   safe_strerror(errno));
+		}
+	} else if (IS_IPADDR_V6(&vtep_ip)) {
+		/* IPv6 VTEP address */
+		sin6 = (struct sockaddr_in6 *)&ss;
+		sin6->sin6_family = AF_INET6;
+		sin6->sin6_port = htons(ZEBRA_EVPN_VXLAN_UDP_PORT);
+		sin6->sin6_addr = vtep_ip.ipaddr_v6;
+		addrlen = sizeof(struct sockaddr_in6);
+
+		sent_len = sendto(zevpn_arp_nd_info.udp_fd, data, len, 0, (struct sockaddr *)&ss,
+				  addrlen);
+		if (sent_len < 0) {
+			if (IS_ZEBRA_DEBUG_EVPN_MH_ARP_ND_PKT)
+				zlog_debug("evpn arp_nd UDP sendto %pIA failed: %s", &vtep_ip,
+					   safe_strerror(errno));
+		}
+	} else {
+		/* Invalid or unspecified address type */
 		if (IS_ZEBRA_DEBUG_EVPN_MH_ARP_ND_PKT)
-			zlog_debug("evpn arp_nd UDP sendto %pI4 failed: %s",
+			zlog_debug("evpn arp_nd UDP sendto %pIA failed: %s",
 			   &vtep_ip, safe_strerror(errno));
 	}
 }
@@ -606,15 +634,32 @@ void zebra_evpn_arp_nd_udp_sock_create(void)
 	struct interface *ifp;
 	struct prefix lo_p;
 	struct connected *ifc = NULL;
-	struct sockaddr_in sin;
+	struct sockaddr_storage ss;
+	struct sockaddr_in *sin;
+	struct sockaddr_in6 *sin6;
+	socklen_t addrlen;
 	int reuse = 1;
+	int sock_family;
 
 	if (ipaddr_is_zero(&zmh_info->es_originator_ip))
 		goto close_sock;
 
-	lo_p.family = AF_INET;
-	lo_p.prefixlen = IPV4_MAX_BITLEN;
-	lo_p.u.prefix4 = zmh_info->es_originator_ip.ipaddr_v4;
+	/* Determine address family and setup prefix structure */
+	if (IS_IPADDR_V4(&zmh_info->es_originator_ip)) {
+		lo_p.family = AF_INET;
+		lo_p.prefixlen = IPV4_MAX_BITLEN;
+		lo_p.u.prefix4 = zmh_info->es_originator_ip.ipaddr_v4;
+		sock_family = AF_INET;
+	} else if (IS_IPADDR_V6(&zmh_info->es_originator_ip)) {
+		lo_p.family = AF_INET6;
+		lo_p.prefixlen = IPV6_MAX_BITLEN;
+		lo_p.u.prefix6 = zmh_info->es_originator_ip.ipaddr_v6;
+		sock_family = AF_INET6;
+	} else {
+		if (IS_ZEBRA_DEBUG_EVPN_MH_ARP_ND_EVT)
+			zlog_debug("evpn arp_nd UDP sock: invalid originator IP address type");
+		goto close_sock;
+	}
 
 	ifp = if_lookup_by_name("lo", VRF_DEFAULT);
 	if (!ifp)
@@ -631,7 +676,7 @@ void zebra_evpn_arp_nd_udp_sock_create(void)
 	frrtrace(1, frr_zebra, evpn_arp_nd_udp_sock_create, &zmh_info->es_originator_ip);
 
 	if (zevpn_arp_nd_info.udp_fd <= 0) {
-		zevpn_arp_nd_info.udp_fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+		zevpn_arp_nd_info.udp_fd = socket(sock_family, SOCK_DGRAM, IPPROTO_UDP);
 
 		if (zevpn_arp_nd_info.udp_fd <= 0) {
 			flog_err(EC_LIB_SOCKET, "evpn arp_nd UDP sock socket(): fd %d errno %s",
@@ -645,11 +690,24 @@ void zebra_evpn_arp_nd_udp_sock_create(void)
 				 zevpn_arp_nd_info.udp_fd, safe_strerror(errno));
 	}
 
-	memset(&sin, 0, sizeof(sin));
-	sin.sin_family = AF_INET;
-	sin.sin_addr = zmh_info->es_originator_ip.ipaddr_v4;
-	if (bind(zevpn_arp_nd_info.udp_fd, (struct sockaddr *)&sin, sizeof(sin)) < 0) {
-		flog_err(EC_LIB_SOCKET, "evpn arp_nd UDP sock fd %d bind to %pI4 errno %s",
+	memset(&ss, 0, sizeof(ss));
+
+	/* Setup sockaddr structure based on address family */
+	if (IS_IPADDR_V4(&zmh_info->es_originator_ip)) {
+		sin = (struct sockaddr_in *)&ss;
+		sin->sin_family = AF_INET;
+		sin->sin_addr = zmh_info->es_originator_ip.ipaddr_v4;
+		addrlen = sizeof(struct sockaddr_in);
+	} else {
+		/* IPv6 */
+		sin6 = (struct sockaddr_in6 *)&ss;
+		sin6->sin6_family = AF_INET6;
+		sin6->sin6_addr = zmh_info->es_originator_ip.ipaddr_v6;
+		addrlen = sizeof(struct sockaddr_in6);
+	}
+
+	if (bind(zevpn_arp_nd_info.udp_fd, (struct sockaddr *)&ss, addrlen) < 0) {
+		flog_err(EC_LIB_SOCKET, "evpn arp_nd UDP sock fd %d bind to %pIA errno %s",
 			 zevpn_arp_nd_info.udp_fd, &zmh_info->es_originator_ip,
 			 safe_strerror(errno));
 		close(zevpn_arp_nd_info.udp_fd);
