@@ -700,7 +700,6 @@ struct zebra_vxlan_vni *zebra_vxlan_if_vni_find(const struct zebra_if *zif,
 	if (vnip)
 		assert(vnip->vni == vni);
 
-	assert(vnip);
 	return vnip;
 }
 
