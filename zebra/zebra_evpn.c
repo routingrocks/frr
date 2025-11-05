@@ -1022,12 +1022,23 @@ void zebra_evpn_read_mac_neigh(struct zebra_evpn *zevpn, struct interface *ifp)
 	struct interface *vrr_if;
 
 	zif = ifp->info;
+	if (!zif)
+		return;
+
 	vni = zebra_vxlan_if_vni_find(zif, zevpn->vni);
 	zvrf = zebra_vrf_lookup_by_id(zevpn->vrf_id);
 	if (!zvrf || !zvrf->zns)
 		return;
 	zns = zvrf->zns;
 	br_if = zif->brslave_info.br_if;
+
+	if (!br_if) {
+		if (IS_ZEBRA_DEBUG_VXLAN)
+			zlog_debug(
+				"VNI %u - interface %s(%u) not mapped to bridge, skipping MAC/neigh read",
+				zevpn->vni, ifp->name, ifp->ifindex);
+		return;
+	}
 
 	if (IS_ZEBRA_DEBUG_VXLAN)
 		zlog_debug(
