@@ -13,7 +13,6 @@
 
 #include <err.h>
 
-#include "filter.h"
 #include "if.h"
 #include "vrf.h"
 
@@ -111,7 +110,6 @@ static struct frr_signal_t bfd_signals[] = {
 };
 
 static const struct frr_yang_module_info *const bfdd_yang_modules[] = {
-	&frr_filter_info,
 	&frr_interface_info,
 	&frr_bfdd_info,
 	&frr_vrf_info,
@@ -375,8 +373,6 @@ int main(int argc, char *argv[])
 	bfd_initialize();
 
 	bfd_vrf_init();
-
-	access_list_init();
 
 	/* Initialize zebra connection. */
 	bfdd_zclient_init(&bglobal.bfdd_privs);
