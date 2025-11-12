@@ -4611,10 +4611,10 @@ void _route_entry_dump(const char *func, union prefixconstptr pp,
 	for (ALL_NEXTHOPS(re->nhe->nhg, nexthop))
 		route_entry_dump_nh(re, straddr, vrf, nexthop);
 
-	if (zebra_nhg_get_backup_nhg(re->nhe)) {
+	nhg = zebra_nhg_get_backup_nhg(re->nhe);
+	if (nhg) {
 		zlog_debug("%s: backup nexthops:", straddr);
 
-		nhg = zebra_nhg_get_backup_nhg(re->nhe);
 		for (ALL_NEXTHOPS_PTR(nhg, nexthop))
 			route_entry_dump_nh(re, straddr, vrf, nexthop);
 	}
