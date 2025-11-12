@@ -1864,8 +1864,14 @@ interface_bridge_vxlan_vlan_vni_map_update(struct zebra_dplane_ctx *ctx,
 			vni.vni = vni_id;
 			vni.access_vlan = vid;
 			vnip = hash_get(vni_table, &vni, zebra_vxlan_vni_alloc);
-			if (!vnip)
+			if (!vnip) {
+				if (IS_ZEBRA_DEBUG_DPLANE)
+					zlog_debug("Failed to alloc VNI (%u,%u) while building table for VxLAN IF %s(%u); destroying partial table",
+						   vni.access_vlan, vni.vni, ifp->name,
+						   ifp->ifindex);
+				zebra_vxlan_vni_table_destroy(vni_table);
 				return;
+			}
 		}
 
 		memset(&vni_start, 0, sizeof(vni_start));
