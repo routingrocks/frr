@@ -4106,6 +4106,12 @@ struct nhg_hash_entry *zebra_nhe_proto_add(struct nhg_hash_entry *nhe)
 
 	new = zebra_nhg_rib_find_nhe(&lookup, nhe->afi);
 
+	if (!new) {
+		if (IS_ZEBRA_DEBUG_NHG)
+			zlog_debug("%s: zebra_nhg_rib_find_nhe failed for id %u", __func__, nhe->id);
+		return NULL;
+	}
+
 	zebra_nhg_increment_ref(new);
 
 	/* Capture zapi client info */
