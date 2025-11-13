@@ -3758,9 +3758,19 @@ void zebra_nhg_install_kernel(struct nhg_hash_entry *nhe, uint8_t type)
 				 "Failed to install Nexthop ID (%pNG) into the kernel", nhe);
 			break;
 		case ZEBRA_DPLANE_REQUEST_SUCCESS:
-			flog_err(EC_ZEBRA_DP_INVALID_RC,
-				 "DPlane returned an invalid result code for attempt of installation of %pNG into the kernel",
-				 nhe);
+			if (CHECK_FLAG(nhe->flags,
+				       NEXTHOP_GROUP_INITIAL_DELAY_INSTALL)) {
+				/* Expected: delayed-install optimization */
+				if (IS_ZEBRA_DEBUG_NHG_DETAIL)
+					zlog_debug(
+						"%s: NHG %pNG delayed-install optimization"
+						" (flags 0x%x)",__func__, nhe, nhe->flags);
+			} else {
+				flog_err(
+					EC_ZEBRA_DP_INVALID_RC,
+					"DPlane returned an invalid result code for attempt of"
+					" installation of %pNG into the kernel", nhe);
+			}
 			break;
 		}
 	}
