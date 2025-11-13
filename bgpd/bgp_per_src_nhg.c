@@ -1598,7 +1598,6 @@ bool bgp_per_src_nhg_use_nhgid(struct bgp *bgp, struct bgp_dest *dest, struct bg
 			}
 		} else {
 			dest_he = bgp_dest_soo_find(nhe, &dest->rn->p);
-			char buf[INET6_ADDRSTRLEN] = {0};
 			char pfxprint[PREFIX2STR_BUFFER] = {0};
 			if (!dest_he)
 				return false;
