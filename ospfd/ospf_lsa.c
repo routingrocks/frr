@@ -19,6 +19,7 @@
 #include "sockunion.h" /* for inet_aton() */
 #include "checksum.h"
 #include "network.h"
+#include "lib/lib_errors.h"
 
 #include "ospfd/ospfd.h"
 #include "ospfd/ospf_interface.h"
@@ -882,7 +883,7 @@ static struct ospf_lsa *ospf_router_lsa_originate(struct ospf_area *area)
 
 	/* Create new router-LSA instance. */
 	if ((new = ospf_router_lsa_new(area)) == NULL) {
-		zlog_err("%s: ospf_router_lsa_new returned NULL", __func__);
+		flog_err(EC_LIB_DEVELOPMENT, "%s: ospf_router_lsa_new returned NULL", __func__);
 		return NULL;
 	}
 
@@ -930,7 +931,7 @@ static struct ospf_lsa *ospf_router_lsa_refresh(struct ospf_lsa *lsa)
 
 	/* Create new router-LSA instance. */
 	if ((new = ospf_router_lsa_new(area)) == NULL) {
-		zlog_err("%s: ospf_router_lsa_new returned NULL", __func__);
+		flog_err(EC_LIB_DEVELOPMENT, "%s: ospf_router_lsa_new returned NULL", __func__);
 		return NULL;
 	}
 
