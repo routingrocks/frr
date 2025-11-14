@@ -4387,7 +4387,7 @@ static ssize_t kernel_br_port_update_ctx(struct zebra_dplane_ctx *ctx, void *buf
 	uint32_t flags;
 	uint8_t block_bum;
 	int cmd = RTM_SETLINK;
-	const struct in_addr *sph_filters;
+	const struct ipaddr *sph_filters;
 	uint32_t sph_filter_cnt;
 	uint32_t kern_sph_filters[BR_SPH_LIST_SIZE];
 	uint32_t max_filters;
@@ -4430,7 +4430,7 @@ static ssize_t kernel_br_port_update_ctx(struct zebra_dplane_ctx *ctx, void *buf
 	memset(kern_sph_filters, 0, sizeof(kern_sph_filters));
 	max_filters = (sph_filter_cnt < BR_SPH_LIST_SIZE) ? sph_filter_cnt : BR_SPH_LIST_SIZE;
 	for (index = 0; index < max_filters; ++index)
-		kern_sph_filters[index] = sph_filters[index].s_addr;
+		kern_sph_filters[index] = sph_filters[index].ipaddr_v4.s_addr;
 
 	if (!nl_attr_put(&req->n, buflen, IFLA_BRPORT_DUMMY_SPH_FILTER, &kern_sph_filters,
 			 sizeof(kern_sph_filters)))
@@ -4441,12 +4441,13 @@ static ssize_t kernel_br_port_update_ctx(struct zebra_dplane_ctx *ctx, void *buf
 	if (IS_ZEBRA_DEBUG_KERNEL) {
 		vtep_str[0] = '\0';
 		for (index = 0; index < sph_filter_cnt; ++index) {
-			sprintf(vtep_str + strlen(vtep_str), "%s ", inet_ntoa(sph_filters[index]));
+			sprintf(vtep_str + strlen(vtep_str), "%s ",
+				inet_ntoa(sph_filters[index].ipaddr_v4));
 		}
-		zlog_debug("Tx %s family %s IF %s(%d)%s backup_nhg 0x%x sph %s",
+		zlog_debug("Tx %s family %s IF %s(%d)%s backup_nhg 0x%x(%d) sph %s",
 			   nl_msg_type_to_str(cmd), nl_family_to_str(req->ifm.ifi_family),
 			   dplane_ctx_get_ifname(ctx), dplane_ctx_get_ifindex(ctx),
-			   block_bum ? "block_bum " : "", nhg_id, vtep_str);
+			   block_bum ? "block_bum " : "", nhg_id, nhg_id, vtep_str);
 	}
 
 	return NLMSG_ALIGN(req->n.nlmsg_len);
