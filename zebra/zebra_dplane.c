@@ -12,6 +12,7 @@
 
 #include "lib/libfrr.h"
 #include "lib/debug.h"
+#include "lib/lib_errors.h"
 #include "lib/frratomic.h"
 #include "lib/frr_pthread.h"
 #include "lib/memory.h"
@@ -7383,8 +7384,7 @@ static void dplane_provider_init(void)
 				       kernel_dplane_shutdown_func, NULL, NULL);
 
 	if (ret != AOK)
-		zlog_err("Unable to register kernel dplane provider: %d",
-			 ret);
+		flog_err(EC_LIB_DEVELOPMENT, "Unable to register kernel dplane provider: %d", ret);
 
 #ifdef DPLANE_TEST_PROVIDER
 	/* Optional test provider ... */
@@ -7396,8 +7396,7 @@ static void dplane_provider_init(void)
 				       NULL /* data */, NULL);
 
 	if (ret != AOK)
-		zlog_err("Unable to register test dplane provider: %d",
-			 ret);
+		flog_err(EC_LIB_DEVELOPMENT, "Unable to register test dplane provider: %d", ret);
 #endif	/* DPLANE_TEST_PROVIDER */
 }
 

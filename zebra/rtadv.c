@@ -1424,7 +1424,9 @@ static void rtadv_start_interface_events(struct zebra_vrf *zvrf,
 
 	rtadv_send_packet(zvrf->rtadv.sock, zif->ifp, RA_ENABLE);
 	if (wheel_check_item_present(zrouter.ra_wheel, zif->ifp)) {
-		zlog_err("wheel timer already has entry for interface: %s ptr :%p", zif->ifp->name, zif->ifp);
+		flog_err(EC_ZEBRA_RTADV_WHEEL_DUPLICATE,
+			 "wheel timer already has entry for interface: %s ptr :%p", zif->ifp->name,
+			 zif->ifp);
 		return;
 	}
 
@@ -1521,7 +1523,8 @@ void zebra_send_peer_ll_confirmation(struct zserv *client, struct interface *ifp
 
 	s = stream_new(ZEBRA_SMALL_PACKET_SIZE);
 	if (!s) {
-		zlog_err("%s: OOM while allocating stream for PEER_LL_CONFIRMATION", __func__);
+		flog_err(EC_ZEBRA_RTADV_STREAM_OOM,
+			 "%s: OOM while allocating stream for PEER_LL_CONFIRMATION", __func__);
 		return;
 	}
 
@@ -1574,7 +1577,8 @@ void zebra_notify_static_peer_ll_change(struct interface *ifp, struct in6_addr *
 		if (client->proto == ZEBRA_ROUTE_STATIC) {
 			s = stream_new(ZEBRA_SMALL_PACKET_SIZE);
 			if (!s) {
-				zlog_err("%s: OOM while allocating stream for PEER_LL_CHANGE",
+				flog_err(EC_ZEBRA_RTADV_STREAM_OOM,
+					 "%s: OOM while allocating stream for PEER_LL_CHANGE",
 					 __func__);
 				return;
 			}

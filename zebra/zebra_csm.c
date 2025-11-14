@@ -21,6 +21,7 @@
 #include <zebra.h>
 
 #include <lib/version.h>
+#include "lib/lib_errors.h"
 #include "getopt.h"
 #include "command.h"
 #include "frrevent.h"
@@ -99,7 +100,7 @@ static int frr_csm_send_keep_rsp(int seq)
 	nbytes = csmgr_send(zrouter.frr_csm_modid, m->total_len, m, MAX_MSG_LEN,
 			    ack);
 	if (nbytes == -1) {
-		zlog_err("FRRCSM: Failed to send keepalive, error %s",
+		flog_err(EC_LIB_SOCKET, "FRRCSM: Failed to send keepalive, error %s",
 			 safe_strerror(errno));
 		return -1;
 	}
@@ -140,7 +141,7 @@ static int frr_csm_send_down_complete(Module mod)
 	nbytes = csmgr_send(zrouter.frr_csm_modid, m->total_len, m, MAX_MSG_LEN,
 			    rsp);
 	if (nbytes == -1) {
-		zlog_err("FRRCSM: Failed to send down complete, error %s",
+		flog_err(EC_LIB_SOCKET, "FRRCSM: Failed to send down complete, error %s",
 			 safe_strerror(errno));
 		return -1;
 	}
@@ -179,7 +180,7 @@ static int frr_csm_get_start_mode(Mode *mode, State *state)
 	nbytes = csmgr_send(zrouter.frr_csm_modid, m->total_len, m, MAX_MSG_LEN,
 			    rsp);
 	if (nbytes == -1) {
-		zlog_err("FRRCSM: Failed to send load complete, error %s",
+		flog_err(EC_LIB_SOCKET, "FRRCSM: Failed to send load complete, error %s",
 			 safe_strerror(errno));
 		return -1;
 	}
@@ -194,9 +195,9 @@ static int frr_csm_get_start_mode(Mode *mode, State *state)
 
 	m = (msg_pkg *)rsp;
 	if (nbytes != m->total_len) {
-		zlog_err(
-			"FRRCSM: Invalid length in load complete response, len %d msg_len %d",
-			nbytes, m->total_len);
+		flog_err(EC_ZEBRA_FRRCSM_INVALID_LENGTH,
+			 "FRRCSM: Invalid length in load complete response, len %d msg_len %d",
+			 nbytes, m->total_len);
 		return -1;
 	}
 
@@ -487,7 +488,7 @@ static int frr_csm_send_state(void)
 	nbytes = csmgr_send(zrouter.frr_csm_modid, m->total_len, m, MAX_MSG_LEN,
 			    ack);
 	if (nbytes == -1) {
-		zlog_err("FRRCSM: Failed to send module status, error %s",
+		flog_err(EC_LIB_SOCKET, "FRRCSM: Failed to send module status, error %s",
 			 safe_strerror(errno));
 		return -1;
 	}
@@ -529,9 +530,9 @@ static int frr_csm_cb(int len, void *buf)
 
 	nbytes = len;
 	if (nbytes != m->total_len) {
-		zlog_err(
-			"FRRCSM: Invalid length in received message, len %d msg_len %d",
-			nbytes, m->total_len);
+		flog_err(EC_ZEBRA_FRRCSM_INVALID_LENGTH,
+			 "FRRCSM: Invalid length in received message, len %d msg_len %d", nbytes,
+			 m->total_len);
 		return -1;
 	}
 
@@ -703,12 +704,10 @@ static int frr_csm_init_complete(void)
 
 	rc = frr_csm_get_start_mode(&mode, &state);
 	if (rc)
-		zlog_err("FRRCSM: Failed to send load complete");
+		flog_err(EC_LIB_SOCKET, "FRRCSM: Failed to send load complete");
 	convert_mode(mode, &smode);
-	zlog_err(
-		"FRRCSM: ....... Got start mode %s (converted to %s), state %s",
-		mode_to_str(mode, buf), frr_csm_smode_str[smode],
-		mod_state_to_str(state));
+	zlog_info("FRRCSM: ....... Got start mode %s (converted to %s), state %s",
+		  mode_to_str(mode, buf), frr_csm_smode_str[smode], mod_state_to_str(state));
 	zrouter.csm_smode = zrouter.csm_cmode = mode;
 	zrouter.csm_cstate = state;
 	zrouter.frr_csm_smode = smode;
@@ -784,7 +783,7 @@ int frr_csm_send_init_complete()
 	nbytes = csmgr_send(zrouter.frr_csm_modid, m->total_len, m, MAX_MSG_LEN,
 			    rsp);
 	if (nbytes == -1) {
-		zlog_err("FRRCSM: Failed to send init complete, error %s",
+		flog_err(EC_LIB_SOCKET, "FRRCSM: Failed to send init complete, error %s",
 			 safe_strerror(errno));
 		return -1;
 	}
@@ -880,7 +879,8 @@ int frr_csm_send_network_layer_info(void)
 
 	nbytes = csmgr_send(zrouter.frr_csm_modid, m->total_len, m, MAX_MSG_LEN, rsp);
 	if (nbytes == -1) {
-		zlog_err("FRRCSM: Failed to send network layer info %s", safe_strerror(errno));
+		flog_err(EC_LIB_SOCKET, "FRRCSM: Failed to send network layer info %s",
+			 safe_strerror(errno));
 		return -1;
 	}
 
@@ -933,8 +933,7 @@ void frr_csm_register()
 				       &zrouter.frr_csm_modid, frr_csm_cb);
 	}
 	if (!rc) {
-		zlog_err("FRRCSM: Register failed, error %s",
-			 safe_strerror(errno));
+		flog_err(EC_LIB_SOCKET, "FRRCSM: Register failed, error %s", safe_strerror(errno));
 		zrouter.frr_csm_regd = false;
 		zrouter.frr_csm_smode = COLD_START;
 		zrouter.csm_smode = zrouter.csm_cmode = REBOOT_COLD;
@@ -949,8 +948,8 @@ void frr_csm_register()
 	rc = frr_csm_get_start_mode(&mode, &state);
 	convert_mode(mode, &smode);
 	if (rc) {
-		zlog_err(
-			"FRRCSM: Failed to get start mode, assuming cold start");
+		flog_err(EC_ZEBRA_FRRCSM_START_MODE_UNKNOWN,
+			 "FRRCSM: Failed to get start mode, assuming cold start");
 		zrouter.csm_smode = zrouter.csm_cmode = REBOOT_COLD;
 		zrouter.csm_cstate = UP;
 		zrouter.frr_csm_smode = COLD_START;
@@ -959,14 +958,13 @@ void frr_csm_register()
 		zrouter.load_complete_failed = false;
 		char buf[256];
 
-		zlog_err("FRRCSM: Start mode is %s (converted to %s), state %s",
-			 mode_to_str(mode, buf), frr_csm_smode_str[smode],
-			 mod_state_to_str(state));
+		zlog_info("FRRCSM: Start mode is %s (converted to %s), state %s",
+			  mode_to_str(mode, buf), frr_csm_smode_str[smode], mod_state_to_str(state));
 		zrouter.csm_smode = zrouter.csm_cmode = mode;
 		zrouter.csm_cstate = state;
 		zrouter.frr_csm_smode = smode;
-		zlog_err("FRRCSM: mode %s is smode is  %s, ", mode_to_str(mode, buf),
-			 frr_csm_smode_str[smode]);
+		zlog_info("FRRCSM: mode %s is smode is  %s, ", mode_to_str(mode, buf),
+			  frr_csm_smode_str[smode]);
 	}
 }
 

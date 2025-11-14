@@ -311,9 +311,9 @@ zebra_l2_brvlan_mac_add(struct interface *br_if, vlanid_t vid,
 	if (!br->mac_table[vid]) {
 		br->mac_table[vid] = zebra_l2_brvlan_mac_table_create();
 		if (!br->mac_table[vid]) {
-			zlog_err(
-				"bridge %s vid %u - failed to create MAC hash table",
-				br_if->name, vid);
+			flog_err(EC_ZEBRA_L2_MAC_HASH_CREATE_FAIL,
+				 "bridge %s vid %u - failed to create MAC hash table", br_if->name,
+				 vid);
 			return NULL;
 		}
 		if (IS_ZEBRA_DEBUG_VXLAN)

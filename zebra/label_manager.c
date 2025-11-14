@@ -345,8 +345,8 @@ assign_specific_label_chunk(uint8_t proto, unsigned short instance,
 	/* sanities */
 	if ((base < MPLS_LABEL_UNRESERVED_MIN)
 	    || (end > MPLS_LABEL_UNRESERVED_MAX)) {
-		zlog_err("Invalid LM request arguments: base: %u, size: %u",
-			 base, size);
+		flog_err(EC_ZEBRA_LM_INVALID_REQUEST,
+			 "Invalid LM request arguments: base: %u, size: %u", base, size);
 		return NULL;
 	}
 
@@ -632,9 +632,9 @@ int lm_client_connect_response(uint8_t proto, uint16_t instance,
 	struct zserv *client = zserv_find_client_session(proto, instance,
 							 session_id);
 	if (!client) {
-		zlog_err("%s: could not find client for daemon %s instance %u session %u",
-			 __func__, zebra_route_string(proto), instance,
-			 session_id);
+		flog_err(EC_ZEBRA_LM_ALIENS,
+			 "%s: could not find client for daemon %s instance %u session %u", __func__,
+			 zebra_route_string(proto), instance, session_id);
 		return 1;
 	}
 	return zsend_label_manager_connect_response(client, vrf_id, result);
