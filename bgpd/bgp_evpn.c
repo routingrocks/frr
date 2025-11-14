@@ -1416,7 +1416,7 @@ enum zclient_send_status evpn_zebra_uninstall(struct bgp *bgp,
 						  (is_sync ? &zero_vtep_ip : &vtep_ip), 0, 0, 0,
 						  NULL);
 	else if (p->prefix.route_type == BGP_EVPN_AD_ROUTE)
-		ret = bgp_evpn_remote_es_evi_del(bgp, vpn, p);
+		ret = bgp_evpn_remote_es_evi_del(bgp, vpn, p, pi);
 	else
 		ret = bgp_zebra_send_remote_vtep(bgp, vpn, p,
 						 VXLAN_FLOOD_DISABLED, 0);

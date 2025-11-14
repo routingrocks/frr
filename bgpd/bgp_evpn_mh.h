@@ -426,7 +426,8 @@ bgp_evpn_remote_es_evi_add(struct bgp *bgp, struct bgpevpn *vpn,
 			   struct bgp_path_info *pi);
 extern enum zclient_send_status
 bgp_evpn_remote_es_evi_del(struct bgp *bgp, struct bgpevpn *vpn,
-			   const struct prefix_evpn *p);
+			   const struct prefix_evpn *p,
+			   struct bgp_path_info *pi);
 extern void bgp_evpn_mh_init(void);
 extern void bgp_evpn_mh_finish(void);
 void bgp_evpn_vni_es_init(struct bgpevpn *vpn);
