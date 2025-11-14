@@ -2738,9 +2738,9 @@ static int bgp_route_refresh_receive(struct peer_connection *connection,
 			 * subcode of "Invalid Message Length".
 			 */
 			if (msg_length != 4) {
-				zlog_err(
-					"%s Enhanced Route Refresh message length error",
-					peer->host);
+				flog_err(EC_BGP_ROUTE_REFRESH_INVALID,
+					 "%s Enhanced Route Refresh message length error",
+					 peer->host);
 				bgp_notify_send(connection,
 						BGP_NOTIFY_ROUTE_REFRESH_ERR,
 						BGP_NOTIFY_ROUTE_REFRESH_INVALID_MSG_LEN);
@@ -2751,9 +2751,8 @@ static int bgp_route_refresh_receive(struct peer_connection *connection,
 			 * it MUST ignore the received ROUTE-REFRESH message.
 			 */
 			if (subtype > 2)
-				zlog_err(
-					"%s Enhanced Route Refresh invalid subtype",
-					peer->host);
+				flog_err(EC_BGP_ROUTE_REFRESH_INVALID,
+					 "%s Enhanced Route Refresh invalid subtype", peer->host);
 		}
 
 		if (msg_length < 5) {
@@ -3007,9 +3006,9 @@ static int bgp_route_refresh_receive(struct peer_connection *connection,
 				peer->bgp->stalepath_time);
 	} else if (subtype == BGP_ROUTE_REFRESH_EORR) {
 		if (!peer->t_refresh_stalepath) {
-			zlog_err(
-				"%pBP rcvd route-refresh (EoRR) for %s/%s, whereas no BoRR received",
-				peer, afi2str(afi), safi2str(safi));
+			flog_err(EC_BGP_ROUTE_REFRESH_INVALID,
+				 "%pBP rcvd route-refresh (EoRR) for %s/%s, whereas no BoRR received",
+				 peer, afi2str(afi), safi2str(safi));
 			return BGP_PACKET_NOOP;
 		}
 
@@ -3310,14 +3309,15 @@ static void bgp_dynamic_capability_fqdn(uint8_t *pnt, int action,
 	if (action == CAPABILITY_ACTION_SET) {
 		/* hostname */
 		if (data + 1 >= end) {
-			zlog_err("%pBP: Received invalid FQDN capability (host name length)",
-				 peer);
+			flog_err(EC_BGP_CAPABILITY_INVALID_LENGTH,
+				 "%pBP: Received invalid FQDN capability (host name length)", peer);
 			return;
 		}
 
 		len = *data;
 		if (data + len + 1 > end) {
-			zlog_err("%pBP: Received invalid FQDN capability length (host name) %d",
+			flog_err(EC_BGP_CAPABILITY_INVALID_LENGTH,
+				 "%pBP: Received invalid FQDN capability length (host name) %d",
 				 peer, hdr->length);
 			return;
 		}
@@ -3340,7 +3340,8 @@ static void bgp_dynamic_capability_fqdn(uint8_t *pnt, int action,
 		}
 
 		if (data + 1 >= end) {
-			zlog_err("%pBP: Received invalid FQDN capability (domain name length)",
+			flog_err(EC_BGP_CAPABILITY_INVALID_LENGTH,
+				 "%pBP: Received invalid FQDN capability (domain name length)",
 				 peer);
 			return;
 		}
@@ -3348,7 +3349,8 @@ static void bgp_dynamic_capability_fqdn(uint8_t *pnt, int action,
 		/* domainname */
 		len = *data;
 		if (data + len + 1 > end) {
-			zlog_err("%pBP: Received invalid FQDN capability length (domain name) %d",
+			flog_err(EC_BGP_CAPABILITY_INVALID_LENGTH,
+				 "%pBP: Received invalid FQDN capability length (domain name) %d",
 				 peer, len);
 			return;
 		}
@@ -3389,7 +3391,8 @@ static void bgp_dynamic_capability_llgr(uint8_t *pnt, int action,
 
 	if (action == CAPABILITY_ACTION_SET) {
 		if (len < BGP_CAP_LLGR_MIN_PACKET_LEN) {
-			zlog_err("%pBP: Received invalid Long-Lived Graceful-Restart capability length %zu",
+			flog_err(EC_BGP_CAPABILITY_INVALID_LENGTH,
+				 "%pBP: Received invalid Long-Lived Graceful-Restart capability length %zu",
 				 peer, len);
 			return;
 		}
@@ -3479,7 +3482,8 @@ static void bgp_dynamic_capability_graceful_restart(uint8_t *pnt, int action,
 
 	if (action == CAPABILITY_ACTION_SET) {
 		if (len < sizeof(gr_restart_flag_time)) {
-			zlog_err("%pBP: Received invalid Graceful-Restart capability length %d",
+			flog_err(EC_BGP_CAPABILITY_INVALID_LENGTH,
+				 "%pBP: Received invalid Graceful-Restart capability length %d",
 				 peer, hdr->length);
 			return;
 		}
@@ -3574,7 +3578,8 @@ static void bgp_dynamic_capability_software_version(uint8_t *pnt, int action,
 
 	if (action == CAPABILITY_ACTION_SET) {
 		if (data + len + 1 > end) {
-			zlog_err("%pBP: Received invalid Software Version capability length %d",
+			flog_err(EC_BGP_CAPABILITY_INVALID_LENGTH,
+				 "%pBP: Received invalid Software Version capability length %d",
 				 peer, len);
 			return;
 		}
@@ -3623,7 +3628,8 @@ static int bgp_capability_msg_parse(struct peer *peer, uint8_t *pnt,
 		/* We need at least action, capability code and capability
 		 * length. */
 		if (pnt + 3 > end) {
-			zlog_err("%pBP: Capability length error", peer);
+			flog_err(EC_BGP_CAPABILITY_INVALID_LENGTH, "%pBP: Capability length error",
+				 peer);
 			bgp_notify_send(peer->connection, BGP_NOTIFY_CEASE,
 					BGP_NOTIFY_SUBCODE_UNSPECIFIC);
 			pnt += length;
@@ -3635,8 +3641,8 @@ static int bgp_capability_msg_parse(struct peer *peer, uint8_t *pnt,
 		/* Action value check.  */
 		if (action != CAPABILITY_ACTION_SET
 		    && action != CAPABILITY_ACTION_UNSET) {
-			zlog_err("%pBP: Capability Action Value error %d", peer,
-				 action);
+			flog_err(EC_BGP_CAPABILITY_INVALID_DATA,
+				 "%pBP: Capability Action Value error %d", peer, action);
 			bgp_notify_send(peer->connection, BGP_NOTIFY_CEASE,
 					BGP_NOTIFY_SUBCODE_UNSPECIFIC);
 			goto done;
@@ -3648,7 +3654,8 @@ static int bgp_capability_msg_parse(struct peer *peer, uint8_t *pnt,
 
 		/* Capability length check. */
 		if ((pnt + hdr->length + 3) > end) {
-			zlog_err("%pBP: Capability length error", peer);
+			flog_err(EC_BGP_CAPABILITY_INVALID_LENGTH, "%pBP: Capability length error",
+				 peer);
 			bgp_notify_send(peer->connection, BGP_NOTIFY_CEASE,
 					BGP_NOTIFY_SUBCODE_UNSPECIFIC);
 			pnt += length;
@@ -3668,9 +3675,9 @@ static int bgp_capability_msg_parse(struct peer *peer, uint8_t *pnt,
 			break;
 		case CAPABILITY_CODE_MP:
 			if (hdr->length < sizeof(struct capability_mp_data)) {
-				zlog_err("%pBP: Capability (%s) structure is not properly filled out, expected at least %zu bytes but header length specified is %d",
-					 peer, capability,
-					 sizeof(struct capability_mp_data),
+				flog_err(EC_BGP_CAPABILITY_INVALID_LENGTH,
+					 "%pBP: Capability (%s) structure is not properly filled out, expected at least %zu bytes but header length specified is %d",
+					 peer, capability, sizeof(struct capability_mp_data),
 					 hdr->length);
 				goto done;
 			}
@@ -3719,7 +3726,8 @@ static int bgp_capability_msg_parse(struct peer *peer, uint8_t *pnt,
 			break;
 		case CAPABILITY_CODE_RESTART:
 			if ((hdr->length - 2) % 4) {
-				zlog_err("%pBP: Received invalid Graceful-Restart capability length %d",
+				flog_err(EC_BGP_CAPABILITY_INVALID_LENGTH,
+					 "%pBP: Received invalid Graceful-Restart capability length %d",
 					 peer, hdr->length);
 				bgp_notify_send(peer->connection,
 						BGP_NOTIFY_CEASE,
@@ -3751,8 +3759,8 @@ static int bgp_capability_msg_parse(struct peer *peer, uint8_t *pnt,
 			break;
 		case CAPABILITY_CODE_ROLE:
 			if (hdr->length != CAPABILITY_CODE_ROLE_LEN) {
-				zlog_err("%pBP: Capability (%s) length error",
-					 peer, capability);
+				flog_err(EC_BGP_CAPABILITY_INVALID_LENGTH,
+					 "%pBP: Capability (%s) length error", peer, capability);
 				bgp_notify_send(peer->connection,
 						BGP_NOTIFY_CEASE,
 						BGP_NOTIFY_SUBCODE_UNSPECIFIC);

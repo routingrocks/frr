@@ -786,8 +786,8 @@ void ensure_vrf_tovpn_sid_per_af(struct bgp *bgp_vpn, struct bgp *bgp_vrf,
 
 	/* check invalid case both configured index and auto */
 	if (tovpn_sid_index != 0 && tovpn_sid_auto) {
-		zlog_err("%s: index-mode and auto-mode both selected. ignored.",
-			 __func__);
+		flog_err(EC_BGP_SRV6_SID_MODE_CONFLICT,
+			 "%s: index-mode and auto-mode both selected. ignored.", __func__);
 		return;
 	}
 
@@ -850,8 +850,8 @@ void ensure_vrf_tovpn_sid_per_vrf(struct bgp *bgp_vpn, struct bgp *bgp_vrf)
 
 	/* check invalid case both configured index and auto */
 	if (tovpn_sid_index != 0 && tovpn_sid_auto) {
-		zlog_err("%s: index-mode and auto-mode both selected. ignored.",
-			 __func__);
+		flog_err(EC_BGP_SRV6_SID_MODE_CONFLICT,
+			 "%s: index-mode and auto-mode both selected. ignored.", __func__);
 		return;
 	}
 

@@ -465,9 +465,8 @@ static bool bgp_attr_aigp_get_tlv_metric(uint8_t *pnt, int length,
 			 * and SHOULD be discarded as specified in this section.
 			 */
 			if (*aigp == BGP_AIGP_TLV_METRIC_MAX) {
-				zlog_err("Bad AIGP TLV (%s) length: %llu",
-					 BGP_AIGP_TLV_METRIC_DESC,
-					 BGP_AIGP_TLV_METRIC_MAX);
+				flog_err(EC_BGP_ATTR_AIGP, "Bad AIGP TLV (%s) length: %llu",
+					 BGP_AIGP_TLV_METRIC_DESC, BGP_AIGP_TLV_METRIC_MAX);
 				return false;
 			}
 
@@ -497,7 +496,7 @@ static bool bgp_attr_aigp_valid(uint8_t *pnt, int length)
 	uint8_t *end = data + length;
 
 	if (length < 3) {
-		zlog_err("Bad AIGP attribute length (MUST be minimum 3): %u",
+		flog_err(EC_BGP_ATTR_AIGP, "Bad AIGP attribute length (MUST be minimum 3): %u",
 			 length);
 		return false;
 	}
@@ -514,14 +513,14 @@ static bool bgp_attr_aigp_valid(uint8_t *pnt, int length)
 		(void)data;
 
 		if (length < tlv_length) {
-			zlog_err(
-				"Bad AIGP attribute length: %u, but TLV length: %u",
-				length, tlv_length);
+			flog_err(EC_BGP_ATTR_AIGP,
+				 "Bad AIGP attribute length: %u, but TLV length: %u", length,
+				 tlv_length);
 			return false;
 		}
 
 		if (tlv_length < 3) {
-			zlog_err("Bad AIGP TLV length (MUST be minimum 3): %u",
+			flog_err(EC_BGP_ATTR_AIGP, "Bad AIGP TLV length (MUST be minimum 3): %u",
 				 tlv_length);
 			return false;
 		}
@@ -529,7 +528,7 @@ static bool bgp_attr_aigp_valid(uint8_t *pnt, int length)
 		/* AIGP TLV, Length: 11 */
 		if (tlv_type == BGP_AIGP_TLV_METRIC &&
 		    tlv_length != BGP_AIGP_TLV_METRIC_LEN) {
-			zlog_err("Bad AIGP TLV (%s) length: %u",
+			flog_err(EC_BGP_ATTR_AIGP, "Bad AIGP TLV (%s) length: %u",
 				 BGP_AIGP_TLV_METRIC_DESC, tlv_length);
 			return false;
 		}
@@ -2683,8 +2682,8 @@ static int bgp_attr_encap(struct bgp_attr_parser_args *args)
 
 	if (!CHECK_FLAG(flag, BGP_ATTR_FLAG_TRANS)
 	    || !CHECK_FLAG(flag, BGP_ATTR_FLAG_OPTIONAL)) {
-		zlog_err("Tunnel Encap attribute flag isn't optional and transitive %d",
-			 flag);
+		flog_err(EC_BGP_ATTR_FLAG,
+			 "Tunnel Encap attribute flag isn't optional and transitive %d", flag);
 		return bgp_attr_malformed(args, BGP_NOTIFY_UPDATE_OPT_ATTR_ERR,
 					  args->total);
 	}
@@ -2694,8 +2693,8 @@ static int bgp_attr_encap(struct bgp_attr_parser_args *args)
 		uint16_t tlv_length;
 
 		if (length < 4) {
-			zlog_err(
-				"Tunnel Encap attribute not long enough to contain outer T,L");
+			flog_err(EC_BGP_ATTR_LEN,
+				 "Tunnel Encap attribute not long enough to contain outer T,L");
 			return bgp_attr_malformed(args,
 						  BGP_NOTIFY_UPDATE_OPT_ATTR_ERR,
 						  args->total);
@@ -2733,7 +2732,8 @@ static int bgp_attr_encap(struct bgp_attr_parser_args *args)
 		}
 
 		if (sublength > length) {
-			zlog_err("Tunnel Encap attribute sub-tlv length %d exceeds remaining length %d",
+			flog_err(EC_BGP_ATTR_LEN,
+				 "Tunnel Encap attribute sub-tlv length %d exceeds remaining length %d",
 				 sublength, length);
 			return bgp_attr_malformed(args,
 						  BGP_NOTIFY_UPDATE_OPT_ATTR_ERR,
@@ -2741,7 +2741,8 @@ static int bgp_attr_encap(struct bgp_attr_parser_args *args)
 		}
 
 		if (STREAM_READABLE(BGP_INPUT(peer)) < sublength) {
-			zlog_err("Tunnel Encap attribute sub-tlv length %d exceeds remaining stream length %zu",
+			flog_err(EC_BGP_ATTR_LEN,
+				 "Tunnel Encap attribute sub-tlv length %d exceeds remaining stream length %zu",
 				 sublength, STREAM_READABLE(BGP_INPUT(peer)));
 			return bgp_attr_malformed(args,
 						  BGP_NOTIFY_UPDATE_OPT_ATTR_ERR,
@@ -2793,8 +2794,8 @@ static int bgp_attr_encap(struct bgp_attr_parser_args *args)
 
 	if (length) {
 		/* spurious leftover data */
-		zlog_err("Tunnel Encap attribute length is bad: %d leftover octets",
-			 length);
+		flog_err(EC_BGP_ATTR_LEN,
+			 "Tunnel Encap attribute length is bad: %d leftover octets", length);
 		return bgp_attr_malformed(args, BGP_NOTIFY_UPDATE_OPT_ATTR_ERR,
 					  args->total);
 	}

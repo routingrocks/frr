@@ -364,8 +364,8 @@ route_match_script(void *rule, const struct prefix *prefix, void *object)
 	struct frrscript *fs = frrscript_new(scriptname);
 
 	if (frrscript_load(fs, routematch_function, NULL)) {
-		zlog_err(
-			"Issue loading script or function; defaulting to no match");
+		flog_err(EC_BGP_ROUTE_MAP_SCRIPT,
+			 "Issue loading script or function; defaulting to no match");
 		return RMAP_NOMATCH;
 	}
 
@@ -379,7 +379,8 @@ route_match_script(void *rule, const struct prefix *prefix, void *object)
 		("RM_MATCH_AND_CHANGE", LUA_RM_MATCH_AND_CHANGE));
 
 	if (result) {
-		zlog_err("Issue running script rule; defaulting to no match");
+		flog_err(EC_BGP_ROUTE_MAP_SCRIPT,
+			 "Issue running script rule; defaulting to no match");
 		return RMAP_NOMATCH;
 	}
 
@@ -390,9 +391,9 @@ route_match_script(void *rule, const struct prefix *prefix, void *object)
 
 	switch (*action) {
 	case LUA_RM_FAILURE:
-		zlog_err(
-			"Executing route-map match script '%s' failed; defaulting to no match",
-			scriptname);
+		flog_err(EC_BGP_ROUTE_MAP_SCRIPT,
+			 "Executing route-map match script '%s' failed; defaulting to no match",
+			 scriptname);
 		status = RMAP_NOMATCH;
 		break;
 	case LUA_RM_NOMATCH:
