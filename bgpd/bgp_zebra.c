@@ -1421,11 +1421,9 @@ static void bgp_zebra_announce_parse_nexthop(struct bgp_dest *dest, struct bgp_p
 
 		api_nh->weight = link_bw;
 
-		if (((mpinfo->attr->srv6_l3vpn &&
-		      !sid_zero_ipv6(&mpinfo->attr->srv6_l3vpn->sid)) ||
-		     (mpinfo->attr->srv6_vpn &&
-		      !sid_zero_ipv6(&mpinfo->attr->srv6_vpn->sid))) &&
-		    !is_evpn && bgp_is_valid_label(&labels[0])) {
+		if (((mpinfo->attr->srv6_l3vpn && !sid_zero_ipv6(&mpinfo->attr->srv6_l3vpn->sid)) ||
+		     (mpinfo->attr->srv6_vpn && !sid_zero_ipv6(&mpinfo->attr->srv6_vpn->sid))) &&
+		    !is_evpn && labels && (num_labels > 0) && bgp_is_valid_label(&labels[0])) {
 			struct in6_addr *sid_tmp =
 				mpinfo->attr->srv6_l3vpn
 					? (&mpinfo->attr->srv6_l3vpn->sid)
