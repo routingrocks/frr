@@ -452,12 +452,14 @@ TRACEPOINT_EVENT(
 	evpn_mh_local_ead_es_evi_route_upd,
 	TP_ARGS(esi_t *, esi, vni_t, vni,
 		uint8_t, route_type,
-		struct in_addr, vtep),
+        struct in_addr, vtep_v4,
+		struct ipaddr *, vtep_v6),
 	TP_FIELDS(
 		ctf_array(unsigned char, esi, esi, sizeof(esi_t))
 		ctf_integer(vni_t, vni, vni)
 		ctf_integer(uint8_t, route_type, route_type)
-		ctf_integer_network_hex(unsigned int, vtep, vtep.s_addr)
+		ctf_integer_network_hex(unsigned int, vtep_v4, vtep_v4.s_addr)
+		ctf_array(unsigned char, vtep_v6, vtep_v6, sizeof(struct ipaddr))
 	)
 )
 TRACEPOINT_LOGLEVEL(frr_bgp, evpn_mh_local_ead_es_evi_route_upd, TRACE_INFO)
