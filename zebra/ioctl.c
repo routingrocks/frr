@@ -46,7 +46,7 @@ int if_ioctl(unsigned long request, caddr_t buffer)
 	frr_with_privs(&zserv_privs) {
 		sock = socket(AF_INET, SOCK_DGRAM, 0);
 		if (sock < 0) {
-			zlog_err("Cannot create UDP socket: %s",
+			flog_err(EC_LIB_SOCKET, "Cannot create UDP socket: %s",
 				 safe_strerror(errno));
 			exit(1);
 		}
@@ -73,7 +73,7 @@ int vrf_if_ioctl(unsigned long request, caddr_t buffer, vrf_id_t vrf_id)
 	frr_with_privs(&zserv_privs) {
 		sock = vrf_socket(AF_INET, SOCK_DGRAM, 0, vrf_id, NULL);
 		if (sock < 0) {
-			zlog_err("Cannot create UDP socket: %s",
+			flog_err(EC_LIB_SOCKET, "Cannot create UDP socket: %s",
 				 safe_strerror(errno));
 			exit(1);
 		}
@@ -100,7 +100,7 @@ static int if_ioctl_ipv6(unsigned long request, caddr_t buffer)
 	frr_with_privs(&zserv_privs) {
 		sock = socket(AF_INET6, SOCK_DGRAM, 0);
 		if (sock < 0) {
-			zlog_err("Cannot create IPv6 datagram socket: %s",
+			flog_err(EC_LIB_SOCKET, "Cannot create IPv6 datagram socket: %s",
 				 safe_strerror(errno));
 			exit(1);
 		}

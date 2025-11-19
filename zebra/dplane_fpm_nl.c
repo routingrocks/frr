@@ -19,6 +19,8 @@
 #include <string.h>
 
 #include "lib/zebra.h"
+#include "lib/lib_errors.h"
+#include "zebra/zebra_errors.h"
 
 #include <linux/rtnetlink.h>
 
@@ -768,8 +770,7 @@ static void fpm_connect(struct event *t)
 
 	sock = socket(fnc->addr.ss_family, SOCK_STREAM, 0);
 	if (sock == -1) {
-		zlog_err("%s: fpm socket failed: %s", __func__,
-			 strerror(errno));
+		flog_err(EC_LIB_SOCKET, "%s: fpm socket failed: %s", __func__, strerror(errno));
 		event_add_timer(fnc->fthread->master, fpm_connect, fnc, 3,
 				&fnc->t_connect);
 		return;
@@ -865,9 +866,8 @@ static int fpm_nl_enqueue(struct fpm_nl_ctx *fnc, struct zebra_dplane_ctx *ctx)
 							true, fnc->use_nhg,
 							false);
 		if (rv <= 0) {
-			zlog_err(
-				"%s: netlink_route_multipath_msg_encode failed",
-				__func__);
+			flog_err(EC_ZEBRA_FPM_ENCODE_FAIL,
+				 "%s: netlink_route_multipath_msg_encode failed", __func__);
 			return 0;
 		}
 
@@ -886,9 +886,8 @@ static int fpm_nl_enqueue(struct fpm_nl_ctx *fnc, struct zebra_dplane_ctx *ctx)
 							true, fnc->use_nhg,
 							fnc->use_route_replace);
 		if (rv <= 0) {
-			zlog_err(
-				"%s: netlink_route_multipath_msg_encode failed",
-				__func__);
+			flog_err(EC_ZEBRA_FPM_ENCODE_FAIL,
+				 "%s: netlink_route_multipath_msg_encode failed", __func__);
 			return 0;
 		}
 
@@ -899,7 +898,7 @@ static int fpm_nl_enqueue(struct fpm_nl_ctx *fnc, struct zebra_dplane_ctx *ctx)
 	case DPLANE_OP_MAC_DELETE:
 		rv = netlink_macfdb_update_ctx(ctx, nl_buf, sizeof(nl_buf));
 		if (rv <= 0) {
-			zlog_err("%s: netlink_macfdb_update_ctx failed",
+			flog_err(EC_ZEBRA_FPM_ENCODE_FAIL, "%s: netlink_macfdb_update_ctx failed",
 				 __func__);
 			return 0;
 		}
@@ -911,7 +910,7 @@ static int fpm_nl_enqueue(struct fpm_nl_ctx *fnc, struct zebra_dplane_ctx *ctx)
 		rv = netlink_nexthop_msg_encode(RTM_DELNEXTHOP, ctx, nl_buf,
 						sizeof(nl_buf), true);
 		if (rv <= 0) {
-			zlog_err("%s: netlink_nexthop_msg_encode failed",
+			flog_err(EC_ZEBRA_FPM_ENCODE_FAIL, "%s: netlink_nexthop_msg_encode failed",
 				 __func__);
 			return 0;
 		}
@@ -923,7 +922,7 @@ static int fpm_nl_enqueue(struct fpm_nl_ctx *fnc, struct zebra_dplane_ctx *ctx)
 		rv = netlink_nexthop_msg_encode(RTM_NEWNEXTHOP, ctx, nl_buf,
 						sizeof(nl_buf), true);
 		if (rv <= 0) {
-			zlog_err("%s: netlink_nexthop_msg_encode failed",
+			flog_err(EC_ZEBRA_FPM_ENCODE_FAIL, "%s: netlink_nexthop_msg_encode failed",
 				 __func__);
 			return 0;
 		}
@@ -936,7 +935,7 @@ static int fpm_nl_enqueue(struct fpm_nl_ctx *fnc, struct zebra_dplane_ctx *ctx)
 	case DPLANE_OP_LSP_DELETE:
 		rv = netlink_lsp_msg_encoder(ctx, nl_buf, sizeof(nl_buf));
 		if (rv <= 0) {
-			zlog_err("%s: netlink_lsp_msg_encoder failed",
+			flog_err(EC_ZEBRA_FPM_ENCODE_FAIL, "%s: netlink_lsp_msg_encoder failed",
 				 __func__);
 			return 0;
 		}

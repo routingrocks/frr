@@ -34,6 +34,7 @@
 #include "nexthop_group.h"
 #include "wheel.h"
 #include "lib/jhash.h"
+#include "lib/lib_errors.h"
 #include "workqueue.h"
 #include <config.h>
 
@@ -951,7 +952,7 @@ static void bgp_per_src_nhg_nc_add(afi_t afi, struct bgp_per_src_nhg_hash_entry 
 	bool do_wt_ecmp = false;
 
 	if (!pi->attr) {
-		zlog_err("pi attr is NULL for bgp(%s) peer %p afi:%d add bnc",
+		flog_err(EC_LIB_DEVELOPMENT, "pi attr is NULL for bgp(%s) peer %p afi:%d add bnc",
 			 nhe->bgp->name_pretty, pi->peer, afi);
 		return;
 	}
@@ -1028,7 +1029,8 @@ static void bgp_per_src_nhg_nc_add(afi_t afi, struct bgp_per_src_nhg_hash_entry 
 									     select, is_parent_evpn,
 									     &api_nh);
 				if (!nh_updated) {
-					zlog_err("Unable to get ipv6 nexthop for bnc nhg %pFX(%d)(%s) peer %p afi:%d",
+					flog_err(EC_BGP_PER_SRC_NHG,
+						 "Unable to get ipv6 nexthop for bnc nhg %pFX(%d)(%s) peer %p afi:%d",
 						 &bnc->prefix, bnc->ifindex, nhe->bgp->name_pretty,
 						 pi->peer, afi);
 					bnc_nhg_free(bnc);
@@ -1088,7 +1090,7 @@ static void bgp_per_src_nhg_nc_del(afi_t afi, struct bgp_per_src_nhg_hash_entry 
 	struct bgp_nhg_nexthop_cache *bnc;
 
 	if (!pi->attr) {
-		zlog_err("pi attr is NULL for bgp(%s) peer %p afi:%d del bnc",
+		flog_err(EC_LIB_DEVELOPMENT, "pi attr is NULL for bgp(%s) peer %p afi:%d del bnc",
 			 nhe->bgp->name_pretty, pi->peer, afi);
 		return;
 	}
@@ -1130,7 +1132,8 @@ static void bgp_per_src_nhg_nc_del_nh_ll_and_global(struct bgp_per_src_nhg_hash_
 	ifindex_t ifindex;
 
 	if (!pi->attr) {
-		zlog_err("pi attr is NULL for bgp_per_src_nhg_nc_del_nh_ll_and_global");
+		flog_err(EC_LIB_DEVELOPMENT,
+			 "pi attr is NULL for bgp_per_src_nhg_nc_del_nh_ll_and_global");
 		return;
 	}
 

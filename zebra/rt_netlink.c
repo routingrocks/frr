@@ -796,10 +796,9 @@ int netlink_route_change_read_unicast_internal(struct nlmsghdr *h,
 
 	len = h->nlmsg_len - NLMSG_LENGTH(sizeof(struct rtmsg));
 	if (len < 0) {
-		zlog_err(
-			"%s: Message received from netlink is of a broken size %d %zu",
-			__func__, h->nlmsg_len,
-			(size_t)NLMSG_LENGTH(sizeof(struct rtmsg)));
+		flog_err(EC_ZEBRA_NETLINK_LENGTH_ERROR,
+			 "%s: Message received from netlink is of a broken size %d %zu", __func__,
+			 h->nlmsg_len, (size_t)NLMSG_LENGTH(sizeof(struct rtmsg)));
 		return -1;
 	}
 
@@ -899,9 +898,9 @@ int netlink_route_change_read_unicast_internal(struct nlmsghdr *h,
 	if (rtm->rtm_family == AF_INET) {
 		p.family = AF_INET;
 		if (rtm->rtm_dst_len > IPV4_MAX_BITLEN) {
-			zlog_err(
-				"Invalid destination prefix length: %u received from kernel route change",
-				rtm->rtm_dst_len);
+			flog_err(EC_ZEBRA_NETLINK_INVALID_PREFIX_LEN,
+				 "Invalid destination prefix length: %u received from kernel route change",
+				 rtm->rtm_dst_len);
 			return -1;
 		}
 		memcpy(&p.u.prefix4, dest, 4);
@@ -920,9 +919,9 @@ int netlink_route_change_read_unicast_internal(struct nlmsghdr *h,
 	} else if (rtm->rtm_family == AF_INET6) {
 		p.family = AF_INET6;
 		if (rtm->rtm_dst_len > IPV6_MAX_BITLEN) {
-			zlog_err(
-				"Invalid destination prefix length: %u received from kernel route change",
-				rtm->rtm_dst_len);
+			flog_err(EC_ZEBRA_NETLINK_INVALID_PREFIX_LEN,
+				 "Invalid destination prefix length: %u received from kernel route change",
+				 rtm->rtm_dst_len);
 			return -1;
 		}
 		memcpy(&p.u.prefix6, dest, 16);
@@ -930,9 +929,9 @@ int netlink_route_change_read_unicast_internal(struct nlmsghdr *h,
 
 		src_p.family = AF_INET6;
 		if (rtm->rtm_src_len > IPV6_MAX_BITLEN) {
-			zlog_err(
-				"Invalid source prefix length: %u received from kernel route change",
-				rtm->rtm_src_len);
+			flog_err(EC_ZEBRA_NETLINK_INVALID_PREFIX_LEN,
+				 "Invalid source prefix length: %u received from kernel route change",
+				 rtm->rtm_src_len);
 			return -1;
 		}
 		memcpy(&src_p.prefix, src, 16);
@@ -1050,9 +1049,9 @@ int netlink_route_change_read_unicast_internal(struct nlmsghdr *h,
 		}
 	} else {
 		if (ctx) {
-			zlog_err(
-				"%s: %pFX RTM_DELROUTE received but received a context as well",
-				__func__, &p);
+			flog_err(EC_ZEBRA_UNEXPECTED_MESSAGE,
+				 "%s: %pFX RTM_DELROUTE received but received a context as well",
+				 __func__, &p);
 			return 0;
 		}
 
@@ -1252,10 +1251,9 @@ int netlink_route_change(struct nlmsghdr *h, ns_id_t ns_id, int startup)
 
 	len = h->nlmsg_len - NLMSG_LENGTH(sizeof(struct rtmsg));
 	if (len < 0) {
-		zlog_err(
-			"%s: Message received from netlink is of a broken size: %d %zu",
-			__func__, h->nlmsg_len,
-			(size_t)NLMSG_LENGTH(sizeof(struct rtmsg)));
+		flog_err(EC_ZEBRA_NETLINK_LENGTH_ERROR,
+			 "%s: Message received from netlink is of a broken size: %d %zu", __func__,
+			 h->nlmsg_len, (size_t)NLMSG_LENGTH(sizeof(struct rtmsg)));
 		return -1;
 	}
 
@@ -1757,8 +1755,8 @@ static bool _netlink_route_build_singlepath(const struct prefix *p,
 			case ZEBRA_SEG6_LOCAL_ACTION_END_AM:
 			case ZEBRA_SEG6_LOCAL_ACTION_END_BPF:
 			case ZEBRA_SEG6_LOCAL_ACTION_UNSPEC:
-				zlog_err("%s: unsupport seg6local behaviour action=%u",
-					 __func__,
+				flog_err(EC_ZEBRA_SRV6_UNSUPPORTED_SEG6LOCAL,
+					 "%s: unsupport seg6local behaviour action=%u", __func__,
 					 nexthop->nh_srv6->seg6local_action);
 				return false;
 			}
@@ -3079,7 +3077,8 @@ ssize_t netlink_nexthop_msg_encode(uint16_t cmd,
 							return 0;
 						break;
 					default:
-						zlog_err("%s: unsupport seg6local behaviour action=%u",
+						flog_err(EC_ZEBRA_SRV6_UNSUPPORTED_SEG6LOCAL,
+							 "%s: unsupport seg6local behaviour action=%u",
 							 __func__, action);
 						return 0;
 					}
@@ -3978,9 +3977,9 @@ static int netlink_macfdb_change(struct nlmsghdr *h, int len, ns_id_t ns_id)
 				br_if, vid, &mac, ifp->ifindex, sticky,
 				local_inactive, dp_static);
 			if (!bmac)
-				zlog_err(
-					"Failed to add local MAC cache bridge %s vid %u mac %pEA IF %u",
-					br_if->name, vid, &mac, ifp->ifindex);
+				flog_err(EC_ZEBRA_MAC_ADD_FAILED,
+					 "Failed to add local MAC cache bridge %s vid %u mac %pEA IF %u",
+					 br_if->name, vid, &mac, ifp->ifindex);
 		}
 
 		return zebra_vxlan_local_mac_add_update(ifp, br_if, &mac, vid,
@@ -5114,10 +5113,9 @@ int netlink_neigh_change(struct nlmsghdr *h, ns_id_t ns_id)
 	/* Length validity. */
 	len = h->nlmsg_len - NLMSG_LENGTH(sizeof(struct ndmsg));
 	if (len < 0) {
-		zlog_err(
-			"%s: Message received from netlink is of a broken size %d %zu",
-			__func__, h->nlmsg_len,
-			(size_t)NLMSG_LENGTH(sizeof(struct ndmsg)));
+		flog_err(EC_ZEBRA_NETLINK_LENGTH_ERROR,
+			 "%s: Message received from netlink is of a broken size %d %zu", __func__,
+			 h->nlmsg_len, (size_t)NLMSG_LENGTH(sizeof(struct ndmsg)));
 		return -1;
 	}
 

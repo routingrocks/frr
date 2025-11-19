@@ -4618,7 +4618,8 @@ static void process_eoiu_marker(struct bgp_dest *dest)
 	struct bgp_eoiu_info *info = bgp_dest_get_bgp_eoiu_info(dest);
 
 	if (!info || !info->bgp) {
-		zlog_err("Unable to retrieve BGP instance, can't process EOIU marker");
+		flog_err(EC_BGP_INVALID_BGP_INSTANCE,
+			 "Unable to retrieve BGP instance, can't process EOIU marker");
 		return;
 	}
 
@@ -4743,7 +4744,7 @@ static int mq_add_handler(struct bgp *bgp, void *data,
 			  int (*mq_add_func)(struct meta_queue *mq, void *data))
 {
 	if (bgp->process_queue == NULL) {
-		zlog_err("%s: work_queue does not exist!", __func__);
+		flog_err(EC_LIB_DEVELOPMENT, "%s: work_queue does not exist!", __func__);
 		return -1;
 	}
 
@@ -4756,7 +4757,7 @@ static int mq_add_handler(struct bgp *bgp, void *data,
 int early_route_process(struct bgp *bgp, struct bgp_dest *dest)
 {
 	if (!dest) {
-		zlog_err("%s: early route dest is NULL!", __func__);
+		flog_err(EC_LIB_DEVELOPMENT, "%s: early route dest is NULL!", __func__);
 		return -1;
 	}
 
@@ -4766,7 +4767,7 @@ int early_route_process(struct bgp *bgp, struct bgp_dest *dest)
 int other_route_process(struct bgp *bgp, struct bgp_dest *dest)
 {
 	if (!dest) {
-		zlog_err("%s: other route dest is NULL!", __func__);
+		flog_err(EC_LIB_DEVELOPMENT, "%s: other route dest is NULL!", __func__);
 		return -1;
 	}
 
@@ -4776,7 +4777,7 @@ int other_route_process(struct bgp *bgp, struct bgp_dest *dest)
 int eoiu_marker_process(struct bgp *bgp, struct bgp_dest *dest)
 {
 	if (!dest) {
-		zlog_err("%s: eoiu marker dest is NULL!", __func__);
+		flog_err(EC_LIB_DEVELOPMENT, "%s: eoiu marker dest is NULL!", __func__);
 		return -1;
 	}
 
@@ -8354,7 +8355,7 @@ int bgp_static_set(struct vty *vty, struct bgp *bgp, bool negate, const char *ip
 			vty_out(vty, "%% Malformed prefix\n");
 			return CMD_WARNING_CONFIG_FAILED;
 		} else {
-			zlog_err("%% Malformed prefix");
+			flog_err(EC_BGP_ROUTE_ATTRIBUTE_MALFORMED, "%% Malformed prefix");
 			return -1;
 		}
 	}
@@ -8363,7 +8364,8 @@ int bgp_static_set(struct vty *vty, struct bgp *bgp, bool negate, const char *ip
 			vty_out(vty, "%% Malformed prefix (link-local address)\n");
 			return CMD_WARNING_CONFIG_FAILED;
 		} else {
-			zlog_err("%% Malformed prefix (link-local address)");
+			flog_err(EC_BGP_ROUTE_ATTRIBUTE_MALFORMED,
+				 "%% Malformed prefix (link-local address)");
 			return -1;
 		}
 	}
@@ -8377,7 +8379,8 @@ int bgp_static_set(struct vty *vty, struct bgp *bgp, bool negate, const char *ip
 			vty_out(vty, "%% L2VPN prefix could not be forged\n");
 			return CMD_WARNING_CONFIG_FAILED;
 		} else {
-			zlog_err("L2VPN prefix could not be forged");
+			flog_err(EC_BGP_ROUTE_ATTRIBUTE_MALFORMED,
+				 "L2VPN prefix could not be forged");
 			return -1;
 		}
 	}
@@ -8389,7 +8392,7 @@ int bgp_static_set(struct vty *vty, struct bgp *bgp, bool negate, const char *ip
 				vty_out(vty, "%% Malformed rd\n");
 				return CMD_WARNING_CONFIG_FAILED;
 			} else {
-				zlog_err("Malformed rd");
+				flog_err(EC_BGP_ROUTE_ATTRIBUTE_MALFORMED, "Malformed rd");
 				return -1;
 			}
 		}
@@ -8408,7 +8411,7 @@ int bgp_static_set(struct vty *vty, struct bgp *bgp, bool negate, const char *ip
 				vty_out(vty, "%% Malformed ESI\n");
 				return CMD_WARNING_CONFIG_FAILED;
 			} else {
-				zlog_err("Malformed ESI");
+				flog_err(EC_BGP_ROUTE_ATTRIBUTE_MALFORMED, "Malformed ESI");
 				return -1;
 			}
 		}
@@ -8417,7 +8420,7 @@ int bgp_static_set(struct vty *vty, struct bgp *bgp, bool negate, const char *ip
 				vty_out(vty, "%% Malformed Router MAC\n");
 				return CMD_WARNING_CONFIG_FAILED;
 			} else {
-				zlog_err("Malformed Router MAC");
+				flog_err(EC_BGP_ROUTE_ATTRIBUTE_MALFORMED, "Malformed Router MAC");
 				return -1;
 			}
 		}
@@ -8429,7 +8432,8 @@ int bgp_static_set(struct vty *vty, struct bgp *bgp, bool negate, const char *ip
 					vty_out(vty, "%% Malformed GatewayIp\n");
 					return CMD_WARNING_CONFIG_FAILED;
 				} else {
-					zlog_err("Malformed GatewayIp");
+					flog_err(EC_BGP_ROUTE_ATTRIBUTE_MALFORMED,
+						 "Malformed GatewayIp");
 					return -1;
 				}
 			}
@@ -8442,7 +8446,8 @@ int bgp_static_set(struct vty *vty, struct bgp *bgp, bool negate, const char *ip
 					vty_out(vty, "%% GatewayIp family differs with IP prefix\n");
 					return CMD_WARNING_CONFIG_FAILED;
 				} else {
-					zlog_err("GatewayIp family differs with IP prefix");
+					flog_err(EC_BGP_ROUTE_ATTRIBUTE_MALFORMED,
+						 "GatewayIp family differs with IP prefix");
 					return -1;
 				}
 			}
@@ -8470,7 +8475,8 @@ int bgp_static_set(struct vty *vty, struct bgp *bgp, bool negate, const char *ip
 				vty_out(vty, "%% Can't find static route specified\n");
 				return CMD_WARNING_CONFIG_FAILED;
 			} else {
-				zlog_err("%% Can't find static route specified");
+				flog_err(EC_BGP_ROUTE_ATTRIBUTE_MALFORMED,
+					 "%% Can't find static route specified");
 				return -1;
 			}
 		}
@@ -8482,7 +8488,8 @@ int bgp_static_set(struct vty *vty, struct bgp *bgp, bool negate, const char *ip
 				if (vty)
 					vty_out(vty, "%% label-index doesn't match static route\n");
 				else
-					zlog_err("%% label-index doesn't match static route");
+					flog_err(EC_BGP_ROUTE_ATTRIBUTE_MALFORMED,
+						 "%% label-index doesn't match static route");
 				bgp_dest_unlock_node(dest);
 				if (vty)
 					return CMD_WARNING_CONFIG_FAILED;
@@ -8496,7 +8503,8 @@ int bgp_static_set(struct vty *vty, struct bgp *bgp, bool negate, const char *ip
 					vty_out(vty,
 						"%% route-map name doesn't match static route\n");
 				else
-					zlog_err("%% route-map name doesn't match static route");
+					flog_err(EC_BGP_ROUTE_ATTRIBUTE_MALFORMED,
+						 "%% route-map name doesn't match static route");
 				bgp_dest_unlock_node(dest);
 				if (vty)
 					return CMD_WARNING_CONFIG_FAILED;
@@ -8528,7 +8536,8 @@ int bgp_static_set(struct vty *vty, struct bgp *bgp, bool negate, const char *ip
 				if (vty)
 					vty_out(vty, "%% cannot change label-index\n");
 				else
-					zlog_err("%% cannot change label-index");
+					flog_err(EC_BGP_CONFIG_CONSTRAINT_VIOLATION,
+						 "%% cannot change label-index");
 				bgp_dest_unlock_node(dest);
 				if (vty)
 					return CMD_WARNING_CONFIG_FAILED;

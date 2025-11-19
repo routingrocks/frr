@@ -2647,9 +2647,9 @@ static int zebra_vxlan_handle_vni_transition(struct zebra_vrf *zvrf, vni_t vni,
 
 		if (!found) {
 			if (IS_ZEBRA_DEBUG_VXLAN)
-				zlog_err(
-					"Adding L2-VNI - Failed to find VxLAN interface for VNI %u",
-					vni);
+				flog_err(EC_ZEBRA_UNKNOWN_INTERFACE,
+					 "Adding L2-VNI - Failed to find VxLAN interface for VNI %u",
+					 vni);
 			return -1;
 		}
 
@@ -4768,9 +4768,9 @@ int zebra_vxlan_dp_network_mac_add(struct interface *ifp,
 					       ifp->ifindex, sticky, false,
 					       dp_static);
 		if (!bmac)
-			zlog_err(
-				"Failed to add local MAC cache bridge %s vid %u mac %pEA IF %u",
-				br_if->name, vid, macaddr, ifp->ifindex);
+			flog_err(EC_ZEBRA_MAC_ADD_FAILED,
+				 "Failed to add local MAC cache bridge %s vid %u mac %pEA IF %u",
+				 br_if->name, vid, macaddr, ifp->ifindex);
 	}
 
 	return zebra_vxlan_local_mac_add_update(
@@ -5670,8 +5670,8 @@ void zebra_vxlan_flood_control(ZAPI_HANDLER_ARGS)
 	enum vxlan_flood_control flood_ctrl;
 
 	if (!EVPN_ENABLED(zvrf)) {
-		zlog_err("EVPN flood control for non-EVPN VRF %u",
-			 zvrf_id(zvrf));
+		flog_err(EC_ZEBRA_VXLAN_FLOOD_CONTROL_NON_EVPN,
+			 "EVPN flood control for non-EVPN VRF %u", zvrf_id(zvrf));
 		return;
 	}
 
