@@ -1266,9 +1266,9 @@ void nexthop_group_disable_vrf(struct vrf *vrf)
 	struct nexthop_hold *nhh;
 
 	RB_FOREACH (nhgc, nhgc_entry_head, &nhgc_entries) {
-		struct listnode *node, *nnode;
+		struct listnode *node;
 
-		for (ALL_LIST_ELEMENTS(nhgc->nhg_list, node, nnode, nhh)) {
+		for (ALL_LIST_ELEMENTS_RO(nhgc->nhg_list, node, nhh)) {
 			struct nexthop nhop;
 			struct nexthop *nh;
 
@@ -1289,10 +1289,6 @@ void nexthop_group_disable_vrf(struct vrf *vrf)
 				nhg_hooks.del_nexthop(nhgc, nh);
 
 			nexthop_free(nh);
-
-			list_delete_node(nhgc->nhg_list, node);
-
-			nhgl_delete(nhh);
 		}
 	}
 }
