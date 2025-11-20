@@ -2053,7 +2053,8 @@ static struct zebra_evpn_es_vtep *zebra_evpn_es_vtep_find(struct zebra_evpn_es *
 /* flush all the dataplane br-port info associated with the ES */
 static bool zebra_evpn_es_br_port_dplane_clear(struct zebra_evpn_es *es)
 {
-	struct ipaddr sph_filters[ES_VTEP_MAX_CNT];
+	struct in_addr sph_filters[ES_VTEP_MAX_CNT];
+	struct in6_addr sph_filters6[ES_VTEP_MAX_CNT];
 
 	if (!(es->flags & ZEBRA_EVPNES_BR_PORT))
 		return false;
@@ -2062,8 +2063,9 @@ static bool zebra_evpn_es_br_port_dplane_clear(struct zebra_evpn_es *es)
 		zlog_debug("es %s br-port dplane clear", es->esi_str);
 
 	memset(&sph_filters, 0, sizeof(sph_filters));
-	dplane_br_port_update(es->zif->ifp, false /* non_df */, 0, sph_filters,
-			      0 /* backup_nhg_id */);
+	memset(&sph_filters6, 0, sizeof(sph_filters6));
+	dplane_br_port_update(es->zif->ifp, false /* non_df */, 0, sph_filters, 0,
+			      sph_filters6 /* v6 vtep */, 0 /* backup_nhg_id */);
 	return true;
 }
 
@@ -2080,10 +2082,12 @@ static bool zebra_evpn_es_br_port_dplane_update(struct zebra_evpn_es *es,
 						const char *caller)
 {
 	uint32_t backup_nhg_id;
-	struct ipaddr sph_filters[ES_VTEP_MAX_CNT];
+	struct in_addr sph_filters[ES_VTEP_MAX_CNT];
+	struct in6_addr sph_filters6[ES_VTEP_MAX_CNT];
 	struct listnode *node = NULL;
 	struct zebra_evpn_es_vtep *es_vtep;
-	uint32_t sph_filter_cnt = 0;
+	uint32_t sph_filter_cnt4 = 0;
+	uint32_t sph_filter_cnt6 = 0;
 
 	if (!(es->flags & ZEBRA_EVPNES_LOCAL))
 		return zebra_evpn_es_br_port_dplane_clear(es);
@@ -2107,6 +2111,7 @@ static bool zebra_evpn_es_br_port_dplane_update(struct zebra_evpn_es *es,
 				es->esi_str);
 	} else {
 		if (listcount(es->es_vtep_list) > ES_VTEP_MAX_CNT) {
+			/* TODO convert it to flog */
 			zlog_warn("es %s vtep count %d exceeds filter cnt %d",
 				  es->esi_str, listcount(es->es_vtep_list),
 				  ES_VTEP_MAX_CNT);
@@ -2116,14 +2121,21 @@ static bool zebra_evpn_es_br_port_dplane_update(struct zebra_evpn_es *es,
 				if (es_vtep->flags
 				    & ZEBRA_EVPNES_VTEP_DEL_IN_PROG)
 					continue;
-				sph_filters[sph_filter_cnt] = es_vtep->vtep_ip;
-				++sph_filter_cnt;
+				if (IS_IPADDR_V4(&es_vtep->vtep_ip)) {
+					IPV4_ADDR_COPY(&sph_filters[sph_filter_cnt4],
+						       &es_vtep->vtep_ip.ipaddr_v4);
+					++sph_filter_cnt4;
+				} else if (IS_IPADDR_V6(&es_vtep->vtep_ip)) {
+					IPV6_ADDR_COPY(&sph_filters6[sph_filter_cnt6],
+						       &es_vtep->vtep_ip.ipaddr_v6);
+					++sph_filter_cnt6;
+				}
 			}
 		}
 	}
 
-	dplane_br_port_update(es->zif->ifp, !!(es->flags & ZEBRA_EVPNES_NON_DF),
-			      sph_filter_cnt, sph_filters, backup_nhg_id);
+	dplane_br_port_update(es->zif->ifp, !!(es->flags & ZEBRA_EVPNES_NON_DF), sph_filter_cnt4,
+			      sph_filters, sph_filter_cnt6, sph_filters6, backup_nhg_id);
 
 	return true;
 }

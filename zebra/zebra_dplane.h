@@ -801,7 +801,10 @@ void dplane_ctx_get_pbr_ipset_entry(const struct zebra_dplane_ctx *ctx,
 uint32_t dplane_ctx_get_br_port_flags(const struct zebra_dplane_ctx *ctx);
 uint32_t
 dplane_ctx_get_br_port_sph_filter_cnt(const struct zebra_dplane_ctx *ctx);
-const struct ipaddr *dplane_ctx_get_br_port_sph_filters(const struct zebra_dplane_ctx *ctx);
+const struct in_addr *dplane_ctx_get_br_port_sph_filters(const struct zebra_dplane_ctx *ctx);
+uint32_t
+dplane_ctx_get_br_port_sph_filter_cnt6(const struct zebra_dplane_ctx *ctx);
+const struct in6_addr *dplane_ctx_get_br_port_sph_filters6(const struct zebra_dplane_ctx *ctx);
 uint32_t
 dplane_ctx_get_br_port_backup_nhg_id(const struct zebra_dplane_ctx *ctx);
 
@@ -878,10 +881,10 @@ enum zebra_dplane_result dplane_route_notif_update(
 /*
  * Enqueue bridge port changes for the dataplane.
  */
-enum zebra_dplane_result dplane_br_port_update(const struct interface *ifp, bool non_df,
-					       uint32_t sph_filter_cnt,
-					       const struct ipaddr *sph_filters,
-					       uint32_t backup_nhg_id);
+enum zebra_dplane_result
+dplane_br_port_update(const struct interface *ifp, bool non_df, uint32_t sph_filter_cnt4,
+		      const struct in_addr *sph_filters, uint32_t sph_filter_cnt6,
+		      const struct in6_addr *sph_filters6, uint32_t backup_nhg_id);
 
 /* Forward ref of nhg_hash_entry */
 struct nhg_hash_entry;

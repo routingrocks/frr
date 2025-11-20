@@ -182,8 +182,10 @@ struct dplane_pw_info {
  * Bridge port info for the dataplane
  */
 struct dplane_br_port_info {
-	uint32_t sph_filter_cnt;
-	struct ipaddr sph_filters[ES_VTEP_MAX_CNT];
+	uint32_t sph_filter_cnt4;
+	uint32_t sph_filter_cnt6;
+	struct in_addr sph_filters[ES_VTEP_MAX_CNT];
+	struct in6_addr sph_filters6[ES_VTEP_MAX_CNT];
 	/* DPLANE_BR_PORT_XXX - see zebra_dplane.h*/
 	uint32_t flags;
 	uint32_t backup_nhg_id;
@@ -3213,14 +3215,29 @@ dplane_ctx_get_br_port_sph_filter_cnt(const struct zebra_dplane_ctx *ctx)
 {
 	DPLANE_CTX_VALID(ctx);
 
-	return ctx->u.br_port.sph_filter_cnt;
+	return ctx->u.br_port.sph_filter_cnt4;
 }
 
-const struct ipaddr *dplane_ctx_get_br_port_sph_filters(const struct zebra_dplane_ctx *ctx)
+const struct in_addr *dplane_ctx_get_br_port_sph_filters(const struct zebra_dplane_ctx *ctx)
 {
 	DPLANE_CTX_VALID(ctx);
 
 	return ctx->u.br_port.sph_filters;
+}
+
+uint32_t
+dplane_ctx_get_br_port_sph_filter_cnt6(const struct zebra_dplane_ctx *ctx)
+{
+	DPLANE_CTX_VALID(ctx);
+
+	return ctx->u.br_port.sph_filter_cnt6;
+}
+
+const struct in6_addr *dplane_ctx_get_br_port_sph_filters6(const struct zebra_dplane_ctx *ctx)
+{
+	DPLANE_CTX_VALID(ctx);
+
+	return ctx->u.br_port.sph_filters6;
 }
 
 uint32_t
@@ -5164,10 +5181,10 @@ done:
 /*
  * Enqueue access br_port update.
  */
-enum zebra_dplane_result dplane_br_port_update(const struct interface *ifp, bool non_df,
-					       uint32_t sph_filter_cnt,
-					       const struct ipaddr *sph_filters,
-					       uint32_t backup_nhg_id)
+enum zebra_dplane_result
+dplane_br_port_update(const struct interface *ifp, bool non_df, uint32_t sph_filter_cnt4,
+		      const struct in_addr *sph_filters, uint32_t sph_filter_cnt6,
+		      const struct in6_addr *sph_filters6, uint32_t backup_nhg_id)
 {
 	enum zebra_dplane_result result = ZEBRA_DPLANE_REQUEST_FAILURE;
 	uint32_t flags = 0;
@@ -5181,17 +5198,20 @@ enum zebra_dplane_result dplane_br_port_update(const struct interface *ifp, bool
 
 	if (IS_ZEBRA_DEBUG_DPLANE_DETAIL || IS_ZEBRA_DEBUG_EVPN_MH_ES) {
 		uint32_t i;
-		char vtep_str[ES_VTEP_LIST_STR_SZ];
-
-		vtep_str[0] = '\0';
-		for (i = 0; i < sph_filter_cnt; ++i) {
+		char vtep_str[ES_VTEP_LIST_STR_SZ] = {0};
+		char vtep_str6[ES_VTEP_LIST_STR_SZ] = {0};
+		for (i = 0; i < sph_filter_cnt4; ++i) {
 			snprintfrr(vtep_str + strlen(vtep_str), sizeof(vtep_str) - strlen(vtep_str),
-				   "%pIA ", &sph_filters[i]);
+				   "%pI4 ", &sph_filters[i]);
+		}
+		for (i = 0; i < sph_filter_cnt6; ++i) {
+			snprintfrr(vtep_str6 + strlen(vtep_str6),
+				   sizeof(vtep_str6) - strlen(vtep_str6), "%pI6 ", &sph_filters6[i]);
 		}
 		zlog_debug(
-			"init br_port ctx %s: ifp %s, flags 0x%x backup_nhg 0x%x sph %s",
+			"init br_port ctx %s: ifp %s, flags 0x%x backup_nhg 0x%x sph %s sphv6 %s",
 			dplane_op2str(op), ifp->name, flags, backup_nhg_id,
-			vtep_str);
+			vtep_str, vtep_str6);
 	}
 
 	ctx = dplane_ctx_alloc();
@@ -5211,9 +5231,14 @@ enum zebra_dplane_result dplane_br_port_update(const struct interface *ifp, bool
 
 	ctx->u.br_port.flags = flags;
 	ctx->u.br_port.backup_nhg_id = backup_nhg_id;
-	ctx->u.br_port.sph_filter_cnt = sph_filter_cnt;
-	memcpy(ctx->u.br_port.sph_filters, sph_filters,
-	       sizeof(ctx->u.br_port.sph_filters[0]) * sph_filter_cnt);
+	ctx->u.br_port.sph_filter_cnt4 = sph_filter_cnt4;
+	ctx->u.br_port.sph_filter_cnt6 = sph_filter_cnt6;
+	if (sph_filter_cnt4)
+		memcpy(ctx->u.br_port.sph_filters, sph_filters,
+		       sizeof(ctx->u.br_port.sph_filters[0]) * sph_filter_cnt4);
+	else if (sph_filter_cnt6)
+		memcpy(ctx->u.br_port.sph_filters6, sph_filters6,
+		       sizeof(ctx->u.br_port.sph_filters6[0]) * sph_filter_cnt6);
 
 	/* Enqueue for processing on the dplane pthread */
 	ret = dplane_update_enqueue(ctx);
