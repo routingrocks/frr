@@ -12731,6 +12731,147 @@ DEFUN(show_bgp_martian_nexthop_db, show_bgp_martian_nexthop_db_cmd,
 	return CMD_SUCCESS;
 }
 
+DEFPY(show_bgp_interface, show_bgp_interface_cmd,
+      "show bgp interface [IFNAME$ifname] [vrf VRFNAME$vrf_name] [detail$detail] [json$json]",
+      SHOW_STR BGP_STR "BGP cached interface information\n"
+		       "Interface name\n" VRF_CMD_HELP_STR
+		       "Detailed interface information\n" JSON_STR)
+{
+	struct vrf *vrf = NULL;
+	struct interface *ifp;
+	struct connected *connected;
+	json_object *json_obj = NULL;
+	json_object *json_vrf = NULL;
+	json_object *json_if = NULL;
+	json_object *json_addrs = NULL;
+	bool uj = !!json;
+	char buf[PREFIX2STR_BUFFER];
+	int if_count = 0;
+
+	if (uj)
+		json_obj = json_object_new_object();
+
+	/* Iterate through VRFs */
+	RB_FOREACH (vrf, vrf_name_head, &vrfs_by_name) {
+		if (vrf_name && strcmp(vrf->name, vrf_name) != 0)
+			continue;
+
+		if (uj) {
+			json_vrf = json_object_new_object();
+		} else {
+			if (vrf->vrf_id != VRF_DEFAULT)
+				vty_out(vty, "\nVRF: %s\n", vrf->name);
+			else
+				vty_out(vty, "\nVRF: default\n");
+		}
+
+		/* Iterate through interfaces */
+		FOR_ALL_INTERFACES (vrf, ifp) {
+			struct bgp_interface *iifp = ifp->info;
+			struct listnode *addr_node;
+			struct prefix *cached_pfx;
+
+			/* Skip if specific interface requested and this isn't it */
+			if (ifname && strcmp(ifp->name, ifname) != 0)
+				continue;
+
+			if_count++;
+
+			if (uj) {
+				json_if = json_object_new_object();
+				json_object_int_add(json_if, "ifindex", ifp->ifindex);
+				json_object_int_add(json_if, "mtu", ifp->mtu);
+				json_object_int_add(json_if, "metric", ifp->metric);
+				json_object_string_add(json_if, "adminStatus",
+						       if_is_up(ifp) ? "up" : "down");
+				json_object_string_add(json_if, "operStatus",
+						       (ifp->flags & IFF_RUNNING) ? "up" : "down");
+
+				if (detail && ifp->desc)
+					json_object_string_add(json_if, "description", ifp->desc);
+
+				/* Add current addresses */
+				json_addrs = json_object_new_array();
+				frr_each (if_connected, ifp->connected, connected) {
+					json_object *json_addr = json_object_new_object();
+					prefix2str(connected->address, buf, sizeof(buf));
+					json_object_string_add(json_addr, "address", buf);
+					if (connected->label)
+						json_object_string_add(json_addr, "label",
+								       connected->label);
+					json_object_array_add(json_addrs, json_addr);
+				}
+				json_object_object_add(json_if, "addresses", json_addrs);
+
+				/* Add cached addresses (when interface is down) */
+				if (detail && iifp && iifp->cached_addresses &&
+				    listcount(iifp->cached_addresses) > 0) {
+					json_object *json_cached = json_object_new_array();
+					for (ALL_LIST_ELEMENTS_RO(iifp->cached_addresses, addr_node,
+								  cached_pfx)) {
+						prefix2str(cached_pfx, buf, sizeof(buf));
+						json_object_array_add(json_cached,
+								      json_object_new_string(buf));
+					}
+					json_object_object_add(json_if, "cachedAddresses",
+							       json_cached);
+				}
+
+				json_object_object_add(json_vrf, ifp->name, json_if);
+			} else {
+				/* Text output */
+				vty_out(vty, "  Interface %s is %s, line protocol is %s\n",
+					ifp->name, if_is_up(ifp) ? "up" : "down",
+					(ifp->flags & IFF_RUNNING) ? "up" : "down");
+				vty_out(vty, "    ifindex %u  metric %u  mtu %u\n", ifp->ifindex,
+					ifp->metric, ifp->mtu);
+
+				if (detail && ifp->desc)
+					vty_out(vty, "    Description: %s\n", ifp->desc);
+
+				/* Show current addresses */
+				frr_each (if_connected, ifp->connected, connected) {
+					prefix2str(connected->address, buf, sizeof(buf));
+					vty_out(vty, "    %s", buf);
+					if (connected->label)
+						vty_out(vty, " (%s)", connected->label);
+					if (CHECK_FLAG(connected->flags, ZEBRA_IFA_SECONDARY))
+						vty_out(vty, " secondary");
+					vty_out(vty, "\n");
+				}
+
+				/* Show cached addresses (when interface is down) */
+				if (detail && iifp && iifp->cached_addresses &&
+				    listcount(iifp->cached_addresses) > 0) {
+					vty_out(vty,
+						"    Cached addresses (for unreachability tracking):\n");
+					for (ALL_LIST_ELEMENTS_RO(iifp->cached_addresses, addr_node,
+								  cached_pfx)) {
+						prefix2str(cached_pfx, buf, sizeof(buf));
+						vty_out(vty, "      %s (cached)\n", buf);
+					}
+				}
+			}
+		}
+
+		if (uj) {
+			json_object_object_add(json_obj, vrf->name, json_vrf);
+		}
+	}
+
+	if (uj) {
+		vty_json(vty, json_obj);
+	} else {
+		if (ifname && if_count == 0) {
+			vty_out(vty, "%% Interface %s not found\n", ifname);
+		} else if (!ifname) {
+			vty_out(vty, "\nTotal interfaces: %d\n", if_count);
+		}
+	}
+
+	return CMD_SUCCESS;
+}
+
 DEFPY(show_bgp_redistribute,
       show_bgp_redistribute_cmd,
       "show bgp <view|vrf> VIEWVRFNAME <ipv4|ipv6> unicast redistribute [json]",
@@ -23582,6 +23723,8 @@ void bgp_vty_init(void)
 	install_element(VIEW_NODE, &show_ip_bgp_attr_info_cmd);
 	/* "show [ip] bgp route-leak" command */
 	install_element(VIEW_NODE, &show_ip_bgp_route_leak_cmd);
+	/* "show bgp interface" command - display BGP's cached interface info */
+	install_element(VIEW_NODE, &show_bgp_interface_cmd);
 
 	/* "redistribute" commands.  */
 	install_element(BGP_NODE, &bgp_redistribute_ipv4_hidden_cmd);
