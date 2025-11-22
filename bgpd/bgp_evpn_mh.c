@@ -772,9 +772,9 @@ int bgp_evpn_type4_route_process(struct peer *peer, afi_t afi, safi_t safi,
 {
 	esi_t esi;
 	uint8_t ipaddr_len;
-	struct ipaddr vtep_ip;
+	struct ipaddr vtep_ip = {};
 	struct prefix_rd prd;
-	struct prefix_evpn p;
+	struct prefix_evpn p = {};
 
 	/* Type-4 route should be either 23 or 35 bytes
 	 *  RD (8), ESI (10), ip-len (1), ip (4 or 16)
@@ -805,7 +805,7 @@ int bgp_evpn_type4_route_process(struct peer *peer, afi_t afi, safi_t safi,
 		memcpy(&vtep_ip.ipaddr_v4, pfx, IPV4_MAX_BYTELEN);
 	} else if (ipaddr_len == IPV6_MAX_BITLEN) {
 		SET_IPADDR_V6(&vtep_ip);
-		IPV6_ADDR_COPY(&vtep_ip.ipaddr_v6, pfx);
+        IPV6_ADDR_COPY(&vtep_ip.ipaddr_v6, (struct in6_addr *)pfx);
 	} else {
 		flog_err(
 				EC_BGP_EVPN_ROUTE_INVALID,
