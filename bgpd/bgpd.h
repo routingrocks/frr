@@ -1086,6 +1086,12 @@ struct bgp_interface {
 /* L3VPN multi domain switching */
 #define BGP_INTERFACE_MPLS_L3VPN_SWITCHING (1 << 1)
 	uint32_t flags;
+
+	/* Cached interface addresses for unreachability NLRI generation
+	 * When interface goes down, addresses are cached here so we can
+	 * generate unreachability info for the prefixes
+	 */
+	struct list *cached_addresses; /* list of struct prefix */
 };
 
 DECLARE_HOOK(bgp_inst_delete, (struct bgp *bgp), (bgp));

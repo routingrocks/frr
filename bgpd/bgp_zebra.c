@@ -217,6 +217,7 @@ static int bgp_ifp_up(struct interface *ifp)
 	struct nbr_connected *nc;
 	struct listnode *node, *nnode;
 	struct bgp *bgp;
+	struct bgp_interface *iifp;
 
 	bgp = ifp->vrf->info;
 
@@ -225,6 +226,28 @@ static int bgp_ifp_up(struct interface *ifp)
 	frrtrace(2, frr_bgp, bgp_ifp_oper, ifp, 1);
 	if (BGP_DEBUG(zebra, ZEBRA))
 		zlog_debug("Rx Intf up VRF %s IF %s", ifp->vrf->name, ifp->name);
+
+	/* Withdraw unreachability NLRI and clear cached addresses when interface comes back up
+	 * Interface is now operational - no longer need unreachability tracking
+	 */
+	iifp = ifp->info;
+	if (iifp && iifp->cached_addresses && listcount(iifp->cached_addresses) > 0) {
+		struct listnode *addr_node;
+		struct prefix *cached_pfx;
+
+		if (BGP_DEBUG(zebra, ZEBRA))
+			zlog_debug("  Withdrawing unreachability and clearing %d cached addresses on %s (interface up)",
+				   listcount(iifp->cached_addresses), ifp->name);
+
+		/* Withdraw unreachability NLRI for each cached address */
+		for (ALL_LIST_ELEMENTS_RO(iifp->cached_addresses, addr_node, cached_pfx)) {
+			if (bgp)
+				bgp_unreach_zebra_announce(bgp, ifp, cached_pfx, true);
+		}
+
+		/* Clear the cache */
+		list_delete_all_node(iifp->cached_addresses);
+	}
 
 	if (!bgp)
 		return 0;
@@ -251,6 +274,7 @@ static int bgp_ifp_down(struct interface *ifp)
 	struct listnode *node, *nnode;
 	struct bgp *bgp;
 	struct peer *peer;
+	struct bgp_interface *iifp;
 
 	bgp = ifp->vrf->info;
 
@@ -264,11 +288,46 @@ static int bgp_ifp_down(struct interface *ifp)
 	if (!bgp)
 		return 0;
 
-	frr_each (if_connected, ifp->connected, c) {
-		if (c->address)
-			bgp_unreach_zebra_announce(bgp, ifp, c->address, false);
-		bgp_connected_delete(bgp, c);
+	/* Cache interface addresses BEFORE deleting them AND generate unreachability NLRI.
+	 * ONLY if interface is going operationally down AND has IP addresses.
+	 * Cache is used to replay unreachability state when SAFI_UNREACH is enabled later.
+	 */
+	iifp = ifp->info;
+	if (iifp && iifp->cached_addresses) {
+		bool has_addresses = false;
+
+		/* Cache current addresses AND generate unreachability NLRI */
+		frr_each (if_connected, ifp->connected, c) {
+			if (c->address) {
+				if (!has_addresses) {
+					/* First address found - clear old cache */
+					list_delete_all_node(iifp->cached_addresses);
+					has_addresses = true;
+				}
+
+				/* Cache for later replay */
+				struct prefix *pfx = prefix_new();
+				prefix_copy(pfx, c->address);
+				listnode_add(iifp->cached_addresses, pfx);
+
+				/* Generate unreachability NLRI immediately */
+				bgp_unreach_zebra_announce(bgp, ifp, c->address, false);
+
+				if (BGP_DEBUG(zebra, ZEBRA))
+					zlog_debug("  Cached address %pFX on %s for unreachability tracking (interface down)",
+						   pfx, ifp->name);
+			}
+		}
+	} else {
+		/* No cache structure, but still generate unreachability NLRI */
+		frr_each (if_connected, ifp->connected, c) {
+			if (c->address)
+				bgp_unreach_zebra_announce(bgp, ifp, c->address, false);
+		}
 	}
+
+	frr_each (if_connected, ifp->connected, c)
+		bgp_connected_delete(bgp, c);
 
 	for (ALL_LIST_ELEMENTS(ifp->nbr_connected, node, nnode, nc))
 		bgp_nbr_connected_delete(bgp, nc, 1);
@@ -3483,11 +3542,38 @@ static int bgp_ifp_create(struct interface *ifp)
 	if (!bgp)
 		return 0;
 
+	/* If interface is not operative during creation (already down at startup),
+	 * generate unreachability NLRI AND cache addresses for later replay
+	 */
 	if (!if_is_operative(ifp)) {
-		frr_each (if_connected, ifp->connected, c) {
-			if (c->address)
-				bgp_unreach_zebra_announce(bgp, ifp, c->address,
-							   false);
+		struct bgp_interface *iifp = ifp->info;
+
+		if (iifp && iifp->cached_addresses) {
+			/* Clear any old cache */
+			list_delete_all_node(iifp->cached_addresses);
+
+			/* Cache addresses and generate unreachability */
+			frr_each (if_connected, ifp->connected, c) {
+				if (c->address) {
+					/* Cache for SAFI disable/enable replay */
+					struct prefix *pfx = prefix_new();
+					prefix_copy(pfx, c->address);
+					listnode_add(iifp->cached_addresses, pfx);
+
+					/* Generate unreachability NLRI */
+					bgp_unreach_zebra_announce(bgp, ifp, c->address, false);
+
+					if (BGP_DEBUG(zebra, ZEBRA))
+						zlog_debug("  Cached address %pFX on %s (interface already down at startup)",
+							   pfx, ifp->name);
+				}
+			}
+		} else {
+			/* No cache structure, but still generate unreachability */
+			frr_each (if_connected, ifp->connected, c) {
+				if (c->address)
+					bgp_unreach_zebra_announce(bgp, ifp, c->address, false);
+			}
 		}
 	}
 
@@ -3721,6 +3807,7 @@ static int bgp_if_new_hook(struct interface *ifp)
 	if (ifp->info)
 		return 0;
 	iifp = XCALLOC(MTYPE_BGP_IF_INFO, sizeof(struct bgp_interface));
+	iifp->cached_addresses = list_new();
 	ifp->info = iifp;
 
 	return 0;
@@ -3728,6 +3815,11 @@ static int bgp_if_new_hook(struct interface *ifp)
 
 static int bgp_if_delete_hook(struct interface *ifp)
 {
+	struct bgp_interface *iifp = ifp->info;
+
+	if (iifp && iifp->cached_addresses) {
+		list_delete(&iifp->cached_addresses);
+	}
 	XFREE(MTYPE_BGP_IF_INFO, ifp->info);
 	return 0;
 }
