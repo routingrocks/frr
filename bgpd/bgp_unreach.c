@@ -26,6 +26,8 @@
 #include "bgpd/bgp_aspath.h"
 #include "bgpd/bgp_advertise.h"
 #include "bgpd/bgp_updgrp.h"
+#include "bgpd/bgp_ecommunity.h"
+#include "bgpd/bgp_conditional_disagg.h"
 
 DEFINE_MTYPE_STATIC(BGPD, BGP_UNREACH_INFO, "BGP Unreachability Information");
 
@@ -958,7 +960,9 @@ void bgp_unreach_show(struct vty *vty, struct bgp *bgp, afi_t afi, struct prefix
 		/* Summary view */
 		if (!use_json) {
 			/* Print table header with status code legends (same as ipv4 unicast) */
-			vty_out(vty, "BGP table version is %u, local router ID is %pI4, vrf id %u\n",
+			vty_out(vty,
+				"BGP table version is %" PRIu64
+				", local router ID is %pI4, vrf id %u\n",
 				table->version, &bgp->router_id, bgp->vrf_id);
 			vty_out(vty, "Default local pref %u, local AS %u\n",
 				bgp->default_local_pref, bgp->as);
@@ -1244,7 +1248,7 @@ void bgp_unreach_show(struct vty *vty, struct bgp *bgp, afi_t afi, struct prefix
 						vty_out(vty, " ");
 
 					/* Print route line with columns:
-					 * Network, Metric, LocPrf, Weight, Reason, Reporter, Path 
+					 * Network, Metric, LocPrf, Weight, Reason, Reporter, Path
 					 * Use different widths for IPv4 vs IPv6 (Network column only)
 					 * Only show prefix for first path, blanks for subsequent paths */
 					const char *prefix_display =
@@ -1368,6 +1372,35 @@ void bgp_unreach_show(struct vty *vty, struct bgp *bgp, afi_t afi, struct prefix
 	}
 }
 
+static bool bgp_prefix_covered_by_aggregate(struct bgp *bgp, afi_t afi, const struct prefix *p)
+{
+	struct bgp_table *table;
+	struct bgp_dest *dest, *child;
+	struct bgp_aggregate *aggregate;
+
+	table = bgp->aggregate[afi][SAFI_UNICAST];
+	if (bgp_table_top_nolock(table) == NULL)
+		return false;
+
+	if (p->prefixlen == 0)
+		return false;
+
+	child = bgp_node_get(table, p);
+
+	for (dest = child; dest; dest = bgp_dest_parent_nolock(dest)) {
+		const struct prefix *dest_p = bgp_dest_get_prefix(dest);
+
+		aggregate = bgp_dest_get_bgp_aggregate_info(dest);
+		if (aggregate != NULL && dest_p->prefixlen < p->prefixlen) {
+			bgp_dest_unlock_node(child);
+			return true;
+		}
+	}
+
+	bgp_dest_unlock_node(child);
+	return false;
+}
+
 void bgp_unreach_zebra_announce(struct bgp *bgp, struct interface *ifp,
 				struct prefix *prefix, bool withdraw)
 {
@@ -1377,20 +1410,37 @@ void bgp_unreach_zebra_announce(struct bgp *bgp, struct interface *ifp,
 	if (!bgp || !ifp || !prefix)
 		return;
 
-	if (prefix->family == AF_INET)
+	if (prefix->family == AF_INET) {
 		afi = AFI_IP;
-	else if (prefix->family == AF_INET6)
+	} else if (prefix->family == AF_INET6) {
 		afi = AFI_IP6;
-	else
+		/* Skip link-local addresses - not routable */
+		if (IN6_IS_ADDR_LINKLOCAL(&prefix->u.prefix6)) {
+			if (BGP_DEBUG(zebra, ZEBRA))
+				zlog_debug("Skip link-local %pFX on %s", prefix, ifp->name);
+			return;
+		}
+	} else {
 		return;
+	}
+
+	if (BGP_DEBUG(zebra, ZEBRA))
+		zlog_debug("Processing %s %pFX on %s (withdraw=%d)",
+			   afi == AFI_IP ? "IPv4" : "IPv6", prefix, ifp->name, withdraw);
 
 	if (withdraw) {
 		bgp_unreach_info_delete(bgp, afi, prefix);
 
 		if (BGP_DEBUG(zebra, ZEBRA))
-			zlog_debug("Removed unreachability for %pFX on %s",
-				   prefix, ifp->name);
+			zlog_debug("Withdraw unreachability for %pFX on %s", prefix, ifp->name);
 	} else {
+		if (!bgp_prefix_covered_by_aggregate(bgp, afi, prefix)) {
+			if (BGP_DEBUG(zebra, ZEBRA))
+				zlog_debug("Skip unreachability for %pFX on %s - no covering aggregate",
+					   prefix, ifp->name);
+			return;
+		}
+
 		memset(&unreach, 0, sizeof(unreach));
 		prefix_copy(&unreach.prefix, prefix);
 
