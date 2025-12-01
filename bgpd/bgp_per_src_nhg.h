@@ -132,7 +132,8 @@ void bgp_process_route_soo_attr_change(struct bgp *bgp, afi_t afi, safi_t safi,
 				       struct attr *new_attr);
 void bgp_process_mpath_route_soo_attr(struct bgp *bgp, afi_t afi, safi_t safi, struct bgp_dest *dest,
 				      struct bgp_path_info *new_best, bool is_add);
-void bgp_per_src_nhg_handle_soo_addr_update(struct bgp *bgp, const struct in_addr *new_soo_addr);
+void bgp_per_src_nhg_handle_soo_addr_update(struct bgp *bgp, const struct in_addr *new_soo_addr,
+					    bool is_router_id_change);
 void bgp_per_src_nhg_upd_msg_check(struct bgp *bgp, afi_t afi, safi_t safi, struct bgp_dest *dest);
 void bgp_peer_clear_soo_routes(struct peer *peer, afi_t afi, safi_t safi, struct bgp_table *table);
 /* Utils */

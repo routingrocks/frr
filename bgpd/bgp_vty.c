@@ -4096,7 +4096,7 @@ DEFUN(bgp_soo_source, bgp_soo_source_cmd, "bgp soo-source A.B.C.D",
 	bgp->soo_source_ip_set = true;
 
 	/* Update the SOO value with the new source IP */
-	bgp_per_src_nhg_handle_soo_addr_update(bgp, &soo_ip);
+	bgp_per_src_nhg_handle_soo_addr_update(bgp, &soo_ip, false);
 
 	/* Trigger route advertisements to all peers only if advertise-origin is
 	 * set */
@@ -4134,7 +4134,7 @@ DEFUN(no_bgp_soo_source, no_bgp_soo_source_cmd, "no bgp soo-source [A.B.C.D]",
 	bgp->soo_source_ip_set = false;
 
 	/* Update the SOO value with the router ID */
-	bgp_per_src_nhg_handle_soo_addr_update(bgp, &bgp->router_id);
+	bgp_per_src_nhg_handle_soo_addr_update(bgp, &bgp->router_id, false);
 
 	/* Trigger route advertisements to all peers only if advertise-origin is
 	 * set */

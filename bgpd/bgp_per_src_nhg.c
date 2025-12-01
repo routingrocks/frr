@@ -1902,7 +1902,8 @@ void bgp_peer_clear_soo_routes(struct peer *peer, afi_t afi, safi_t safi, struct
 }
 
 /* Check and send if a new 'SOO route' up on router ID change*/
-void bgp_per_src_nhg_handle_soo_addr_update(struct bgp *bgp, const struct in_addr *new_soo_addr)
+void bgp_per_src_nhg_handle_soo_addr_update(struct bgp *bgp, const struct in_addr *new_soo_addr,
+					    bool is_router_id_change)
 {
 	char soo[INET_ADDRSTRLEN + 6];
 	struct ecommunity *ecomm_soo;
@@ -1931,11 +1932,11 @@ void bgp_per_src_nhg_handle_soo_addr_update(struct bgp *bgp, const struct in_add
 	*/
 
 	/* do not update soo source ip if bgp->soo_source_ip_set is true
-	 and if new soo ip is same as router id */
-	if (bgp->soo_source_ip_set && IPV4_ADDR_SAME(&bgp->router_id, new_soo_addr)) {
-	    if (BGP_DEBUG(per_src_nhg, PER_SRC_NHG)) {
-	        zlog_debug("%s: bgp per src nhg ignore router id update soo %pI4, new router id %pI4",
-			   __func__, &prev_soo_addr, new_soo_addr);
+	 and is_router_id_change is true */
+	if (bgp->soo_source_ip_set && is_router_id_change) {
+		if (BGP_DEBUG(per_src_nhg, PER_SRC_NHG)) {
+			zlog_debug("%s: bgp per src nhg ignore router id update soo %pI4, new router id %pI4",
+				   __func__, &prev_soo_addr, new_soo_addr);
 		}
 		return;
 	}
