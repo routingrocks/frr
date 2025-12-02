@@ -713,6 +713,11 @@ struct bgp {
 /* Prohibit BGP from enabling IPv6 RA on interfaces */
 #define BGP_FLAG_IPV6_NO_AUTO_RA (1ULL << 40)
 
+/* Use current (imported) path's attributes instead of source path's attributes
+ * for bestpath comparison of imported paths.
+ */
+#define BGP_FLAG_BESTPATH_USE_IMPORTED_ATTRS (1ULL << 45)
+
 	/* BGP default address-families.
 	 * New peers inherit enabled afi/safis from bgp instance.
 	 */
