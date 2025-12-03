@@ -10,7 +10,9 @@ man8 += $(MANBUILD)/frr-bfdd.8
 endif
 
 if BFDD_DPLANE_SERVER
+if MLXSDK_LIBS_BUILT_INSTALLED
 module_LTLIBRARIES += bfdd/bfd_dplane_server_plugin.la
+endif
 endif
 
 MLX_LIBS_TXT    = $(wildcard $(TOPDIR)/usr/lib/libsx*.so \

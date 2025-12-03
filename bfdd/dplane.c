@@ -357,12 +357,14 @@ bfd_dplane_session_state_change(struct bfd_dplane_ctx *bdc,
 	bs->remote_timers.required_min_rx = ntohl(state->required_rx);
 	bs->remote_timers.required_min_echo = ntohl(state->required_echo_rx);
 
-	/* Notify and update counters. */
-	control_notify(bs, bs->ses_state);
-
 	/* No state change. */
 	if (old_state == bs->ses_state)
 		return;
+
+	if (bs->remote_diag != BD_ADMIN_DOWN) // && old_state == PTM_BFD_UP)
+		control_notify(bs, bs->ses_state);
+	else
+		control_notify(bs, PTM_BFD_ADM_DOWN);
 
 	switch (bs->ses_state) {
 	case PTM_BFD_ADM_DOWN:
@@ -964,6 +966,8 @@ static void bfd_dplane_client_connect(struct event *t)
 		/* Otherwise just start accepting data. */
 		_bfd_dplane_client_bootstrap(bdc);
 	}
+	//Cherry-pick this change https://github.com/FRRouting/frr/commit/f5115307888dc8ca4b6369d1b705686d3c689d23
+	return;
 
 reschedule_connect:
 	EVENT_OFF(bdc->inbufev);

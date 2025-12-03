@@ -36,7 +36,9 @@ DEFINE_MTYPE(BFDD, BFDD_NOTIFICATION, "control notification data");
 struct event_loop *master;
 
 /* BFDd privileges */
-static zebra_capabilities_t _caps_p[] = {ZCAP_BIND, ZCAP_SYS_ADMIN, ZCAP_NET_RAW};
+static zebra_capabilities_t _caps_p[] = {    ZCAP_NET_ADMIN, ZCAP_SYS_ADMIN, ZCAP_NET_RAW, ZCAP_IPC_LOCK, ZCAP_SYS_RAWIO, ZCAP_BIND, ZCAP_SETID, ZCAP_CHROOT, ZCAP_NICE, ZCAP_PTRACE, ZCAP_DAC_OVERRIDE, ZCAP_READ_SEARCH, ZCAP_FOWNER,};
+
+static zebra_capabilities_t _caps_i[] = {    ZCAP_NET_ADMIN, ZCAP_SYS_ADMIN, ZCAP_NET_RAW, ZCAP_IPC_LOCK, ZCAP_SYS_RAWIO, ZCAP_BIND, ZCAP_SETID, ZCAP_CHROOT, ZCAP_NICE, ZCAP_PTRACE, ZCAP_DAC_OVERRIDE, ZCAP_READ_SEARCH, ZCAP_FOWNER,};
 
 /* BFD daemon information. */
 static struct frr_daemon_info bfdd_di;
@@ -169,6 +171,36 @@ const struct bfd_state_str_list state_list[] = {
 	{.str = "up", .type = PTM_BFD_UP},
 	{.str = NULL},
 };
+
+/**
+ * Check if this is a hardware platform (not VX/virtual).
+ * 
+ * @return true if hardware platform, false if virtual platform
+ */
+static bool
+is_hardware_platform(void)
+{
+	FILE *fp;
+	char result[128];
+	bool is_hardware = true;
+
+	/* Run platform-detect and check for 'vx' in output */
+	fp = popen("/usr/bin/platform-detect 2>/dev/null | grep vx", "r");
+	if (fp == NULL) {
+		/* If platform-detect doesn't exist, assume hardware platform */
+		return true;
+	}
+
+	/* If grep finds 'vx', fgets will return non-NULL (virtual platform) */
+	if (fgets(result, sizeof(result), fp) != NULL) {
+		/* Found 'vx' in output - this is a virtual platform */
+		is_hardware = false;
+		zlog_info("Virtual platform detected: %s", result);
+	}
+
+	pclose(fp);
+	return is_hardware;
+}
 
 static uint16_t
 parse_port(const char *str)
@@ -320,7 +352,8 @@ static void bg_init(void)
 #endif
 		.caps_p = _caps_p,
 		.cap_num_p = array_size(_caps_p),
-		.cap_num_i = 0,
+		.caps_i = _caps_i,
+		.cap_num_i = array_size(_caps_i),
 	};
 
 	TAILQ_INIT(&bglobal.bg_bcslist);
@@ -337,6 +370,7 @@ int main(int argc, char *argv[])
 	int opt;
 
 	bglobal.bg_use_dplane = false;
+	bool dplaneaddr_configured = false;
 
 	/* Initialize system sockets. */
 	bg_init();
@@ -358,7 +392,7 @@ int main(int argc, char *argv[])
 			break;
 		case OPTION_DPLANEADDR:
 			strlcpy(dplane_addr, optarg, sizeof(dplane_addr));
-			bglobal.bg_use_dplane = true;
+			dplaneaddr_configured = true;
 			break;
 
 		default:
@@ -395,8 +429,17 @@ int main(int argc, char *argv[])
 	frr_config_fork();
 
 	/* Initialize BFD data plane listening socket. */
-	if (bglobal.bg_use_dplane)
-		distributed_bfd_init(dplane_addr);
+	if (dplaneaddr_configured) {
+		/* Check if this is a hardware platform before initializing data plane */
+		if (!is_hardware_platform()) {
+			zlog_err("BFD data plane is only supported on hardware platforms, not on virtual/VX platforms");
+			fprintf(stderr, "Error: BFD data plane (--dplaneaddr) is only supported on hardware platforms.\n");
+			fprintf(stderr, "       Virtual/VX platforms detected. Data plane will not be initialized.\n");
+			/* Don't exit - just skip data plane initialization */
+		} else {
+			distributed_bfd_init(dplane_addr);
+		}
+	}
 
 	frr_run(master);
 	/* NOTREACHED */

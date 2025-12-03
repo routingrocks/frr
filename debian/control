@@ -57,7 +57,7 @@ Depends: iproute2,
          ${misc:Depends},
          ${shlibs:Depends}
 Pre-Depends: adduser
-Recommends: frr-pythontools
+Recommends: frr-pythontools, sx-sdk-eth [amd64]
 Suggests: frr-doc
 Conflicts: pimd,
            quagga,
