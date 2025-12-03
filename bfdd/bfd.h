@@ -310,6 +310,9 @@ struct bfd_session {
 	/* BFD session flags */
 	enum bfd_session_flags flags;
 
+	/* Offload status: true if session is offloaded to hardware/dataplane */
+	bool offloaded;
+
 	struct bfd_session_stats stats;
 
 	struct timeval uptime;   /* last up time */

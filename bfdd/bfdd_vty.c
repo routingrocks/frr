@@ -53,6 +53,11 @@ static void _display_peer_counter_json_iter(struct hash_bucket *hb, void *arg);
 static void _display_peers_counter(struct vty *vty, char *vrfname, bool use_json);
 static void _display_rtt(uint32_t *min, uint32_t *avg, uint32_t *max,
 			 struct bfd_session *bs);
+static void bfd_migrate_session_to_dplane(struct bfd_session *bs);
+static void bfd_migrate_session_to_control_plane(struct bfd_session *bs);
+static void bfd_migrate_all_sessions_to_dplane(void);
+static void bfd_migrate_all_sessions_to_control_plane(void);
+
 
 static struct bfd_session *
 _find_peer_or_error(struct vty *vty, int argc, struct cmd_token **argv,
@@ -143,6 +148,8 @@ static void _display_peer(struct vty *vty, struct bfd_session *bs)
 		CHECK_FLAG(bs->flags, BFD_SESS_FLAG_CONFIG) ? "configured" : "dynamic");
 	if (bs->profile_name)
 		vty_out(vty, "\t\tProfile: %s\n", bs->profile_name);
+	vty_out(vty, "\t\tOffload Status: %s\n",
+		bs->offloaded ? "offloaded" : "control-plane");
 	_display_rtt(&min, &avg, &max, bs);
 	vty_out(vty, "\t\tRTT min/avg/max: %u/%u/%u usec\n", min, avg, max);
 
@@ -258,6 +265,8 @@ static struct json_object *__display_peer_json(struct bfd_session *bs)
 
 	if (bs->profile_name)
 		json_object_string_add(jo, "profile", bs->profile_name);
+	json_object_string_add(jo, "offload-status",
+			       bs->offloaded ? "offloaded" : "control-plane");
 
 	json_object_int_add(jo, "receive-interval",
 			    bs->timers.required_min_rx / 1000);
@@ -372,11 +381,9 @@ static void _display_peer_counter(struct vty *vty, struct bfd_session *bs)
 	_display_peer_header(vty, bs);
 
 	/* Ask data plane for updated counters. */
-	if (bfd_dplane_update_session_counters(bs) == -1) {
-		zlog_debug("%s: failed to update BFD session counters (%s)",
-			   __func__, bs_to_string(bs));
-		frrtrace(3, frr_bfd, stats_error, 1, bs->discrs.my_discr, -1);
-	}
+	//if (bfd_dplane_update_session_counters(bs) == -1)
+	//	zlog_debug("%s: failed to update BFD session counters (%s)",
+	//		   __func__, bs_to_string(bs));
 
 	vty_out(vty, "\t\tID: %u\n", bs->discrs.my_discr);
 	vty_out(vty, "\t\tControl packet input: %" PRIu64 " packets\n",
@@ -401,11 +408,9 @@ static struct json_object *__display_peer_counters_json(struct bfd_session *bs)
 	struct json_object *jo = _peer_json_header(bs);
 
 	/* Ask data plane for updated counters. */
-	if (bfd_dplane_update_session_counters(bs) == -1) {
-		zlog_debug("%s: failed to update BFD session counters (%s)",
-			   __func__, bs_to_string(bs));
-		frrtrace(3, frr_bfd, stats_error, 1, bs->discrs.my_discr, -1);
-	}
+	//if (bfd_dplane_update_session_counters(bs) == -1)
+	//	zlog_debug("%s: failed to update BFD session counters (%s)",
+	//		   __func__, bs_to_string(bs));
 
 	json_object_int_add(jo, "id", bs->discrs.my_discr);
 	json_object_int_add(jo, "control-packet-input", bs->stats.rx_ctrl_pkt);
@@ -983,6 +988,316 @@ DEFUN_NOSH(show_debugging_bfd,
 	return CMD_SUCCESS;
 }
 
+/*
+ * Helper function to migrate a single session from control plane to data plane
+ */
+static void bfd_migrate_session_to_dplane(struct bfd_session *bs)
+{
+	/* Skip if session is already using data plane */
+	if (bs->bdc)
+		return;
+
+	/*
+	 * Skip link-local sessions - they cannot be offloaded to data plane.
+	 * Link-local addresses are interface-specific and must use control plane.
+	 */
+	if (bfd_session_is_link_local(bs)) {
+		if (bglobal.debug_peer_event)
+			zlog_debug("%s: skipping link-local session %s (cannot offload to data plane)",
+				   __func__, bs_to_string(bs));
+		return;
+	}
+
+	if (bglobal.debug_peer_event)
+		zlog_debug("%s: migrating session %s to data plane",
+			   __func__, bs_to_string(bs));
+
+	/* Close control plane socket if open */
+	if (bs->sock != -1) {
+		close(bs->sock);
+		bs->sock = -1;
+	}
+
+	/* Stop control plane timers */
+	bfd_recvtimer_delete(bs);
+	bfd_xmttimer_delete(bs);
+	bfd_echo_recvtimer_delete(bs);
+	bfd_echo_xmttimer_delete(bs);
+
+	/* Attempt to add session to data plane */
+	if (bfd_dplane_add_session(bs) == 0) {
+		/* Mark session as offloaded */
+		bs->offloaded = true;
+		
+		if (bglobal.debug_peer_event)
+			zlog_debug("%s: session %s successfully migrated to data plane",
+				   __func__, bs_to_string(bs));
+	//	control_notify_config(BCM_NOTIFY_CONFIG_UPDATE, bs);
+	}
+}
+
+/*
+ * Helper function to migrate a single session from data plane to control plane
+ */
+static void bfd_migrate_session_to_control_plane(struct bfd_session *bs)
+{
+	/* Skip if session is not using data plane */
+//	if (!bs->bdc)
+//		return;
+
+	zlog_info("%s: migrating session LID=%u %s from data plane to control plane (current state=%s)",
+		  __func__, bs->discrs.my_discr, bs_to_string(bs),
+		  bs->ses_state == PTM_BFD_UP ? "UP" :
+		  bs->ses_state == PTM_BFD_DOWN ? "DOWN" :
+		  bs->ses_state == PTM_BFD_INIT ? "INIT" : "ADM_DOWN");
+
+	/* Delete session from data plane */
+	/*if (bfd_dplane_delete_session(bs) != 0) {
+		zlog_err("%s: failed to delete session %s from data plane",
+			 __func__, bs_to_string(bs));
+	}*/
+
+	/* Clear data plane context */
+	bs->bdc = NULL;
+	
+	/* Mark session as not offloaded */
+	bs->offloaded = false;
+
+	/* 
+	 * Do NOT reset session state - we want seamless migration without
+	 * impacting BGP or other clients. The control plane will take over
+	 * with the current state and continue the BFD session.
+	 */
+
+	/* Re-enable in control plane */
+	if (bfd_session_enable(bs) == 0) {
+		zlog_info("%s: session LID=%u successfully migrated to control plane (sock=%d, state=%s)",
+			  __func__, bs->discrs.my_discr, bs->sock,
+			  bs->ses_state == PTM_BFD_UP ? "UP" :
+			  bs->ses_state == PTM_BFD_DOWN ? "DOWN" :
+			  bs->ses_state == PTM_BFD_INIT ? "INIT" : "ADM_DOWN");
+		control_notify_config(BCM_NOTIFY_CONFIG_UPDATE, bs);
+	} else {
+		zlog_err("%s: failed to re-enable session LID=%u in control plane",
+			 __func__, bs->discrs.my_discr);
+	}
+}
+
+/*
+ * Helper function to close all VRF sockets when switching to distributed mode
+ */
+/*
+ * Helper function to close all VRF sockets when switching to distributed mode
+ */
+static void bfd_vrf_close_all_sockets(void)
+{
+	struct vrf *vrf;
+	struct bfd_vrf_global *bvrf;
+
+	RB_FOREACH(vrf, vrf_name_head, &vrfs_by_name) {
+		if (!vrf->info)
+			continue;
+		bvrf = vrf->info;
+
+		/* Cancel all read events */
+		EVENT_OFF(bvrf->bg_ev[0]);
+		EVENT_OFF(bvrf->bg_ev[1]);
+		EVENT_OFF(bvrf->bg_ev[2]);
+		EVENT_OFF(bvrf->bg_ev[3]);
+		EVENT_OFF(bvrf->bg_ev[4]);
+		EVENT_OFF(bvrf->bg_ev[5]);
+
+		/* Close all control plane descriptors */
+		if (bvrf->bg_shop != -1) {
+			close(bvrf->bg_shop);
+			bvrf->bg_shop = -1;
+		}
+		if (bvrf->bg_mhop != -1) {
+			close(bvrf->bg_mhop);
+			bvrf->bg_mhop = -1;
+		}
+		if (bvrf->bg_shop6 != -1) {
+			close(bvrf->bg_shop6);
+			bvrf->bg_shop6 = -1;
+		}
+		if (bvrf->bg_mhop6 != -1) {
+			close(bvrf->bg_mhop6);
+			bvrf->bg_mhop6 = -1;
+		}
+		if (bvrf->bg_echo != -1) {
+			close(bvrf->bg_echo);
+			bvrf->bg_echo = -1;
+		}
+		if (bvrf->bg_echov6 != -1) {
+			close(bvrf->bg_echov6);
+			bvrf->bg_echov6 = -1;
+		}
+
+	}
+}
+
+/*
+ * Helper function to re-enable VRF sockets when switching to control plane mode
+ */
+static void bfd_vrf_re_enable_all_sockets(void)
+{
+	struct vrf *vrf;
+	struct bfd_vrf_global *bvrf;
+
+	RB_FOREACH(vrf, vrf_name_head, &vrfs_by_name) {
+		if (!vrf->info)
+			continue;
+		bvrf = vrf->info;
+		/* Re-enable VRF with control plane sockets */
+		bfd_vrf_enable(vrf);
+	}
+}
+
+/*
+ * Hash iteration callback for migrating to data plane
+ */
+static void _bfd_migrate_to_dplane(struct hash_bucket *hb, void *arg)
+{
+	struct bfd_session *bs = hb->data;
+
+	bfd_set_shutdown(bs, true);
+	bfd_migrate_session_to_dplane(bs);
+	bfd_set_shutdown(bs, false);
+}
+
+/*
+ * Hash iteration callback for migrating to control plane
+ */
+static void _bfd_migrate_to_control_plane(struct hash_bucket *hb, void *arg)
+{
+	struct bfd_session *bs = hb->data;
+
+	bfd_set_shutdown(bs, true);
+	bfd_migrate_session_to_control_plane(bs);
+	bfd_set_shutdown(bs, false);
+}
+
+/*
+ * Migrate all sessions from control plane to data plane
+ */
+static void bfd_migrate_all_sessions_to_dplane(void)
+{
+	if (bglobal.debug_peer_event)
+		zlog_debug("Starting migration of all sessions to data plane");
+
+	/* Iterate through all sessions and migrate them */
+	bfd_key_iterate(_bfd_migrate_to_dplane, NULL);
+
+	if (bglobal.debug_peer_event)
+		zlog_debug("Completed migration of all sessions to data plane");
+}
+
+/*
+ * Migrate all sessions from data plane to control plane
+ */
+static void bfd_migrate_all_sessions_to_control_plane(void)
+{
+	if (bglobal.debug_peer_event)
+		zlog_debug("Starting migration of all sessions to control plane");
+
+	/* Iterate through all sessions and migrate them */
+	bfd_key_iterate(_bfd_migrate_to_control_plane, NULL);
+
+	if (bglobal.debug_peer_event)
+		zlog_debug("Completed migration of all sessions to control plane");
+}
+
+/*
+ * Command to enable BFD distributed mode with session migration
+ * This switches the bglobal.bg_use_dplane variable to true
+ * and migrates all sessions from control plane to data plane
+ */
+DEFUN(bfd_offload_mode,
+      bfd_offload_mode_cmd,
+      "offload-mode",
+      "Enable BFD offload mode\n")
+{
+	if (bglobal.bg_use_dplane) {
+		vty_out(vty, "%% BFD offload mode is already enabled\n");
+		return CMD_SUCCESS;
+	}
+
+	if (!bfd_dplane_sdk_service_is_running()) {
+		vty_out(vty, "SDK is not running\n");
+		return CMD_SUCCESS;
+	}
+
+	/* Start SDK monitoring */
+	bfd_dplane_sdk_monitor_start();
+
+	vty_out(vty, "Enabling BFD offload mode and migrating sessions...\n");
+
+	/* Enable offload mode */
+	bglobal.bg_use_dplane = true;
+	bfd_dplane_initialize_sdk();
+
+	/* Create global RAW socket for IPv6 link-local BFD */
+	if (bglobal.bg_shop6_raw == -1) {
+		struct vrf *vrf_default = vrf_lookup_by_id(VRF_DEFAULT);
+		if (vrf_default) {
+			bglobal.bg_shop6_raw = bp_shop6_raw_socket(vrf_default);
+			if (bglobal.bg_shop6_raw != -1) {
+				event_add_read(master, bfd_recv_cb, NULL,
+					       bglobal.bg_shop6_raw,
+					       &bglobal.bg_shop6_raw_ev);
+				vty_out(vty, "Created global RAW socket for link-local BFD (fd=%d)\n",
+					bglobal.bg_shop6_raw);
+			}
+		}
+	}
+
+	/* Close all VRF sockets - data plane will handle packet RX/TX */
+	bfd_vrf_close_all_sockets();
+
+	bfd_migrate_all_sessions_to_dplane();
+
+	return CMD_SUCCESS;
+}
+
+/*
+ * Command to disable BFD offload mode with session migration
+ * This switches the bglobal.bg_use_dplane variable to false
+ * and migrates all sessions from data plane back to control plane
+ */
+DEFUN(no_bfd_offload_mode,
+      no_bfd_offload_mode_cmd,
+      "no offload-mode",
+      NO_STR
+      "Disable BFD offload mode\n")
+{
+	if (!bglobal.bg_use_dplane) {
+		vty_out(vty, "%% BFD offload mode is already disabled\n");
+		return CMD_SUCCESS;
+	}
+
+	vty_out(vty, "Disabling BFD offload mode and migrating sessions...\n");
+
+	/* Disable offload mode */
+	bglobal.bg_use_dplane = false;
+
+	/* Close global RAW socket */
+	if (bglobal.bg_shop6_raw != -1) {
+		EVENT_OFF(bglobal.bg_shop6_raw_ev);
+		socket_close(&bglobal.bg_shop6_raw);
+		bglobal.bg_shop6_raw = -1;
+		vty_out(vty, "Closed global RAW IPv6 socket\n");
+	}
+
+	/* Re-enable VRF sockets for control plane mode */
+	bfd_vrf_re_enable_all_sockets();
+
+	bfd_migrate_all_sessions_to_control_plane();
+
+	bfd_dplane_sdk_monitor_stop();
+
+	return CMD_SUCCESS;
+}
+
 static int bfdd_write_config(struct vty *vty);
 struct cmd_node bfd_node = {
 	.name = "bfd",
@@ -1030,6 +1345,15 @@ static int bfdd_write_config(struct vty *vty)
 		written = 1;
 	}
 
+	/* Write distributed mode configuration if enabled */
+	if (bglobal.bg_use_dplane) {
+		vty_out(vty, "!\nbfd\n");
+		vty_out(vty, " offload-mode\n");
+		vty_out(vty, "exit\n");
+		vty_out(vty, "!\n");
+		written = 1;
+	}
+
 	return written;
 }
 
@@ -1057,6 +1381,10 @@ void bfdd_vty_init(void)
 	/* Install BFD node and commands. */
 	install_node(&bfd_node);
 	install_default(BFD_NODE);
+
+	/* Install distributed mode commands */
+	install_element(BFD_NODE, &bfd_offload_mode_cmd);
+	install_element(BFD_NODE, &no_bfd_offload_mode_cmd);
 
 	/* Install BFD peer node. */
 	install_node(&bfd_peer_node);
