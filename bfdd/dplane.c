@@ -22,6 +22,7 @@
 #include <errno.h>
 #include <time.h>
 
+#include "lib/buffer.h"
 #include "lib/hook.h"
 #include "lib/network.h"
 #include "lib/printfrr.h"
@@ -38,7 +39,7 @@ DEFINE_MTYPE_STATIC(BFDD, BFDD_DPLANE_CTX,
 		    "Data plane client allocated memory");
 
 /** Data plane client socket buffer size. */
-#define BFD_DPLANE_CLIENT_BUF_SIZE 8192
+#define BFD_DPLANE_CLIENT_BUF_SIZE 32768
 
 struct bfd_dplane_ctx {
 	/** Client file descriptor. */
@@ -62,7 +63,7 @@ struct bfd_dplane_ctx {
 	/** Input buffer data. */
 	struct stream *inbuf;
 	/** Output buffer data. */
-	struct stream *outbuf;
+	struct buffer *outbuf;
 	/** Input event data. */
 	struct event *inbufev;
 	/** Output event data. */
@@ -320,48 +321,34 @@ static uint16_t bfd_dplane_next_id(struct bfd_dplane_ctx *bdc)
 
 static ssize_t bfd_dplane_flush(struct bfd_dplane_ctx *bdc)
 {
-	ssize_t total = 0;
-	int rv;
+	buffer_status_t status;
+	ssize_t written;
 
-	while (STREAM_READABLE(bdc->outbuf)) {
-		/* Flush buffer contents to socket. */
-		rv = stream_flush(bdc->outbuf, bdc->sock);
-		if (rv == -1) {
-			/* Interruption: try again. */
-			if (errno == EAGAIN || errno == EWOULDBLOCK
-			    || errno == EINTR)
-				continue;
+	/* Flush as much buffered data as possible. */
+	status = buffer_flush_available(bdc->outbuf, bdc->sock);
 
-			zlog_warn("%s: socket failed: %s", __func__,
-				  strerror(errno));
-			bfd_dplane_ctx_free(bdc);
-			return 0;
-		}
-		if (rv == 0) {
-			if (bglobal.debug_dplane)
-				zlog_info("%s: connection closed", __func__);
+	switch (status) {
+	case BUFFER_ERROR:
+		zlog_warn("%s: socket failed: %s", __func__, strerror(errno));
+		bfd_dplane_ctx_free(bdc);
+		return 0;
 
-			bfd_dplane_ctx_free(bdc);
-			return 0;
-		}
+	case BUFFER_EMPTY:
+		/* All data flushed successfully. */
+		EVENT_OFF(bdc->outbufev);
+		if (bglobal.debug_dplane)
+			zlog_debug("%s: output buffer fully flushed", __func__);
+		break;
 
-		/* Account total written. */
-		total += rv;
-
-		/* Account output bytes. */
-		bdc->out_bytes += (uint64_t)rv;
-
-		/* Forward pointer. */
-		stream_forward_getp(bdc->outbuf, (size_t)rv);
+	case BUFFER_PENDING:
+		/* More data to flush, write event should already be scheduled. */
+		if (bglobal.debug_dplane)
+			zlog_debug("%s: output buffer still has pending data",
+				   __func__);
+		break;
 	}
 
-	/* Make more space for new data. */
-	stream_pulldown(bdc->outbuf);
-
-	/* Disable write ready events. */
-	EVENT_OFF(bdc->outbufev);
-
-	return total;
+	return 0;
 }
 
 static void bfd_dplane_write(struct event *t)
@@ -459,35 +446,39 @@ bfd_dplane_session_state_change(struct bfd_dplane_ctx *bdc,
 static int bfd_dplane_enqueue(struct bfd_dplane_ctx *bdc, const void *buf,
 			      size_t buflen)
 {
-	size_t rlen;
+	buffer_status_t status;
 
 	/* Handle not connected yet client. */
 	if (bdc->client && bdc->sock == -1)
 		return -1;
 
-	/* Not enough space. */
-	if (buflen > STREAM_WRITEABLE(bdc->outbuf)) {
-		bdc->out_fullev++;
-		return -1;
-	}
-
 	/* Show debug message if active. */
 	bfd_dplane_debug_message((struct bfddp_message *)buf);
 
-	/* Buffer the message. */
-	stream_write(bdc->outbuf, buf, buflen);
+	/* Use buffer_write - same pattern as zclient. */
+	status = buffer_write(bdc->outbuf, bdc->sock, buf, buflen);
 
-	/* Account message as sent. */
-	bdc->out_msgs++;
-	/* Register peak buffered bytes. */
-	rlen = STREAM_READABLE(bdc->outbuf);
-	if (bdc->out_bytes_peak < rlen)
-		bdc->out_bytes_peak = rlen;
+	switch (status) {
+	case BUFFER_ERROR:
+		zlog_err("%s: write error on socket %d", __func__, bdc->sock);
+		bfd_dplane_ctx_free(bdc);
+		return -1;
 
-	/* Schedule if it is not yet. */
-	if (bdc->outbufev == NULL)
-		event_add_write(master, bfd_dplane_write, bdc, bdc->sock,
-				&bdc->outbufev);
+	case BUFFER_EMPTY:
+		/* All written immediately, no need for write event. */
+		EVENT_OFF(bdc->outbufev);
+		bdc->out_msgs++;
+		return 0;
+
+	case BUFFER_PENDING:
+		/* Data queued, schedule write event if not already scheduled. */
+		if (bdc->outbufev == NULL)
+			event_add_write(master, bfd_dplane_write, bdc,
+					bdc->sock, &bdc->outbufev);
+		bdc->out_msgs++;
+		bdc->out_fullev++; /* Track buffering events. */
+		return 0;
+	}
 
 	return 0;
 }
@@ -701,7 +692,7 @@ static struct bfd_dplane_ctx *bfd_dplane_ctx_new(int sock)
 
 	bdc->sock = sock;
 	bdc->inbuf = stream_new(BFD_DPLANE_CLIENT_BUF_SIZE);
-	bdc->outbuf = stream_new(BFD_DPLANE_CLIENT_BUF_SIZE);
+	bdc->outbuf = buffer_new(BFD_DPLANE_CLIENT_BUF_SIZE);
 
 	/* If not socket ready, skip read and session registration. */
 	if (sock == -1)
@@ -764,7 +755,7 @@ free_resources:
 	/* Free resources. */
 	socket_close(&bdc->sock);
 	stream_free(bdc->inbuf);
-	stream_free(bdc->outbuf);
+	buffer_free(bdc->outbuf);
 	EVENT_OFF(bdc->inbufev);
 	EVENT_OFF(bdc->outbufev);
 	XFREE(MTYPE_BFDD_DPLANE_CTX, bdc);
@@ -920,7 +911,7 @@ static void _bfd_dplane_client_bootstrap(struct bfd_dplane_ctx *bdc)
 
 	/* Clean up buffers. */
 	stream_reset(bdc->inbuf);
-	stream_reset(bdc->outbuf);
+	buffer_reset(bdc->outbuf);
 
 	/* Ask for read notifications. */
 	event_add_read(master, bfd_dplane_read, bdc, bdc->sock, &bdc->inbufev);
@@ -992,7 +983,11 @@ static void bfd_dplane_client_connect(struct event *t)
 		zlog_warn("%s: TCP_NODELAY: %s", __func__, strerror(errno));
 
 	/* Attempt to connect. */
-	rv = connect(sock, &bdc->addr.sa, bdc->addrlen);
+	if (bdc->addr.sa.sa_family == AF_UNIX) {
+		rv = connect(sock, (struct sockaddr *)&bdc->addr.sun, sizeof(struct sockaddr_un));
+	} else {
+		rv = connect(sock, &bdc->addr.sa, bdc->addrlen);
+	}
 	if (rv == -1 && (errno != EINPROGRESS && errno != EAGAIN)) {
 		frrtrace(2, frr_bfd, dplane_init_error, 5, errno);
 		zlog_warn("%s: data plane connection failed: %s", __func__,
@@ -1213,6 +1208,7 @@ int bfd_dplane_delete_session(struct bfd_session *bs)
 void bfd_dplane_show_counters(struct vty *vty)
 {
 	struct bfd_dplane_ctx *bdc;
+	const char *queue_status;
 
 #define SHOW_COUNTER(label, counter, formatter)                                \
 	vty_out(vty, "%28s: %" formatter "\n", (label), (counter))
@@ -1229,8 +1225,7 @@ void bfd_dplane_show_counters(struct vty *vty)
 		SHOW_COUNTER("Output bytes peak", bdc->out_bytes_peak, PRIu64);
 		SHOW_COUNTER("Output messages", bdc->out_msgs, PRIu64);
 		SHOW_COUNTER("Output full events", bdc->out_fullev, PRIu64);
-		SHOW_COUNTER("Output current usage",
-			     STREAM_READABLE(bdc->inbuf), "zu");
+		vty_out(vty, "%28s: %s\n", "Output queue status", queue_status);
 		vty_out(vty, "\n");
 	}
 #undef SHOW_COUNTER
