@@ -337,7 +337,9 @@ int bfd_session_enable(struct bfd_session *bs)
 	bs->ifp = ifp;
 
 	/* Attempt to use data plane. */
-	if (bglobal.bg_use_dplane && bfd_dplane_add_session(bs) == 0) {
+	if (!bfd_session_is_link_local(bs) && bglobal.bg_use_dplane && bfd_dplane_add_session(bs) == 0) {
+		/* Mark session as offloaded to data plane */
+		bs->offloaded = true;
 		control_notify_config(BCM_NOTIFY_CONFIG_ADD, bs);
 		return 0;
 	}
@@ -730,6 +732,8 @@ struct bfd_session *bfd_session_new(void)
 	bs->sock = -1;
 	monotime(&bs->uptime);
 	bs->downtime = bs->uptime;
+	/* Initialize offload status - set to true on basis of dplane flag*/
+	bs->offloaded = false;
 
 	return bs;
 }

@@ -139,7 +139,13 @@ static void _ptm_bfd_session_del(struct bfd_session *bs, uint8_t diag)
 	/* Change state and notify peer. */
 	bs->ses_state = PTM_BFD_DOWN;
 	bs->local_diag = diag;
-	ptm_bfd_snd(bs, 0);
+	if (bs->offloaded) {
+		/* Update data plane with DOWN state before deletion */
+		if (bfd_dplane_update_session(bs) != 0)
+			zlog_err("%s: failed to update data plane session", __func__);
+	} else {
+		ptm_bfd_snd(bs, 0);
+	}
 
 	/* Session reached refcount == 0, lets delete it. */
 	if (bs->refcount == 0) {
