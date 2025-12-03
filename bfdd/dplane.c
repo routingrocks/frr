@@ -833,6 +833,25 @@ static int _bfd_dplane_add_session(struct bfd_dplane_ctx *bdc,
 	bs->local_diag = 0;
 	bs->ses_state = PTM_BFD_DOWN;
 
+	/* Check if local address is null/zero - cannot offload to data plane. */
+	if (bs->key.family == AF_INET) {
+		const struct in_addr *local_addr = (const struct in_addr *)&bs->key.local;
+		if (local_addr->s_addr == INADDR_ANY) {
+			if (bglobal.debug_dplane)
+				zlog_debug("%s: session %s has null IPv4 local address (0.0.0.0), cannot offload to data plane",
+					   __func__, bs_to_string(bs));
+			return 0;
+		}
+	} else if (bs->key.family == AF_INET6) {
+		const struct in6_addr *local_addr = (const struct in6_addr *)&bs->key.local;
+		if (IN6_IS_ADDR_UNSPECIFIED(local_addr)) {
+			if (bglobal.debug_dplane)
+				zlog_debug("%s: session %s has null IPv6 local address (::), cannot offload to data plane",
+					   __func__, bs_to_string(bs));
+			return 0;
+		}
+	}
+
 	/* Enqueue message to data plane client. */
 	rv = bfd_dplane_update_session(bs);
 	if (rv != 0)
@@ -1175,6 +1194,25 @@ int bfd_dplane_update_session(const struct bfd_session *bs)
 
 	if (bs->bdc == NULL)
 		return 0;
+
+       /* Check if local address is null/zero - cannot offload to data plane. */
+       if (bs->key.family == AF_INET) {
+               const struct in_addr *local_addr = (const struct in_addr *)&bs->key.local;
+               if (local_addr->s_addr == INADDR_ANY) {
+                       if (bglobal.debug_dplane)
+                               zlog_debug("%s: session %s has null IPv4 local address (0.0.0.0), cannot offload to data plane",
+                                          __func__, bs_to_string(bs));
+                       return 0;
+               }
+       } else if (bs->key.family == AF_INET6) {
+               const struct in6_addr *local_addr = (const struct in6_addr *)&bs->key.local;
+               if (IN6_IS_ADDR_UNSPECIFIED(local_addr)) {
+                       if (bglobal.debug_dplane)
+                               zlog_debug("%s: session %s has null IPv6 local address (::), cannot offload to data plane",
+                                          __func__, bs_to_string(bs));
+                       return 0;
+               }
+       }
 
 	_bfd_dplane_session_fill(bs, &msg);
 
