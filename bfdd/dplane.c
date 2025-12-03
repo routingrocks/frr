@@ -101,6 +101,44 @@ static void bfd_dplane_ctx_free(struct bfd_dplane_ctx *bdc);
 static int _bfd_dplane_add_session(struct bfd_dplane_ctx *bdc,
 				   struct bfd_session *bs);
 
+static void bfd_dplane_sdk_monitor_timer(struct event *thread);
+static void bfd_dplane_sdk_init_timer_cb(struct event *thread);
+static void bfd_dplane_sdk_resync_all_sessions(void);
+
+/* SDK monitoring state */
+enum bfd_dplane_sdk_state {
+	BFD_DPLANE_SDK_DOWN = 0,
+	BFD_DPLANE_SDK_UP = 1,
+	BFD_DPLANE_SDK_INIT_PENDING = 2,  /* SDK is up, waiting for init delay */
+};
+
+/* SDK monitor context */
+struct bfd_dplane_sdk_monitor {
+	enum bfd_dplane_sdk_state state;
+	uint32_t check_interval_ms;
+	struct event *monitor_timer;
+	struct event *init_timer;  /* Timer for delayed SDK initialization */
+	time_t last_check;
+	char sdk_service_name[64];
+};
+
+/* Global SDK monitor context */
+static struct bfd_dplane_sdk_monitor sdk_monitor = {
+	.state = BFD_DPLANE_SDK_DOWN,
+	.check_interval_ms = 1000,  /* Check every 1 seconds */
+	.monitor_timer = NULL,
+	.init_timer = NULL,
+	.sdk_service_name = "sx_sdk.service",
+};
+
+
+/* Structure to pass resync statistics to iterator callback */
+struct bfd_dplane_resync_stats {
+	int sync_count;
+	int fail_count;
+	int skip_count;
+};
+
 /*
  * BFD data plane helper functions.
  */
@@ -121,6 +159,11 @@ static const char *bfd_dplane_messagetype2str(enum bfddp_message_type bmt)
 		return "DP_REQUEST_SESSION_COUNTERS";
 	case BFD_SESSION_COUNTERS:
 		return "BFD_SESSION_COUNTERS";
+	case DP_INIT_SDK:
+		return "DP_INIT_SDK";
+	case DP_DEINIT_SDK:
+		return "DP_DEINIT_SDK";
+
 	default:
 		return "UNKNOWN";
 	}
@@ -246,6 +289,14 @@ static void bfd_dplane_debug_message(const struct bfddp_message *msg)
 			be64toh(msg->data.session_counters
 				.echo_output_packets));
 		break;
+	case DP_INIT_SDK:
+		zlog_debug("  [SDK initialization request]");
+		break;
+
+	case DP_DEINIT_SDK:
+		zlog_debug("  [SDK deinitialization request]");
+		break;
+
 	}
 }
 
@@ -1209,3 +1260,352 @@ int bfd_dplane_update_session_counters(struct bfd_session *bs)
 
 	return rv;
 }
+
+/* ============================================================
+ * SX SDK Service Monitoring
+ * 
+ * Rules:
+ * 1. Check SDK only when enabling distributed mode
+ * 2. Start timer ONLY if SDK is UP when enabling
+ * 3. If SDK goes down, just log - don't retry, don't move sessions
+ * 4. If SDK comes back, resync sessions
+ * ============================================================ */
+
+
+/**
+ * Check if SX SDK systemd service is running
+ * 
+ * @return true if sx-sdk.service is active, false otherwise
+ */
+bool bfd_dplane_sdk_service_is_running(void)
+{
+	FILE *fp;
+	char result[128];
+	bool is_active = false;
+	char cmd[256];
+	
+	/* Build systemctl command */
+	snprintf(cmd, sizeof(cmd), "systemctl is-active %s 2>/dev/null", 
+	         sdk_monitor.sdk_service_name);
+	
+	fp = popen(cmd, "r");
+	if (fp == NULL) {
+		zlog_err("%s: SDK_MONITOR: Failed to execute systemctl command", __func__);
+		return false;
+	}
+	
+	if (fgets(result, sizeof(result), fp) != NULL) {
+		/* Remove newline */
+		result[strcspn(result, "\n")] = 0;
+		
+		if (strcmp(result, "active") == 0) {
+			is_active = true;
+			if (bglobal.debug_dplane) {
+				zlog_debug("%s: sx_sdk is active", __func__);
+			}
+		} else {
+			if (bglobal.debug_dplane) {
+				zlog_debug("%s: sx_sdk is not active", __func__);
+			}
+		}
+	}
+	
+	pclose(fp);
+	return is_active;
+}
+
+/**
+ * Send DP_INIT_SDK message to data plane plugin
+ * Called when SDK comes up
+ */
+static int bfd_dplane_send_init_sdk(void)
+{
+	struct bfddp_message msg = {};
+	struct bfd_dplane_ctx *bdc;
+	
+	/* Check if data plane connection exists */
+	if (TAILQ_EMPTY(&bglobal.bg_dplaneq)) {
+		zlog_err("%s: SDK_MONITOR: No data plane connection to send DP_INIT_SDK", __func__);
+		return -1;
+	}
+	
+	bdc = TAILQ_FIRST(&bglobal.bg_dplaneq);
+	
+	/* Build DP_INIT_SDK message (header only) */
+	msg.header.version = BFD_DP_VERSION;
+	msg.header.type = htons(DP_INIT_SDK);
+	msg.header.length = htons(sizeof(msg.header));
+	
+	if (bglobal.debug_dplane) {
+		zlog_debug("%s: SDK_MONITOR: Sending DP_INIT_SDK to data plane plugin", __func__);
+	}
+	/* Send message */
+	if (bfd_dplane_enqueue(bdc, &msg, sizeof(msg.header)) != 0) {
+		zlog_err("%s: SDK_MONITOR: Failed to send DP_INIT_SDK", __func__);
+		return -1;
+	}
+	
+	return 0;
+}
+
+/**
+ * Send DP_DEINIT_SDK message to data plane plugin
+ * Called when SDK goes down
+ */
+static int bfd_dplane_send_deinit_sdk(void)
+{
+	struct bfddp_message msg = {};
+	struct bfd_dplane_ctx *bdc;
+	
+	/* Check if data plane connection exists */
+	if (TAILQ_EMPTY(&bglobal.bg_dplaneq)) {
+		zlog_err("%s: SDK_MONITOR: No data plane connection to send DP_DEINIT_SDK", __func__);
+		return -1;
+	}
+	
+	bdc = TAILQ_FIRST(&bglobal.bg_dplaneq);
+	
+	/* Build DP_DEINIT_SDK message (header only) */
+	msg.header.version = BFD_DP_VERSION;
+	msg.header.type = htons(DP_DEINIT_SDK);
+	msg.header.length = htons(sizeof(msg.header));
+	
+	
+	/* Send message */
+	if (bfd_dplane_enqueue(bdc, &msg, sizeof(msg.header)) != 0) {
+		zlog_err("%s: SDK_MONITOR: Failed to send DP_DEINIT_SDK", __func__);
+		return -1;
+	}
+	
+	return 0;
+}
+
+/**
+ * Callback for bfd_key_iterate to resync a single session
+ */
+static void _bfd_dplane_resync_session(struct hash_bucket *hb, void *arg)
+{
+	struct bfd_session *bs = hb->data;
+	struct bfd_dplane_resync_stats *stats = arg;
+	
+	/* Skip shutdown sessions */
+	if (CHECK_FLAG(bs->flags, BFD_SESS_FLAG_SHUTDOWN)) {
+		stats->skip_count++;
+		return;
+	}
+	
+	/* Skip sessions not configured for distributed mode */
+	if (!bglobal.bg_use_dplane) {
+		stats->skip_count++;
+		return;
+	}
+	
+	/*
+	 * Skip link-local sessions - they cannot be offloaded to data plane.
+	 * Link-local addresses are interface-specific and must use control plane.
+	 */
+	if (bfd_session_is_link_local(bs)) {
+		stats->skip_count++;
+		if (bglobal.debug_peer_event)
+			zlog_debug("%s: SDK_MONITOR: Skipping link-local session %s (cannot offload)",
+				   __func__, bs_to_string(bs));
+		return;
+	}
+	
+	if (bglobal.debug_dplane) {
+		zlog_info("SDK_MONITOR: Resyncing session LID=%u %s state=%s",
+	        	 bs->discrs.my_discr,
+	         	bs_to_string(bs),
+	         	state_list[bs->ses_state].str);
+	}
+	
+	/* Add/update session in data plane */
+	if (bfd_dplane_add_session(bs) == 0) {
+		bs->offloaded = true;
+		stats->sync_count++;
+		
+		zlog_info("SDK_MONITOR: Session LID=%u offloaded successfully", 
+		         bs->discrs.my_discr);
+	} else {
+		stats->fail_count++;
+		
+		zlog_err("SDK_MONITOR: Failed to offload session LID=%u", 
+		        bs->discrs.my_discr);
+	}
+}
+
+/**
+ * Resync all sessions with data plane plugin
+ * Called when SDK comes back up after being down
+ */
+static void bfd_dplane_sdk_resync_all_sessions(void)
+{
+	struct bfd_dplane_resync_stats stats = {0};
+	
+	zlog_info("SDK_MONITOR: SX SDK service is back up - resyncing all BFD sessions");
+	
+	/* Send DP_INIT_SDK to data plane plugin first */
+	if (bfd_dplane_send_init_sdk() != 0) {
+		zlog_err("SDK_MONITOR: Failed to send DP_INIT_SDK, aborting session resync");
+		return;
+	}
+	
+	/* Iterate through all sessions using bfd_key_iterate */
+	bfd_key_iterate(_bfd_dplane_resync_session, &stats);
+	
+	zlog_info("SDK_MONITOR: Session resync complete - success=%d failed=%d skipped=%d",
+	         stats.sync_count, stats.fail_count, stats.skip_count);
+}
+
+/**
+ * Delayed SDK initialization callback
+ * Called 10 seconds after SDK comes up to allow SDK to fully initialize
+ */
+static void bfd_dplane_sdk_init_timer_cb(struct event *thread)
+{
+	zlog_info("SDK_MONITOR: SDK initialization delay complete, starting resync");
+	
+	/* Clear the timer pointer */
+	sdk_monitor.init_timer = NULL;
+	
+	/* Update state to UP */
+	sdk_monitor.state = BFD_DPLANE_SDK_UP;
+	
+	/* Now perform the init and resync */
+	bfd_dplane_sdk_resync_all_sessions();
+}
+
+/**
+ * SDK Monitor Timer Callback
+ * Periodically checks if SX SDK service is running
+ * Only detects SDK state changes (UP -> DOWN or DOWN -> UP)
+ */
+static void bfd_dplane_sdk_monitor_timer(struct event *thread)
+{
+	bool sdk_running;
+	
+	
+	sdk_monitor.last_check = time(NULL);
+	
+	/* Check if SX SDK service is running */
+	sdk_running = bfd_dplane_sdk_service_is_running();
+	
+	/* Detect state transitions */
+	if (sdk_monitor.state == BFD_DPLANE_SDK_UP && !sdk_running) {
+		/* SDK went DOWN */
+		zlog_err("SDK_MONITOR: SX SDK service went DOWN");
+		zlog_err("SDK_MONITOR: Sessions remain configured, waiting for manual intervention");
+		sdk_monitor.state = BFD_DPLANE_SDK_DOWN;
+		
+		/* Cancel any pending init timer */
+		EVENT_OFF(sdk_monitor.init_timer);
+		
+		/* Send DP_DEINIT_SDK to data plane plugin */
+		bfd_dplane_send_deinit_sdk();
+		
+		/* Do NOT move sessions to control plane */
+		/* Do NOT clear sessions */
+		/* Do NOT retry connection */
+		/* Just log and wait */
+		
+	} else if (sdk_monitor.state == BFD_DPLANE_SDK_DOWN && sdk_running) {
+		/* SDK came back UP - schedule delayed initialization */
+		zlog_info("SDK_MONITOR: SX SDK service came back UP - scheduling init in 10 seconds");
+		sdk_monitor.state = BFD_DPLANE_SDK_INIT_PENDING;
+		
+		/* Schedule init timer for 10 seconds to allow SDK to fully initialize */
+		event_add_timer(master, bfd_dplane_sdk_init_timer_cb, NULL,
+		                10, &sdk_monitor.init_timer);
+		
+	} else if (sdk_monitor.state == BFD_DPLANE_SDK_INIT_PENDING && !sdk_running) {
+		/* SDK went down again during init delay */
+		zlog_err("SDK_MONITOR: SX SDK service went DOWN during init delay");
+		sdk_monitor.state = BFD_DPLANE_SDK_DOWN;
+		
+		/* Cancel the init timer */
+		EVENT_OFF(sdk_monitor.init_timer);
+	}
+	
+	/* Re-register monitor timer */
+	event_add_timer_msec(master, bfd_dplane_sdk_monitor_timer, NULL,
+	                     sdk_monitor.check_interval_ms, &sdk_monitor.monitor_timer);
+}
+
+/**
+ * Start SDK monitoring
+ * ONLY called when distributed mode is successfully enabled AND SDK is UP
+ */
+void bfd_dplane_sdk_monitor_start(void)
+{
+	if (sdk_monitor.monitor_timer) {
+		zlog_warn("SDK_MONITOR: Already running");
+		return;
+	}
+	
+	zlog_info("SDK_MONITOR: Starting monitor for %s", sdk_monitor.sdk_service_name);
+	bfd_dplane_send_init_sdk();	
+	sdk_monitor.state = BFD_DPLANE_SDK_UP;
+	sdk_monitor.last_check = time(NULL);
+	
+	/* Start monitoring timer */
+	event_add_timer_msec(master, bfd_dplane_sdk_monitor_timer, NULL,
+	                     sdk_monitor.check_interval_ms, &sdk_monitor.monitor_timer);
+	
+	zlog_info("SDK_MONITOR: Monitor started (interval=%u ms)", sdk_monitor.check_interval_ms);
+}
+
+/**
+ * Stop SDK monitoring
+ * Called when distributed mode is disabled
+ */
+void bfd_dplane_sdk_monitor_stop(void)
+{
+	if (!sdk_monitor.monitor_timer) {
+		return;
+	}
+	
+	zlog_info("SDK_MONITOR: Stopping monitor");
+	
+	/* Cancel monitoring timer */
+	EVENT_OFF(sdk_monitor.monitor_timer);
+	sdk_monitor.monitor_timer = NULL;
+	
+	/* Cancel any pending init timer */
+	EVENT_OFF(sdk_monitor.init_timer);
+	sdk_monitor.init_timer = NULL;
+	
+	sdk_monitor.state = BFD_DPLANE_SDK_DOWN;
+	bfd_dplane_send_deinit_sdk();
+	
+	zlog_info("SDK_MONITOR: Monitor stopped");
+}
+
+/**
+ * Initialize SDK in data plane plugin
+ * Sends DP_INIT_SDK message to the plugin
+ * This is called when user explicitly enables distributed mode
+ */
+int bfd_dplane_initialize_sdk(void)
+{
+	zlog_info("Sending DP_INIT_SDK to data plane plugin");
+	
+	return bfd_dplane_send_init_sdk();
+}
+
+/**
+ * Set SDK service name (optional configuration)
+ */
+int bfd_dplane_sdk_set_service_name(const char *service_name)
+{
+	if (sdk_monitor.monitor_timer) {
+		zlog_err("Cannot change service name while monitoring is active");
+		return -1;
+	}
+	
+	strlcpy(sdk_monitor.sdk_service_name, service_name, 
+	        sizeof(sdk_monitor.sdk_service_name));
+	
+	zlog_info("SDK service name set to: %s", sdk_monitor.sdk_service_name);
+	return 0;
+}
+

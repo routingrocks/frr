@@ -848,4 +848,33 @@ int bfd_dplane_update_session_counters(struct bfd_session *bs);
 
 void bfd_dplane_show_counters(struct vty *vty);
 
+/*
+ * SDK monitoring and management functions
+ */
+
+/**
+ * Check if SX SDK systemd service is running
+ * @return true if sx-sdk.service is active, false otherwise
+ */
+bool bfd_dplane_sdk_service_is_running(void);
+
+/**
+ * Start SDK monitoring timer
+ * Called when distributed mode is enabled and SDK is up
+ */
+void bfd_dplane_sdk_monitor_start(void);
+
+/**
+ * Stop SDK monitoring timer
+ * Called when distributed mode is disabled
+ */
+void bfd_dplane_sdk_monitor_stop(void);
+
+/**
+ * Initialize SDK in data plane plugin
+ * Sends DP_INIT_SDK message to the plugin
+ * @return 0 on success, -1 on failure
+ */
+int bfd_dplane_initialize_sdk(void);
+
 #endif /* _BFD_H_ */
