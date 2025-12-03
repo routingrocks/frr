@@ -372,6 +372,10 @@ int main(int argc, char *argv[])
 	bglobal.bg_use_dplane = false;
 	bool dplaneaddr_configured = false;
 
+	/* Initialize global RAW socket to invalid */
+	bglobal.bg_shop6_raw = -1;
+	bglobal.bg_shop6_raw_ev = NULL;
+
 	/* Initialize system sockets. */
 	bg_init();
 

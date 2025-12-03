@@ -488,6 +488,10 @@ struct bfd_global {
 	struct event *bg_dplane_sockev;
 	struct dplane_queue bg_dplaneq;
 
+	/* Global RAW IPv6 socket for link-local BFD (distributed mode only) */
+	int bg_shop6_raw;
+	struct event *bg_shop6_raw_ev;
+
 	/* Debug options. */
 	/* Show distributed BFD debug messages. */
 	bool debug_dplane;
@@ -567,13 +571,14 @@ int bp_peer_socket(const struct bfd_session *bs);
 int bp_peer_socketv6(const struct bfd_session *bs);
 int bp_echo_socket(const struct vrf *vrf);
 int bp_echov6_socket(const struct vrf *vrf);
+int bp_shop6_raw_socket(const struct vrf *vrf);
 
 void ptm_bfd_snd(struct bfd_session *bfd, int fbit);
 void ptm_bfd_echo_snd(struct bfd_session *bfd);
 void ptm_bfd_echo_fp_snd(struct bfd_session *bfd);
 
 void bfd_recv_cb(struct event *t);
-
+bool bfd_session_is_link_local(const struct bfd_session *bs);
 
 /*
  * event.c
@@ -689,6 +694,7 @@ void bfd_initialize(void);
 void bfd_shutdown(void);
 void bfd_vrf_init(void);
 void bfd_vrf_terminate(void);
+int bfd_vrf_enable(struct vrf *vrf);
 struct bfd_vrf_global *bfd_vrf_look_by_session(struct bfd_session *bfd);
 struct bfd_session *bfd_id_lookup(uint32_t id);
 struct bfd_session *bfd_key_lookup(struct bfd_key key);
