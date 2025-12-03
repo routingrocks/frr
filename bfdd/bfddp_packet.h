@@ -174,6 +174,11 @@ struct bfddp_session {
 	/** Interface name (empty when unavailable). */
 	char ifname[64];
 
+	/** VRF ID **/
+	uint32_t vrf_id;	
+	/** VRF NAME **/
+	char vrfname[36];
+
 	/* TODO: missing authentication. */
 };
 

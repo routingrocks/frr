@@ -765,6 +765,7 @@ static void _bfd_dplane_session_fill(const struct bfd_session *bs,
 				     struct bfddp_message *msg)
 {
 	uint16_t msglen = sizeof(msg->header) + sizeof(msg->data.session);
+	struct vrf *vrf = NULL;
 
 	/* Message header. */
 	msg->header.version = BFD_DP_VERSION;
@@ -781,6 +782,19 @@ static void _bfd_dplane_session_fill(const struct bfd_session *bs,
 		strlcpy(msg->data.session.ifname, bs->ifp->name,
 			sizeof(msg->data.session.ifname));
 	}
+	if (bs->key.vrfname[0]) {
+		vrf = vrf_lookup_by_name(bs->key.vrfname);
+		if (vrf == NULL) {
+			zlog_err("session-enable: specified VRF %s doesn't exists.", bs->key.vrfname);
+			return;
+		}
+	} else {
+		vrf = vrf_lookup_by_id(VRF_DEFAULT);
+	}
+	assert(vrf);
+	msg->data.session.vrf_id = vrf->vrf_id;
+	strlcpy(msg->data.session.vrfname, vrf->name, sizeof(msg->data.session.vrfname));
+
 	if (bs->flags & BFD_SESS_FLAG_MH) {
 		msg->data.session.flags |= SESSION_MULTIHOP;
 		msg->data.session.ttl = bs->mh_ttl;
