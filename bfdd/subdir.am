@@ -9,6 +9,15 @@ vtysh_daemons += bfdd
 man8 += $(MANBUILD)/frr-bfdd.8
 endif
 
+if BFDD_DPLANE_SERVER
+module_LTLIBRARIES += bfdd/bfd_dplane_server_plugin.la
+endif
+
+MLX_LIBS_TXT    = $(wildcard $(TOPDIR)/usr/lib/libsx*.so \
+                             $(TOPDIR)/usr/lib/libsw_rm*.so \
+                             $(TOPDIR)/usr/lib/libscew*.so)
+MLX_LIBS_LD     = $(patsubst lib%,-l%,$(basename $(notdir $(MLX_LIBS_TXT))))
+
 bfdd_libbfd_a_SOURCES = \
 	bfdd/bfd.c \
 	bfdd/bfdd_nb.c \
@@ -50,3 +59,6 @@ nodist_bfdd_bfdd_SOURCES = \
 
 bfdd_bfdd_SOURCES = bfdd/bfdd.c
 bfdd_bfdd_LDADD = bfdd/libbfd.a lib/libfrr.la $(BFDUST_LIBS) $(UST_LIBS)
+bfdd_bfd_dplane_server_plugin_la_SOURCES = bfdd/bfd_dplane_server_plugin.c
+bfdd_bfd_dplane_server_plugin_la_LDFLAGS = $(MODULE_LDFLAGS)
+bfdd_bfd_dplane_server_plugin_la_LIBADD = $(MLX_LIBS_LD)
