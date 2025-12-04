@@ -1,4 +1,5 @@
 etc/frr/
+etc/frr/frr.conf.d/
 etc/iproute2/rt_protos.d/
 etc/logrotate.d/
 usr/share/doc/frr/
