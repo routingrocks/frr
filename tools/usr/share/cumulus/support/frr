@@ -64,6 +64,8 @@ func_frr()
     exec_cmd bgp.ipv6_soo vtysh -c "show bgp ipv6 unicast soo route"
     exec_cmd $jexec bgp.ipv4_vpn_route_leak vtysh -c "show bgp vrf all ipv4 unicast route-leak $json"
     exec_cmd $jexec bgp.ipv6_vpn_route_leak vtysh -c "show bgp vrf all ipv6 unicast route-leak $json"
+    exec_cmd $jexec bgp.route.ipv4_unreach_detail vtysh -c "show bgp ipv4 unreachability detail $json"
+    exec_cmd $jexec bgp.route.ipv6_unreach_detail vtysh -c "show bgp ipv6 unreachability detail $json"
 
     # BGP EVPN Commands
     exec_cmd $jexec bgp.evpn.summary vtysh -c "show bgp l2vpn evpn summary $json"
