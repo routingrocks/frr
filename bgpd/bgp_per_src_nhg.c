@@ -1229,6 +1229,22 @@ static struct bgp_dest_soo_hash_entry *bgp_dest_soo_add(struct bgp_per_src_nhg_h
 	return dest_he;
 }
 
+static bool is_soo_route_absent(struct bgp_per_src_nhg_hash_entry *nhe)
+{
+	//return true if soo route was not received and this is dummy soo entry
+	if (!nhe->refcnt && !CHECK_FLAG(nhe->flags, PER_SRC_NEXTHOP_GROUP_VALID) &&
+	    !CHECK_FLAG(nhe->flags, PER_SRC_NEXTHOP_GROUP_SOO_ROUTE_NHID_USED)) {
+		if (BGP_DEBUG(per_src_nhg, PER_SRC_NHG)) {
+			char buf[INET6_ADDRSTRLEN];
+			ipaddr2str(&nhe->ip, buf, sizeof(buf));
+			zlog_debug("bgp vrf %s per src nhg %s soo route absent",
+				   nhe->bgp->name_pretty, buf);
+		}
+		return true;
+	}
+	return false;
+}
+
 static void bgp_dest_soo_del(struct bgp_dest_soo_hash_entry *dest_he,
 			     struct bgp_per_src_nhg_hash_entry *nhe)
 {
@@ -1239,9 +1255,10 @@ static void bgp_dest_soo_del(struct bgp_dest_soo_hash_entry *dest_he,
 	bgp_dest_soo_free(tmp_he);
 
 	/* check if nhe del pending and process */
-	if (CHECK_FLAG(nhe->flags, PER_SRC_NEXTHOP_GROUP_DEL_PENDING) &&
-	    !CHECK_FLAG(nhe->flags, PER_SRC_NEXTHOP_GROUP_VALID) &&
-	    !CHECK_FLAG(nhe->flags, PER_SRC_NEXTHOP_GROUP_SOO_ROUTE_NHID_USED) &&
+	if (((CHECK_FLAG(nhe->flags, PER_SRC_NEXTHOP_GROUP_DEL_PENDING) &&
+	      !CHECK_FLAG(nhe->flags, PER_SRC_NEXTHOP_GROUP_VALID) &&
+	      !CHECK_FLAG(nhe->flags, PER_SRC_NEXTHOP_GROUP_SOO_ROUTE_NHID_USED)) ||
+	     is_soo_route_absent(nhe)) &&
 	    !nhe->route_with_soo_use_nhid_cnt) {
 		bgp_per_src_nhg_del_send(nhe, __func__);
 		bgp_per_src_nhg_del(nhe);
@@ -1611,7 +1628,8 @@ bool bgp_per_src_nhg_use_nhgid(struct bgp *bgp, struct bgp_dest *dest, struct bg
 			    CHECK_FLAG(dest_he->flags, DEST_SOO_ROUTE_ATTR_DEL) ||
 			    ((!CHECK_FLAG(nhe->flags, PER_SRC_NEXTHOP_GROUP_VALID)) &&
 			     (!CHECK_FLAG(nhe->flags, PER_SRC_NEXTHOP_GROUP_SOO_ROUTE_CLEAR_ONLY)) &&
-			     (!CHECK_FLAG(nhe->flags, PER_SRC_NEXTHOP_GROUP_DEL_PENDING)))) {
+			     (!CHECK_FLAG(nhe->flags, PER_SRC_NEXTHOP_GROUP_DEL_PENDING))) ||
+			    is_soo_route_absent(nhe)) {
 				if (CHECK_FLAG(dest_he->flags, DEST_USING_SOO_NHGID)) {
 					nhe->route_with_soo_use_nhid_cnt--;
 					UNSET_FLAG(dest_he->flags, DEST_USING_SOO_NHGID);
@@ -1688,7 +1706,8 @@ static void bgp_process_route_with_soo_attr(struct bgp *bgp, afi_t afi, safi_t s
 		if (!is_add) {
 			if (!nhe->refcnt &&
 			    !CHECK_FLAG(nhe->flags, PER_SRC_NEXTHOP_GROUP_SOO_ROUTE_NHID_USED) &&
-			    !nhe->route_with_soo_use_nhid_cnt)
+			    !nhe->route_with_soo_use_nhid_cnt &&
+				CHECK_FLAG(nhe->flags, PER_SRC_NEXTHOP_GROUP_VALID))
 				SET_FLAG(nhe->flags, PER_SRC_NEXTHOP_GROUP_DEL_PENDING);
 		}
 	}
