@@ -3214,8 +3214,21 @@ void bgp_evpn_es_evi_vrf_ref(struct bgpevpn *vpn)
 	if (BGP_DEBUG(evpn_mh, EVPN_MH_ES))
 		zlog_debug("es-vrf ref for vni %u", vpn->vni);
 
-	RB_FOREACH (es_evi, bgp_es_evi_rb_head, &vpn->es_evi_rb_tree)
+	RB_FOREACH (es_evi, bgp_es_evi_rb_head, &vpn->es_evi_rb_tree) {
 		bgp_evpn_es_vrf_ref(es_evi, vpn->bgp_vrf);
+
+		/* Now that the VRF is updated for the ES-EVI, check if any local
+		 * route cleanup is required which was deferred earlier when the
+		 * VRF was not updated during local ESI creation.
+		 */
+		if (es_evi->sweep_local_routes && es_evi->es_vrf) {
+			if (BGP_DEBUG(evpn_mh, EVPN_MH_RT))
+				zlog_debug("es %s vni %u: executing deferred route cleanup for vrf %s",
+					   es_evi->es->esi_str, vpn->vni, vpn->bgp_vrf->name_pretty);
+			es_evi->sweep_local_routes = false;
+			bgp_evpn_local_es_evi_unistall_local_routes_in_vrfs(es_evi->es, es_evi);
+		}
+	}
 }
 
 /* 1. If ES-VRF is not present install the host route with the exploded/flat
@@ -3634,6 +3647,7 @@ static struct bgp_evpn_es_evi *bgp_evpn_es_evi_new(struct bgp_evpn_es *es,
 	es_evi->es = es;
 	es_evi->vpn = vpn;
 	es_evi->flags = 0;
+	es_evi->sweep_local_routes = false;
 
 	/* Initialise the VTEP list */
 	es_evi->es_evi_vtep_list = list_new();
@@ -5190,8 +5204,14 @@ void bgp_evpn_local_es_evi_unistall_local_routes_in_vrfs(struct bgp_evpn_es *es,
 	const struct prefix_evpn *evp;
 	struct bgp_evpn_es_vrf *es_vrf = es_evi->es_vrf;
 
-	if (!es_vrf)
+	if (!es_vrf) {
+		/* VRF not available yet, mark for deferred cleanup once the VRF is updated */
+		if (BGP_DEBUG(evpn_mh, EVPN_MH_RT))
+			zlog_debug("es %s vni %u: VRF not available, marking for deferred route cleanup",
+				   es->esi_str, es_evi->vpn->vni);
+		es_evi->sweep_local_routes = true;
 		return;
+	}
 
 	for (ALL_LIST_ELEMENTS_RO(es->macip_global_path_list, node, es_info)) {
 		pi = es_info->pi;

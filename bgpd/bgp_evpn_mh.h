@@ -245,6 +245,9 @@ struct bgp_evpn_es_evi {
 	struct list *es_evi_vtep_list;
 
 	struct bgp_evpn_es_vrf *es_vrf;
+
+	/* Flag to indicate deferred route cleanup needed when VRF becomes available */
+	bool sweep_local_routes;
 };
 
 /* PE attached to an ES for a VNI. This entry is created when an EAD-per-ES
