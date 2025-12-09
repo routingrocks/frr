@@ -1854,7 +1854,6 @@ void zebra_evpn_mh_vtep_show(struct vty *vty, bool uj)
 	json_object *json_array = NULL;
 	struct listnode *node;
 	struct zebra_evpn_mh_vtep *mh_vtep;
-	char buf1[INET_ADDRSTRLEN];
 
 	if (uj) {
 		json_array = json_object_new_array();
