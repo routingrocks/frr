@@ -569,6 +569,7 @@ void ptm_bfd_sess_dn(struct bfd_session *bfd, uint8_t diag,
 
 	/* Slow down the control packets, the connection is down. */
 	bs_set_slow_timers(bfd);
+	bfd_recvtimer_update(bfd);
 
 	/* only signal clients when going from up->down state */
 	if (old_state == PTM_BFD_UP) {
@@ -1350,19 +1351,21 @@ void bfd_set_shutdown(struct bfd_session *bs, bool shutdown)
 		if (bs->sock != -1)
 			ptm_bfd_snd(bs, 0);
 	} else {
+		UNSET_FLAG(bs->flags, BFD_SESS_FLAG_SHUTDOWN);
+
 		/* Already working. */
 		if (!is_shutdown)
 			return;
 
-		UNSET_FLAG(bs->flags, BFD_SESS_FLAG_SHUTDOWN);
-
 		/* Handle data plane shutdown case. */
 		if (bs->bdc) {
+			UNSET_FLAG(bs->flags, BFD_SESS_FLAG_SHUTDOWN);
 			bs->ses_state = PTM_BFD_DOWN;
 			bfd_dplane_update_session(bs);
 			control_notify(bs, bs->ses_state);
 			return;
 		}
+
 
 		/* Change and notify state change. */
 		bs->ses_state = PTM_BFD_DOWN;

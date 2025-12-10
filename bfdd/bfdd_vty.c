@@ -18,6 +18,30 @@
 #include "bfdd/bfdd_vty_clippy.c"
 
 /*
+ * Migration batch state for staggered session activation
+ */
+#define MIGRATION_BATCH_SIZE 10
+#define MIGRATION_BATCH_DELAY_MS 500
+
+/* Structure to hold state for batched migration */
+struct migration_batch_state {
+	struct bfd_session **sessions;  /* Array of session pointers */
+	size_t total_sessions;
+	size_t current_index;
+	struct event *batch_timer;
+	bool to_dplane;  /* true if migrating to dplane, false if to control plane */
+};
+
+static struct migration_batch_state migration_state = {0};
+
+/* Helper structure to collect sessions */
+struct session_collector {
+	struct bfd_session **sessions;
+	size_t count;
+	size_t capacity;
+};
+
+/*
  * Commands help string definitions.
  */
 #define PEER_IPV4_STR "IPv4 peer address\n"
@@ -1052,10 +1076,10 @@ static void bfd_migrate_session_to_control_plane(struct bfd_session *bs)
 		  bs->ses_state == PTM_BFD_INIT ? "INIT" : "ADM_DOWN");
 
 	/* Delete session from data plane */
-	/*if (bfd_dplane_delete_session(bs) != 0) {
+	if (bfd_dplane_delete_session(bs) != 0) {
 		zlog_err("%s: failed to delete session %s from data plane",
 			 __func__, bs_to_string(bs));
-	}*/
+	}
 
 	/* Clear data plane context */
 	bs->bdc = NULL;
@@ -1106,6 +1130,12 @@ static void bfd_vrf_close_all_sockets(void)
 		EVENT_OFF(bvrf->bg_ev[3]);
 		EVENT_OFF(bvrf->bg_ev[4]);
 		EVENT_OFF(bvrf->bg_ev[5]);
+     		bvrf->bg_ev[0] = NULL;
+        	bvrf->bg_ev[1] = NULL;
+        	bvrf->bg_ev[2] = NULL;
+        	bvrf->bg_ev[3] = NULL;
+        	bvrf->bg_ev[4] = NULL;
+        	bvrf->bg_ev[5] = NULL;
 
 		/* Close all control plane descriptors */
 		if (bvrf->bg_shop != -1) {
@@ -1154,27 +1184,131 @@ static void bfd_vrf_re_enable_all_sockets(void)
 }
 
 /*
+ * Helper functions for batched migration
+ */
+static void _collect_session(struct hash_bucket *hb, void *arg)
+{
+	struct session_collector *collector = arg;
+	struct bfd_session *bs = hb->data;
+	
+	if (collector->count < collector->capacity) {
+		collector->sessions[collector->count++] = bs;
+	}
+}
+
+static struct bfd_session **bfd_collect_all_sessions(size_t *count)
+{
+	struct bfd_session **sessions;
+	struct session_collector collector;
+	size_t session_count;
+
+	session_count = bfd_get_session_count();
+	if (session_count == 0) {
+		*count = 0;
+		return NULL;
+	}
+
+	sessions = XCALLOC(MTYPE_TMP, session_count * sizeof(struct bfd_session *));
+	collector.sessions = sessions;
+	collector.count = 0;
+	collector.capacity = session_count;
+
+	bfd_key_iterate(_collect_session, &collector);
+
+	*count = collector.count;
+	return sessions;
+}
+
+static void bfd_migrate_batch_timer(struct event *t)
+{
+	struct migration_batch_state *state = &migration_state;
+	size_t batch_end;
+	size_t i;
+
+	/* Calculate the end of this batch */
+	batch_end = state->current_index + MIGRATION_BATCH_SIZE;
+	if (batch_end > state->total_sessions)
+		batch_end = state->total_sessions;
+
+	if (bglobal.debug_peer_event)
+		zlog_debug("Processing migration batch: sessions %zu to %zu of %zu",
+			   state->current_index, batch_end - 1, state->total_sessions);
+
+	/* Process this batch - set no shutdown */
+	for (i = state->current_index; i < batch_end; i++) {
+		struct bfd_session *bs = state->sessions[i];
+		
+		if (!bs)
+			continue;
+		
+		/*
+		 * Validate that the session still exists by checking if we can
+		 * look it up by its discriminator. The session might have been
+		 * deleted between when we collected the list and now.
+		 * 
+		 * This prevents use-after-free crashes.
+		 */
+		if (bfd_id_lookup(bs->discrs.my_discr) != bs) {
+			if (bglobal.debug_peer_event)
+				zlog_debug("Session %u no longer exists, skipping in batch %zu",
+					   bs->discrs.my_discr, i);
+			continue;
+		}
+		
+		bfd_set_shutdown(bs, false);
+	}
+
+	state->current_index = batch_end;
+
+	/* Check if we're done */
+	if (state->current_index >= state->total_sessions) {
+		if (bglobal.debug_peer_event)
+			zlog_debug("Completed batched migration of all %zu sessions to %s",
+				   state->total_sessions,
+				   state->to_dplane ? "data plane" : "control plane");
+
+		/* Cleanup */
+		XFREE(MTYPE_TMP, state->sessions);
+		memset(state, 0, sizeof(*state));
+	} else {
+		/* Schedule next batch */
+		event_add_timer_msec(master, bfd_migrate_batch_timer, NULL,
+				     MIGRATION_BATCH_DELAY_MS, &state->batch_timer);
+	}
+}
+
+/*
  * Hash iteration callback for migrating to data plane
  */
-static void _bfd_migrate_to_dplane(struct hash_bucket *hb, void *arg)
+static void _bfd_migrate_set_shutdown(struct hash_bucket *hb, void *arg)
 {
 	struct bfd_session *bs = hb->data;
 
 	bfd_set_shutdown(bs, true);
+}
+
+static void _bfd_migrate_to_dplane_create(struct hash_bucket *hb, void *arg)
+{
+	struct bfd_session *bs = hb->data;
+
 	bfd_migrate_session_to_dplane(bs);
+}
+
+static void _bfd_migrate_set_no_shutdown(struct hash_bucket *hb, void *arg)
+{
+	struct bfd_session *bs = hb->data;
+
 	bfd_set_shutdown(bs, false);
 }
 
 /*
  * Hash iteration callback for migrating to control plane
  */
-static void _bfd_migrate_to_control_plane(struct hash_bucket *hb, void *arg)
+static void _bfd_migrate_to_control_plane_create(struct hash_bucket *hb, void *arg)
 {
 	struct bfd_session *bs = hb->data;
 
-	bfd_set_shutdown(bs, true);
 	bfd_migrate_session_to_control_plane(bs);
-	bfd_set_shutdown(bs, false);
 }
 
 /*
@@ -1182,14 +1316,49 @@ static void _bfd_migrate_to_control_plane(struct hash_bucket *hb, void *arg)
  */
 static void bfd_migrate_all_sessions_to_dplane(void)
 {
+	size_t session_count;
+
 	if (bglobal.debug_peer_event)
 		zlog_debug("Starting migration of all sessions to data plane");
 
-	/* Iterate through all sessions and migrate them */
-	bfd_key_iterate(_bfd_migrate_to_dplane, NULL);
+	/* Cancel any ongoing migration */
+	if (migration_state.batch_timer) {
+		EVENT_OFF(migration_state.batch_timer);
+		XFREE(MTYPE_TMP, migration_state.sessions);
+		memset(&migration_state, 0, sizeof(migration_state));
+	}
+
+	/* Step 1: Set all sessions to shutdown immediately */
+	bfd_key_iterate(_bfd_migrate_set_shutdown, NULL);
+
+	/* Step 2: Close all VRF sockets - data plane will handle packet RX/TX */
+	bfd_vrf_close_all_sockets();
+
+	/* Step 3: Create dplane sessions for all */
+	bfd_key_iterate(_bfd_migrate_to_dplane_create, NULL);
+
+	/* Step 4: Collect all sessions for batched no-shutdown */
+	migration_state.sessions = bfd_collect_all_sessions(&session_count);
+	
+	if (session_count == 0 || !migration_state.sessions) {
+		if (bglobal.debug_peer_event)
+			zlog_debug("No sessions to migrate to data plane");
+		/* Ensure state is clean */
+		memset(&migration_state, 0, sizeof(migration_state));
+		return;
+	}
+	
+	migration_state.total_sessions = session_count;
+	migration_state.current_index = 0;
+	migration_state.to_dplane = true;
 
 	if (bglobal.debug_peer_event)
-		zlog_debug("Completed migration of all sessions to data plane");
+		zlog_debug("Collected %zu sessions for batched no-shutdown (data plane)",
+			   session_count);
+
+	/* Start the batched no-shutdown process immediately */
+	event_add_timer_msec(master, bfd_migrate_batch_timer, NULL, 500,
+			     &migration_state.batch_timer);
 }
 
 /*
@@ -1197,14 +1366,46 @@ static void bfd_migrate_all_sessions_to_dplane(void)
  */
 static void bfd_migrate_all_sessions_to_control_plane(void)
 {
+	size_t session_count;
+
 	if (bglobal.debug_peer_event)
 		zlog_debug("Starting migration of all sessions to control plane");
 
-	/* Iterate through all sessions and migrate them */
-	bfd_key_iterate(_bfd_migrate_to_control_plane, NULL);
+	/* Cancel any ongoing migration */
+	if (migration_state.batch_timer) {
+		EVENT_OFF(migration_state.batch_timer);
+		XFREE(MTYPE_TMP, migration_state.sessions);
+		memset(&migration_state, 0, sizeof(migration_state));
+	}
+
+	/* Step 1: Set all sessions to shutdown immediately */
+	bfd_key_iterate(_bfd_migrate_set_shutdown, NULL);
+
+	/* Step 2: Re-enable VRF sockets for control plane mode */
+	bfd_vrf_re_enable_all_sockets();
+
+	/* Step 3: Create control plane sessions for all */
+	bfd_key_iterate(_bfd_migrate_to_control_plane_create, NULL);
+
+	/* Step 4: Collect all sessions for batched no-shutdown */
+	migration_state.sessions = bfd_collect_all_sessions(&session_count);
+	migration_state.total_sessions = session_count;
+	migration_state.current_index = 0;
+	migration_state.to_dplane = false;
+
+	if (session_count == 0) {
+		if (bglobal.debug_peer_event)
+			zlog_debug("No sessions to migrate to control plane");
+		return;
+	}
 
 	if (bglobal.debug_peer_event)
-		zlog_debug("Completed migration of all sessions to control plane");
+		zlog_debug("Collected %zu sessions for batched no-shutdown (control plane)",
+			   session_count);
+
+	/* Start the batched no-shutdown process immediately */
+	event_add_timer_msec(master, bfd_migrate_batch_timer, NULL, 500,
+			     &migration_state.batch_timer);
 }
 
 /*
@@ -1251,10 +1452,9 @@ DEFUN(bfd_offload_mode,
 		}
 	}
 
-	/* Close all VRF sockets - data plane will handle packet RX/TX */
-	bfd_vrf_close_all_sockets();
 
 	bfd_migrate_all_sessions_to_dplane();
+
 
 	return CMD_SUCCESS;
 }
@@ -1288,8 +1488,6 @@ DEFUN(no_bfd_offload_mode,
 		vty_out(vty, "Closed global RAW IPv6 socket\n");
 	}
 
-	/* Re-enable VRF sockets for control plane mode */
-	bfd_vrf_re_enable_all_sockets();
 
 	bfd_migrate_all_sessions_to_control_plane();
 

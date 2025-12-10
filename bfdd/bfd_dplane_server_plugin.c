@@ -2,8 +2,8 @@
 /*
  * BFD data plane server plugin implementation.
  *
- * Copyright (C) 2024 Network Device Education Foundation, Inc. ("NetDEF")
- *                    Based on original BFD data plane implementation
+ * Copyright (C) 2025 NVIDIA CORPORATION & AFFILIATES. ALL RIGHTS RESERVED.
+ * Based on original BFD data plane implementation
  */
 
 #include <zebra.h>
@@ -45,6 +45,7 @@
 #include <sx/sdk/sx_lib_host_ifc.h>
 #include <sx/sdk/sx_trap_id.h>
 #include <sx/sxd/sx_bfd_ctrl_cmds.h>
+#include <sx/sdk/auto_headers/sx_host_auto.h>
 
 DEFINE_MTYPE_STATIC(BFDD, BFDD_DPLANE_SERVER_PLUGIN_CTX,
 		    "BFD data plane server plugin context");
@@ -162,6 +163,9 @@ struct bfd_dplane_server_session {
 	uint32_t config_required_rx;
 	/** Configured required echo RX interval. */
 	uint32_t config_required_echo_rx;
+
+	uint32_t cur_timers_desired_min_tx;
+	uint32_t cur_timers_required_min_rx;
 
         /* Minimum desired echo transmission interval (in microseconds)*/
         uint32_t min_echo_tx;
@@ -337,6 +341,8 @@ static struct event packet_trap_event;
 static void bfd_dplane_set_slow_timer(struct bfd_dplane_server_session *bs) {
         bs->detect_TO = (BFD_DPLANE_DEFDETECTMULT * BFD_DPLANE_DEF_SLOWTX);
         bs->transmit_interval = BFD_DPLANE_DEF_SLOWTX;
+        bs->cur_timers_desired_min_tx = BFD_DEF_SLOWTX;
+        bs->cur_timers_required_min_rx = BFD_DEF_SLOWTX;
 }
 
 static sx_status_t initialize_sx_sdk(void) {
@@ -513,13 +519,11 @@ static void bfd_dplane_read_timeout_trap(struct event *t) {
         switch (session->state) {
 	        case BFD_SESSION_INIT:
         	case BFD_SESSION_UP:
-			zlog_err("UTK %s: Bringing the session down due to timeout trap %d", __func__, opaque_data);
+			if (bglobal.debug_dplane)
+				zlog_err("%s: Bringing the session down due to timeout trap iLID=%u", __func__, opaque_data);
                 	bfd_dplane_sess_dn(session, BFD_DPLANE_CONTROL_EXPIRED, false);
                 	break;
         }
-
-	if (bglobal.debug_dplane)
-		zlog_debug("%s: Bringing the session down due to timeout trap %d", __func__, opaque_data);
 
 	bfd_dplane_server_handle_state_change(session);
 
@@ -537,6 +541,8 @@ static void bfd_dplane_final_handler (struct bfd_dplane_server_session *bs)
 		bs->transmit_interval = bs->config_desired_tx;
 	else
 		bs->transmit_interval = bs->remote_required_rx;
+
+	bs->cur_timers_desired_min_tx = bs->transmit_interval;
 
 	bfd_dplane_update_tx_session_offload(bs);
 }
@@ -578,6 +584,8 @@ static void bfd_dplane_process_rx_packet(struct bfd_dplane_server_session *sessi
 	
 	
 
+	if (session->state == BFD_SESSION_ADMIN_DOWN || session->offloaded_tx_session_id == 0 || session->offloaded_rx_session_id ==0)
+		return;
 	/* Log remote discriminator changes */
 	if ((session->rid != 0) && (session->rid != ntohl(cp->discrs.my_discr))) {
 		if (bglobal.debug_dplane)
@@ -642,26 +650,20 @@ static void bfd_dplane_process_rx_packet(struct bfd_dplane_server_session *sessi
 		tx_updated = true;
 	}
 	
-	/*
-	 * Detection timeout calculation:
-	 * The minimum detection timeout is the remote detection
-	 * multiplier (number of packets to be missed) times the agreed
-	 * transmission interval.
-	 *
-	 * RFC 5880, Section 6.8.4.
-	 */
-	if (session->config_required_rx > session->remote_desired_tx)
-		session->detect_TO = session->remote_detect_mult * session->config_required_rx;
+	if (session->cur_timers_required_min_rx > session->remote_desired_tx)
+		session->detect_TO = session->remote_detect_mult * session->cur_timers_required_min_rx;
 	else
 		session->detect_TO = session->remote_detect_mult * session->remote_desired_tx;
-	
-	if (session->config_desired_tx > session->remote_required_rx)
- 		session->transmit_interval = session->config_desired_tx;
-	else
-		session->transmit_interval = session->remote_required_rx;
 
-	if (!tx_updated) 
+	bfd_dplane_update_rx_session_offload(session);	
+
+	if (!tx_updated && timer_changed) {
+		if (session->config_desired_tx > session->remote_required_rx)
+                	session->transmit_interval = session->config_desired_tx;
+       	 	else
+                	session->transmit_interval = session->remote_required_rx;
 		bfd_dplane_update_tx_session_offload(session);	
+	}
 
 	/*
 	 * We've received a packet with the POLL bit set, we must send
@@ -682,8 +684,7 @@ static void bfd_dplane_process_rx_packet(struct bfd_dplane_server_session *sessi
 		bfd_dplane_update_tx_session_offload(session);		
 		
 	}
-	bfd_dplane_update_rx_session_offload(session);	
-	bfd_dplane_server_handle_state_change(session);
+	//bfd_dplane_server_handle_state_change(session);
 	
 	if (bglobal.debug_dplane)
 		zlog_debug("%s: [lid=%u] packet processed: remote_tx=%u remote_rx=%u detect_TO=%lu",
@@ -711,7 +712,7 @@ static void bfd_dplane_sess_up(struct bfd_dplane_server_session *session)
 	
 	bfd_dplane_server_handle_state_change(session);
 
-	if (bglobal.debug_peer_event)
+	if (bglobal.debug_dplane)
 		zlog_debug("state-change: [dplane lid=%u] %s -> UP",
 			   session->lid,
 			   old_state == BFD_SESSION_DOWN ? "DOWN" :
@@ -735,7 +736,7 @@ static void bfd_dplane_sess_dn(struct bfd_dplane_server_session *session, uint8_
 	session->state = BFD_SESSION_DOWN;
 	session->polling = 0;
 	
-	if (bglobal.debug_peer_event)
+	if (bglobal.debug_dplane)
 		zlog_debug("state-change: [dplane lid=%u] %s -> DOWN (diag=%u)",
 			   session->lid,
 			   old_state == BFD_SESSION_UP ? "UP" :
@@ -790,10 +791,11 @@ static void bfd_dplane_down_handler(struct bfd_dplane_server_session *session, i
                  */
 		session->state = BFD_SESSION_INIT;
 		
-		if (bglobal.debug_peer_event)
+		if (bglobal.debug_dplane)
 			zlog_debug("state-change: [dplane lid=%u] DOWN -> INIT",
 				   session->lid);
-		bfd_dplane_server_handle_state_change(session);
+		bfd_dplane_update_tx_session_offload(session);	
+		//bfd_dplane_server_handle_state_change(session);
                 /*
                  * RFC 5880, Section 6.1.
                  * A system taking the Passive role MUST NOT begin
@@ -814,7 +816,7 @@ static void bfd_dplane_down_handler(struct bfd_dplane_server_session *session, i
                 break;
 
         default:
-		if (bglobal.debug_peer_event)
+		if (bglobal.debug_dplane)
 			zlog_debug("state-change: unhandled neighbor state: %d",
 				   nstate);
                 break;
@@ -848,7 +850,7 @@ static void bfd_dplane_init_handler(struct bfd_dplane_server_session *session, i
                 break;
 
         default:
-		if (bglobal.debug_peer_event)
+		if (bglobal.debug_dplane)
 			zlog_debug("state-change: unhandled neighbor state: %d",
 				   nstate);
                 break;
@@ -878,11 +880,12 @@ static void bfd_dplane_up_handler(struct bfd_dplane_server_session *session, int
 
         case BFD_SESSION_INIT:
         case BFD_SESSION_UP:
+		bfd_dplane_server_handle_state_change(session);
                 /* Path is up and working. */
                 break;
 
         default:
-		if (bglobal.debug_peer_event)
+		if (bglobal.debug_dplane)
 			zlog_debug("state-change: unhandled neighbor state: %d",
 				   nstate);
                 break;
@@ -913,7 +916,7 @@ static void bfd_dplane_state_handler(struct bfd_dplane_server_session *session, 
                 break;
 
         default:
-		if (bglobal.debug_peer_event)
+		if (bglobal.debug_dplane)
 			zlog_debug("state-change: [dplane lid=%u] is in invalid state: %d",
 				   session->lid, nstate);
                break;
@@ -930,13 +933,17 @@ static void bfd_dplane_read_packet_trap(struct event *t)
 	struct bfd_pkt* bfd_packet;
 	uint32_t lid, opaque_data;
 
+//	frr_with_privs(&bglobal.bfdd_privs) {
+//		event_add_read(master, bfd_dplane_read_packet_trap, NULL, packet_notif_channel.channel.fd.fd, &packet_trap_event);
+	//}
+
 	frr_with_privs(&bglobal.bfdd_privs) {
 		rc = sx_lib_host_ifc_recv(&packet_notif_channel.channel.fd, packet_buffer, &packet_size, &receive_info);
 	}
 	if (rc != SX_STATUS_SUCCESS) {
 		zlog_err("%s: Failed to read packet from packet fd  %d",__func__, rc);
 		goto PACKET_ERROR;
-		}
+	}
 
 	/* Compare the current state of the RX packet to the one which we received */
 	/* Check what has changed */
@@ -1045,6 +1052,7 @@ static sx_status_t bfd_register_sdk_packet_traps(void)
 		zlog_err("%s: Failed to open host interface for packet traps: %d", __func__, rc);
 		return rc;
 	}
+
 	frr_with_privs(&bglobal.bfdd_privs) {
 		rc = sxd_fd_get(packet_notif_channel.channel.fd.driver_handle, &poll_fd);
 	}
@@ -1052,6 +1060,7 @@ static sx_status_t bfd_register_sdk_packet_traps(void)
                 zlog_err("%s: Failed to get packet FD: %d", __func__, rc);
                 return rc;
         }
+
 	frr_with_privs(&bglobal.bfdd_privs) {
 		rc = sx_api_host_ifc_trap_id_register_set(sx_handle, SX_ACCESS_CMD_REGISTER, 0,
 							SX_TRAP_ID_BFD_PACKET_EVENT, &packet_notif_channel);
@@ -1137,13 +1146,16 @@ static int bfd_dplane_new_tx_session_offload(struct bfd_dplane_server_session *b
 	/* Construct TX packet */
 	bfd_construct_tx_packet(&session_params_tx, &bfd_packet_tx, bfd_session, true);
 
+	if (bfd_session->flags & BFD_SESSION_FLAG_SHUTDOWN)
+		return;
+
 	/* Find available UDP port and create session */
 	frr_with_privs(&bglobal.bfdd_privs) {
 		/* Start from BFD_UDP_SRCPORTINIT till BFD_UDP_SRCPORTMAX and try to bind the session */
 		for (udp_port = BFD_UDP_SRCPORTINIT; udp_port < BFD_UDP_SRCPORTMAX; udp_port++) {
 			session_params_tx.session_data.data.tx_data.packet_encap.encap_data.udp_over_ip.src_udp_port = udp_port;
 			rc = sx_api_bfd_offload_set(sx_handle, SX_ACCESS_CMD_CREATE, &session_params_tx, &bfd_session->offloaded_tx_session_id);
-			if (rc != SX_STATUS_ERROR || rc == SX_STATUS_SUCCESS) {
+			if (rc == SX_STATUS_SUCCESS) {
 				is_udp_port_found = true;
 				break;
 			}
@@ -1184,6 +1196,9 @@ static int bfd_dplane_new_rx_session_offload(struct bfd_dplane_server_session *b
 	/* Construct RX packet */
 	bfd_construct_rx_packet(&session_params_rx, &bfd_packet_rx, bfd_session, true);
 
+	if (bfd_session->flags & BFD_SESSION_FLAG_SHUTDOWN)
+		return;
+
 	/* Create RX session */
 	frr_with_privs(&bglobal.bfdd_privs) {
 		rc = sx_api_bfd_offload_set(sx_handle, SX_ACCESS_CMD_CREATE, &session_params_rx, &bfd_session->offloaded_rx_session_id);
@@ -1204,6 +1219,7 @@ static int bfd_dplane_update_tx_session_offload(struct bfd_dplane_server_session
 {
 	sx_bfd_session_params_t session_params_tx;
 	struct bfd_pkt bfd_packet_tx = {};
+	sx_access_cmd_t cmd = SX_ACCESS_CMD_EDIT;
 	sx_status_t rc;
 
 	if (!bfd_session) {
@@ -1216,10 +1232,12 @@ static int bfd_dplane_update_tx_session_offload(struct bfd_dplane_server_session
 
 	/* Construct TX packet */
 	bfd_construct_tx_packet(&session_params_tx, &bfd_packet_tx, bfd_session, false);
+	if (!bfd_session->offloaded_tx_session_id)
+		cmd = SX_ACCESS_CMD_CREATE;
 
 	/* Update TX session */
 	frr_with_privs(&bglobal.bfdd_privs) {
-		rc = sx_api_bfd_offload_set(sx_handle, SX_ACCESS_CMD_EDIT, &session_params_tx, &bfd_session->offloaded_tx_session_id);
+		rc = sx_api_bfd_offload_set(sx_handle, cmd, &session_params_tx, &bfd_session->offloaded_tx_session_id);
 	}
 
 	if (rc != SX_STATUS_SUCCESS) {
@@ -1237,6 +1255,7 @@ static int bfd_dplane_update_rx_session_offload(struct bfd_dplane_server_session
 {
 	sx_bfd_session_params_t session_params_rx;
 	struct bfd_pkt bfd_packet_rx = {};
+        sx_access_cmd_t cmd = SX_ACCESS_CMD_EDIT;
 	sx_status_t rc;
 
 	if (!bfd_session) {
@@ -1250,9 +1269,12 @@ static int bfd_dplane_update_rx_session_offload(struct bfd_dplane_server_session
 	/* Construct RX packet */
 	bfd_construct_rx_packet(&session_params_rx, &bfd_packet_rx, bfd_session, false);
 
+        if (!bfd_session->offloaded_rx_session_id)
+                cmd = SX_ACCESS_CMD_CREATE;
+
 	/* Update RX session */
 	frr_with_privs(&bglobal.bfdd_privs) {
-		rc = sx_api_bfd_offload_set(sx_handle, SX_ACCESS_CMD_EDIT, &session_params_rx, &bfd_session->offloaded_rx_session_id);
+		rc = sx_api_bfd_offload_set(sx_handle, cmd, &session_params_rx, &bfd_session->offloaded_rx_session_id);
 	}
 
 	if (rc != SX_STATUS_SUCCESS) {
@@ -1435,12 +1457,12 @@ static void convert_ipv4_byte_order(struct in_addr *dst, const struct in_addr *s
 static void bfd_construct_tx_packet(sx_bfd_session_params_t *session_params_tx, struct bfd_pkt *bfd_packet_tx, struct bfd_dplane_server_session *session, bool new_session) 
 {
 	session_params_tx->session_data.type = SX_BFD_ASYNC_ACTIVE_TX;
-	if (new_session) {
-		session_params_tx->session_data.data.tx_data.interval = session->config_desired_tx;
-	} else {
+	//if (new_session) {
+	//	session_params_tx->session_data.data.tx_data.interval = session->config_desired_tx;
+	//} else {
 		/* Use calculated transmit interval */
-	session_params_tx->session_data.data.tx_data.interval = session->transmit_interval;
-	}
+		session_params_tx->session_data.data.tx_data.interval = session->transmit_interval;
+	//}
 
 	session_params_tx->session_data.data.tx_data.packet_encap.encap_type = SX_BFD_UDP_OVER_IP;
 	session_params_tx->peer.peer_type = SX_BFD_PEER_IP_AND_VRF;
@@ -1486,8 +1508,18 @@ static void bfd_construct_tx_packet(sx_bfd_session_params_t *session_params_tx, 
 	bfd_packet_tx->len = 24;
 	bfd_packet_tx->discrs.my_discr = htonl(session->lid);
 	bfd_packet_tx->detect_mult = session->detect_mult;
-	bfd_packet_tx->timers.desired_min_tx = htonl(session->config_desired_tx);
-	bfd_packet_tx->timers.required_min_rx = htonl(session->config_required_rx);
+	/*
+	 * Set timer values in packet based on RFC 5880 Section 6.8.3:
+	 * - When polling: advertise NEW config values (what we want to negotiate to)
+	 * - When not polling: advertise cur_timers (current operational values)
+	 */
+	//if (!session->polling) {
+	//	bfd_packet_tx->timers.desired_min_tx = htonl(session->cur_timers_desired_min_tx);
+	//	bfd_packet_tx->timers.required_min_rx = htonl(session->cur_timers_required_min_rx);
+//	} else {
+		bfd_packet_tx->timers.desired_min_tx = htonl(session->config_desired_tx);
+		bfd_packet_tx->timers.required_min_rx = htonl(session->config_required_rx);
+//	}
 	bfd_packet_tx->timers.required_min_echo = htonl(session->config_required_echo_rx);
 
 	bfd_packet_tx->flags = 0;
@@ -1507,16 +1539,14 @@ static void bfd_construct_tx_packet(sx_bfd_session_params_t *session_params_tx, 
 		
 		/* Sanity check: P-bit and F-bit should never be set simultaneously */
 		if (session->polling && session->send_final) {
-			zlog_warn("TX_CONSTRUCT: ERROR - Both P-bit and F-bit set simultaneously (polling=%d, send_final=%d)",
-				  session->polling, session->send_final);
 			session->polling = 0;
 			session->send_final = 1;
-        		if (session->config_desired_tx > session->remote_required_rx)
-                		session->transmit_interval = session->config_desired_tx;
-        		else
-                		session->transmit_interval = session->remote_required_rx;
+        		//if (session->config_desired_tx > session->remote_required_rx)
+                	//	session->transmit_interval = session->config_desired_tx;
+        		//else
+                	//	session->transmit_interval = session->remote_required_rx;
 
-			 session_params_tx->session_data.data.tx_data.interval = session->transmit_interval;
+			 //session_params_tx->session_data.data.tx_data.interval = session->transmit_interval;
 		}
 		/* Set P-bit and F-bit from session */
 		if (session->polling) {
@@ -1534,7 +1564,7 @@ static void bfd_construct_tx_packet(sx_bfd_session_params_t *session_params_tx, 
 	/* Log TX session construction/update in a single line */
 	
 	if (bglobal.debug_dplane)
-		zlog_err("TX_SESSION_CONSTRUCT: lid=%u rid=%u state=%s(%u) new=%u interval=%u detect_mult=%u min_tx=%u min_rx=%u P=%u F=%u mhop=%u",
+		zlog_err("TX_SESSION_CONSTRUCT: lid=%u rid=%u state=%s(%u) new=%u interval=%u detect_mult=%u min_tx=%u min_rx=%u curr_rx=%u curr_tx=%u P=%u F=%u mhop=%u",
 			session->lid, session->rid,
 			new_session ? "Down" : (session->state == 0 ? "AdminDown" : session->state == 1 ? "Down" : session->state == 2 ? "Init" : session->state == 3 ? "Up" : "Unknown"),
 		   	new_session ? BFD_SESSION_DOWN : session->state,
@@ -1543,6 +1573,8 @@ static void bfd_construct_tx_packet(sx_bfd_session_params_t *session_params_tx, 
 		   	session->detect_mult,
 		   	session->config_desired_tx,
 		  	session->config_required_rx,
+		   	session->cur_timers_required_min_rx,
+		  	session->cur_timers_desired_min_tx,
 		   	new_session ? 0 : (session->polling ? 1 : 0),
 		   	new_session ? 0 : (session->send_final ? 1 : 0),
 		   	(session->flags & BFD_SESSION_FLAG_MULTIHOP) ? 1 : 0);
@@ -1553,9 +1585,9 @@ static void bfd_construct_tx_packet(sx_bfd_session_params_t *session_params_tx, 
 static void bfd_construct_rx_packet(sx_bfd_session_params_t *session_params_rx, struct bfd_pkt *bfd_packet_rx, struct bfd_dplane_server_session *session, bool new_session) 
 {
         session_params_rx->session_data.type = SX_BFD_ASYNC_ACTIVE_RX;	
-	if (new_session || session->state != BFD_SESSION_UP)
-		session_params_rx->session_data.data.rx_data.interval = (BFD_DEFDETECTMULT * BFD_DEF_SLOWTX);
-	else
+	//if (new_session || session->state != BFD_SESSION_UP)
+	//	session_params_rx->session_data.data.rx_data.interval = (BFD_DEFDETECTMULT * BFD_DEF_SLOWTX);
+	//else
 		session_params_rx->session_data.data.rx_data.interval = session->detect_TO;
 
 	session_params_rx->session_data.data.rx_data.opaque_data = session->lid;
@@ -1585,9 +1617,9 @@ static void bfd_construct_rx_packet(sx_bfd_session_params_t *session_params_rx, 
 	bfd_packet_rx->timers.required_min_echo = htonl(session->config_required_echo_rx);
 
 	if (new_session) {
-        	bfd_packet_rx->detect_mult = session->detect_mult;
-		bfd_packet_rx->timers.desired_min_tx = htonl(session->config_desired_tx);
-		bfd_packet_rx->timers.required_min_rx = htonl(session->config_required_rx);
+        	bfd_packet_rx->detect_mult = BFD_DEFDETECTMULT;
+		bfd_packet_rx->timers.desired_min_tx = htonl(BFD_DEFDESIREDMINTX); //htonl(session->config_desired_tx);
+		bfd_packet_rx->timers.required_min_rx = htonl(BFD_DEFREQUIREDMINRX); //htonl(session->config_required_rx);
 	} else {
         	bfd_packet_rx->detect_mult = session->remote_detect_mult;
 		/* Convert from host to network byte order for packet */
@@ -1707,11 +1739,19 @@ static void bfd_dplane_server_handle_update_session(struct bfd_dplane_server_cli
 	if (passive_mode_changed) {
 		//TODO handle this case
 	} 
+	bool is_shutdown;
+        if (session->state == BFD_SESSION_UP)
+                is_shutdown = false;
+        else
+                is_shutdown = CHECK_FLAG(session->state, BFD_SESSION_FLAG_SHUTDOWN);
+	//zlog_err("shutdown mode lid=%u %s sutdown_mode_changed =%s", session->lid,  CHECK_FLAG(session->state, BFD_SESSION_FLAG_SHUTDOWN)? "yes": "no", shutdown_mode_changed? "yes":"no");
 	if (shutdown_mode_changed) {
 		if (session->flags & BFD_SESSION_FLAG_SHUTDOWN) {
+			if (is_shutdown)
+				return;
 			/* Shutting down the session */
-			if (bglobal.debug_peer_event)
-				zlog_debug("bfd_dplane_server_handle_update_session: shutdown session lid=%u state=%d", 
+			if (bglobal.debug_dplane)
+				zlog_err("bfd_dplane_server_handle_update_session: shutdown session lid=%u state=%d", 
 					   session->lid, session->state);
 			
 			/* Transition to ADMIN_DOWN state */
@@ -1734,13 +1774,11 @@ static void bfd_dplane_server_handle_update_session(struct bfd_dplane_server_cli
 			 * state changes from the REMOTE peer, not for local config changes.
 			 */
 		} else {
+			//if (!is_shutdown)
+			//	return;
 			/* Re-enabling the session */
-			if (bglobal.debug_peer_event)
-				zlog_debug("bfd_dplane_server_handle_update_session: re-enable session lid=%u", session->lid);
-			
-			/* Re-enable session: go to DOWN state */
-			session->state = BFD_SESSION_DOWN;
-			session->diagnostics = BFD_DPLANE_OK;
+			if (bglobal.debug_dplane)
+				zlog_err("bfd_dplane_server_handle_update_session: re-enable session lid=%u", session->lid);
 			
 			/* 
 			 * Don't notify control plane here - it already called control_notify()
@@ -1748,25 +1786,55 @@ static void bfd_dplane_server_handle_update_session(struct bfd_dplane_server_cli
 			 * line 1379). Sending another notification would cause duplicate notifications to BGP.
 			 */
 			
+			/* Re-enable session: go to DOWN state */
+			session->state = BFD_SESSION_DOWN;
+			session->diagnostics = BFD_DPLANE_OK;
+			bfd_dplane_set_slow_timer(session);
+			bfd_dplane_update_tx_session_offload(session);
 			/* Re-create sessions in SDK */
-			bfd_dplane_new_tx_session_offload(session);
-			bfd_dplane_new_rx_session_offload(session);
+			bfd_dplane_update_rx_session_offload(session);
 		}
 	}
 	if (is_up && timer_changed) {
 		session->polling = 1;
-        	/*if (session->config_required_rx > session->remote_desired_tx)
-                	session->detect_TO = session->remote_detect_mult * session->config_required_rx;
-        	else
-                	session->detect_TO = session->remote_detect_mult * session->remote_desired_tx;
-
-        	if (session->config_desired_tx > session->remote_required_rx)
-                	session->transmit_interval = session->config_desired_tx;
-        	else
-                	session->transmit_interval = session->remote_required_rx;
-		*/
+		bool rx_changed = false;	
+		/*
+		 * RFC 5880 Section 6.8.3:
+		 * - If DesiredMinTxInterval increases: don't change actual rate until poll completes
+		 * - If RequiredMinRxInterval reduces: use old value for Detection Time until poll completes
+		 * 
+		 * For INCREASES in RX requirement or DECREASES in TX: we should use the more
+		 * conservative (lenient) value immediately to avoid premature timeouts.
+		 * 
+		 * Strategy: Update cur_timers to max(old, new) so we advertise and use
+		 * the most lenient values during the polling sequence.
+		 */
+		
+		/* For RX: If increasing requirement, use new (larger) value immediately for our detect_TO */
+		if (session->config_required_rx > session->cur_timers_required_min_rx) {
+			session->cur_timers_required_min_rx = session->config_required_rx;
+			rx_changed = true;
+		}
+		
+		/* For TX: If increasing interval, keep old (faster) rate until poll completes */
+		if (session->config_desired_tx > session->cur_timers_desired_min_tx) {
+			session->cur_timers_desired_min_tx = session->config_desired_tx;
+			//session->transmit_interval = session->config_desired_tx;
+		} else {
+			//Start sending with higher rate
+			session->transmit_interval = session->config_desired_tx;
+		}
+		
+		/* Recalculate detect_TO with updated cur_timers */
+		if (session->cur_timers_required_min_rx > session->remote_desired_tx)
+			session->detect_TO = session->remote_detect_mult * session->cur_timers_required_min_rx;
+		else
+			session->detect_TO = session->remote_detect_mult * session->remote_desired_tx;
+		
+		/* Update both RX (detect_TO) and TX (send POLL) */
+		if (rx_changed) 
+			bfd_dplane_update_rx_session_offload(session);
 		bfd_dplane_update_tx_session_offload(session);
-		//bfd_dplane_update_rx_session_offload(session);
 	}
 }
 
@@ -1801,9 +1869,12 @@ static void bfd_dplane_server_handle_add_session(struct bfd_dplane_server_client
 	session->transmit_interval = BFD_DEF_SLOWTX;
 	session->state = BFD_SESSION_DOWN;
 	session->remote_state = BFD_SESSION_DOWN;
-        session->remote_desired_tx = BFD_DEF_SLOWTX;
-        session->remote_required_rx = BFD_DEF_SLOWTX;
-        session->remote_required_echo_rx = BFD_DEFDETECTMULT;
+        session->remote_desired_tx = BFD_DEFDESIREDMINTX;
+        session->remote_required_rx = BFD_DEFREQUIREDMINRX;
+        session->remote_required_echo_rx = BFD_DEF_REQ_MIN_ECHO_RX;
+	session->detect_mult = BFD_DEFDETECTMULT;
+	session->offloaded_tx_session_id = 0;
+	session->offloaded_rx_session_id = 0;
 
 	/* Offload the sessions */
 	if (!(session->flags & BFD_SESSION_FLAG_SHUTDOWN)) {
@@ -1830,8 +1901,10 @@ static void bfd_dplane_server_handle_delete_session(struct bfd_dplane_server_cli
 	}
 
 	/* Delete the TX and RX session */
-	bfd_dplane_delete_tx_session_offload(session);
-	bfd_dplane_delete_rx_session_offload(session);
+	if (session->offloaded_tx_session_id)
+		bfd_dplane_delete_tx_session_offload(session);
+	if (session->offloaded_rx_session_id)
+		bfd_dplane_delete_rx_session_offload(session);
 
 	/* Remove from hash table and free. */
 	hash_release(server_ctx->sessions, session->hb);
@@ -2496,13 +2569,13 @@ static int bfd_dplane_server_plugin_hook_cleanup(void)
 	/* Cleanup the plugin. */
 	if (bfd_dplane_server_plugin_cleanup() != 0) {
 		zlog_err("%s: Failed to cleanup BFD data plane server plugin", __func__);
-		return -1;
+		//return -1;
 	}
 
 	rc = deinitialize_sx_sdk_bfd();
 	if (rc != SX_STATUS_SUCCESS) {
                 zlog_err("%s: Failed to de-initialize SX SDK BFD: %d", __func__, rc);
-                return -1;
+                //return -1;
 	}
 	return 0;
 }
