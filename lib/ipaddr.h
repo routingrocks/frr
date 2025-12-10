@@ -40,8 +40,9 @@ struct ipaddr {
 #define IS_IPADDR_V4(p)   ((p)->ipa_type == IPADDR_V4)
 #define IS_IPADDR_V6(p)   ((p)->ipa_type == IPADDR_V6)
 
-#define SET_IPADDR_V4(p)  (p)->ipa_type = IPADDR_V4
-#define SET_IPADDR_V6(p)  (p)->ipa_type = IPADDR_V6
+#define SET_IPADDR_NONE(p) ((p)->ipa_type = IPADDR_NONE)
+#define SET_IPADDR_V4(p)   ((p)->ipa_type = IPADDR_V4)
+#define SET_IPADDR_V6(p)   ((p)->ipa_type = IPADDR_V6)
 
 #define IPADDRSZ(p)                                                            \
 	(IS_IPADDR_V4((p)) ? sizeof(struct in_addr) : sizeof(struct in6_addr))
@@ -165,9 +166,32 @@ static inline bool ipaddr_is_zero(const struct ipaddr *ip)
 	return true;
 }
 
+static inline bool ipaddr_is_same(const struct ipaddr *ip1,
+				  const struct ipaddr *ip2)
+{
+	return ipaddr_cmp(ip1, ip2) == 0;
+}
+
+static inline bool ipaddr_is_mcast(const struct ipaddr *ip)
+{
+	switch (ip->ipa_type) {
+	case IPADDR_NONE:
+		return false;
+	case IPADDR_V4:
+		return IN_MULTICAST(ntohl(ip->ipaddr_v4.s_addr));
+	case IPADDR_V6:
+		/* Per https://www.rfc-editor.org/rfc/rfc3307.html */
+		return ip->ipaddr_v6.s6_addr[0] == 0xff;
+	}
+
+	return false;
+}
+
+/* clang-format off */
 #ifdef _FRR_ATTRIBUTE_PRINTFRR
 #pragma FRR printfrr_ext "%pIA"  (struct ipaddr *)
 #endif
+/* clang-format on */
 
 #ifdef __cplusplus
 }

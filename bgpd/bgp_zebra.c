@@ -695,7 +695,7 @@ struct interface *if_lookup_by_ipv6_exact(struct in6_addr *addr,
 	return NULL;
 }
 
-static int if_get_ipv6_global(struct interface *ifp, struct in6_addr *addr)
+int if_get_ipv6_global(struct interface *ifp, struct in6_addr *addr)
 {
 	struct connected *connected;
 	struct prefix *cp;
@@ -744,7 +744,6 @@ static int if_get_ipv4_address(struct interface *ifp, struct in_addr *addr)
 	}
 	return 0;
 }
-
 
 bool bgp_zebra_nexthop_set(union sockunion *local, union sockunion *remote,
 			   struct bgp_nexthop *nexthop, struct peer *peer)
@@ -3191,7 +3190,7 @@ static int bgp_zebra_process_local_l3vni(ZAPI_CALLBACK_ARGS)
 	int filter = 0;
 	vni_t l3vni = 0;
 	struct ethaddr svi_rmac, vrr_rmac = {.octet = {0} };
-	struct in_addr originator_ip;
+	struct ipaddr originator_ip;
 	struct stream *s;
 	ifindex_t svi_ifindex;
 	bool is_anycast_mac = false;
@@ -3202,26 +3201,26 @@ static int bgp_zebra_process_local_l3vni(ZAPI_CALLBACK_ARGS)
 	l3vni = stream_getl(s);
 	if (cmd == ZEBRA_L3VNI_ADD) {
 		stream_get(&svi_rmac, s, sizeof(struct ethaddr));
-		originator_ip.s_addr = stream_get_ipv4(s);
+		if (!stream_get_ipaddr(s, &originator_ip)) {
+			if (BGP_DEBUG(zebra, ZEBRA))
+				zlog_err("Unable to read originator ip address from stream");
+			return 0;
+		}
 		stream_get(&filter, s, sizeof(int));
 		svi_ifindex = stream_getl(s);
 		stream_get(&vrr_rmac, s, sizeof(struct ethaddr));
 		is_anycast_mac = stream_getl(s);
 
 		if (BGP_DEBUG(zebra, ZEBRA))
-			zlog_debug("Rx L3VNI ADD VRF %s VNI %u Originator-IP %pI4 RMAC svi-mac %pEA vrr-mac %pEA filter %s svi-if %u",
-				   vrf_id_to_name(vrf_id), l3vni,
-				   &originator_ip, &svi_rmac, &vrr_rmac,
-				   filter ? "prefix-routes-only" : "none",
-				   svi_ifindex);
+			zlog_debug("Rx L3VNI ADD VRF %s VNI %u Originator-IP %pIA RMAC svi-mac %pEA vrr-mac %pEA filter %s svi-if %u",
+				   vrf_id_to_name(vrf_id), l3vni, &originator_ip, &svi_rmac,
+				   &vrr_rmac, filter ? "prefix-routes-only" : "none", svi_ifindex);
 
-		frrtrace(8, frr_bgp, evpn_local_l3vni_add_zrecv, l3vni, vrf_id,
-			 &svi_rmac, &vrr_rmac, filter, originator_ip,
-			 svi_ifindex, is_anycast_mac);
+		frrtrace(8, frr_bgp, evpn_local_l3vni_add_zrecv, l3vni, vrf_id, &svi_rmac,
+			 &vrr_rmac, filter, &originator_ip, svi_ifindex, is_anycast_mac);
 
-		bgp_evpn_local_l3vni_add(l3vni, vrf_id, &svi_rmac, &vrr_rmac,
-					 originator_ip, filter, svi_ifindex,
-					 is_anycast_mac);
+		bgp_evpn_local_l3vni_add(l3vni, vrf_id, &svi_rmac, &vrr_rmac, &originator_ip,
+					 filter, svi_ifindex, is_anycast_mac);
 	} else {
 		if (BGP_DEBUG(zebra, ZEBRA))
 			zlog_debug("Rx L3VNI DEL VRF %s VNI %u",
@@ -3240,7 +3239,7 @@ static int bgp_zebra_process_local_vni(ZAPI_CALLBACK_ARGS)
 	struct stream *s;
 	vni_t vni;
 	struct bgp *bgp;
-	struct in_addr vtep_ip = {INADDR_ANY};
+	struct ipaddr vtep_ip = { .ipa_type = IPADDR_NONE };
 	vrf_id_t tenant_vrf_id = VRF_DEFAULT;
 	struct in_addr mcast_grp = {INADDR_ANY};
 	ifindex_t svi_ifindex = 0;
@@ -3248,7 +3247,11 @@ static int bgp_zebra_process_local_vni(ZAPI_CALLBACK_ARGS)
 	s = zclient->ibuf;
 	vni = stream_getl(s);
 	if (cmd == ZEBRA_VNI_ADD) {
-		vtep_ip.s_addr = stream_get_ipv4(s);
+		if (!stream_get_ipaddr(s, &vtep_ip)) {
+			if (BGP_DEBUG(zebra, ZEBRA))
+				zlog_err("Unable to read VTEP IP address from stream");
+			return 0;
+		}
 		stream_get(&tenant_vrf_id, s, sizeof(vrf_id_t));
 		mcast_grp.s_addr = stream_get_ipv4(s);
 		stream_get(&svi_ifindex, s, sizeof(ifindex_t));
@@ -3265,14 +3268,17 @@ static int bgp_zebra_process_local_vni(ZAPI_CALLBACK_ARGS)
 			vrf_id_to_name(vrf_id), vni,
 			vrf_id_to_name(tenant_vrf_id), svi_ifindex);
 
-	if (cmd == ZEBRA_VNI_ADD) {
-		frrtrace(4, frr_bgp, evpn_local_vni_add_zrecv, vni, vtep_ip,
-			 tenant_vrf_id, mcast_grp);
+	if (ipaddr_is_zero(&vtep_ip)) {
+		SET_IPADDR_V4(&vtep_ip);
+		vtep_ip.ipaddr_v4 = bgp->router_id;
+	}
 
-		return bgp_evpn_local_vni_add(
-			bgp, vni,
-			vtep_ip.s_addr != INADDR_ANY ? vtep_ip : bgp->router_id,
-			tenant_vrf_id, mcast_grp, svi_ifindex);
+	if (cmd == ZEBRA_VNI_ADD) {
+		frrtrace(4, frr_bgp, evpn_local_vni_add_zrecv, vni, &vtep_ip, tenant_vrf_id,
+			 mcast_grp);
+
+		return bgp_evpn_local_vni_add(bgp, vni, &vtep_ip, tenant_vrf_id, mcast_grp,
+					      svi_ifindex);
 	} else {
 		frrtrace(1, frr_bgp, evpn_local_vni_del_zrecv, vni);
 

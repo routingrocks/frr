@@ -685,16 +685,16 @@ bool stream_get_ipaddr(struct stream *s, struct ipaddr *ip)
 		ipa_len = IPV6_MAX_BYTELEN;
 		break;
 	case IPADDR_NONE:
-		flog_err(EC_LIB_DEVELOPMENT,
-			 "%s: unknown ip address-family: %u", __func__,
-			 ip->ipa_type);
-		return false;
+		break;
 	}
 	if (STREAM_READABLE(s) < ipa_len) {
 		STREAM_BOUND_WARN2(s, "get ipaddr");
 		return false;
 	}
-	memcpy(&ip->ip, s->data + s->getp, ipa_len);
+
+	if (ip->ipa_type != IPADDR_NONE)
+		memcpy(&ip->ip, s->data + s->getp, ipa_len);
+
 	s->getp += ipa_len;
 
 	return true;
@@ -1000,7 +1000,7 @@ int stream_put_in_addr(struct stream *s, const struct in_addr *addr)
 	return sizeof(uint32_t);
 }
 
-bool stream_put_ipaddr(struct stream *s, struct ipaddr *ip)
+bool stream_put_ipaddr(struct stream *s, const struct ipaddr *ip)
 {
 	stream_putw(s, ip->ipa_type);
 
@@ -1012,10 +1012,10 @@ bool stream_put_ipaddr(struct stream *s, struct ipaddr *ip)
 		stream_write(s, (uint8_t *)&ip->ipaddr_v6, 16);
 		break;
 	case IPADDR_NONE:
-		flog_err(EC_LIB_DEVELOPMENT,
-			 "%s: unknown ip address-family: %u", __func__,
-			 ip->ipa_type);
-		return false;
+		/* IPADDR_NONE is acceptable in some cases. Ex. sending
+		 * a MACIP route with an ESI.
+		 */
+		break;
 	}
 
 	return true;

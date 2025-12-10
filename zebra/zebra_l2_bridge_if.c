@@ -198,14 +198,13 @@ void zebra_l2_brvlan_print_macs(struct vty *vty, struct interface *br_if,
 	struct zebra_l2_brvlan_mac_ctx ctx;
 
 	zif = (struct zebra_if *)br_if->info;
+	if (!IS_ZEBRA_IF_BRIDGE(br_if)) {
+		vty_out(vty, "%% %s is not a bridge interface\n", br_if->name);
+		return;
+	}
 	br = BRIDGE_FROM_ZEBRA_IF(zif);
 	if (!br) {
 		return;
-	}
-	json_object *json_obj = NULL, *json_mac_obj = NULL;
-	if (uj) { /* json format */
-		json_obj = json_object_new_object();
-		json_mac_obj = json_object_new_object();
 	}
 	if (!br->mac_table[vid]) {
 		vty_out(vty,
@@ -219,7 +218,11 @@ void zebra_l2_brvlan_print_macs(struct vty *vty, struct interface *br_if,
 			vid);
 		return;
 	}
-	if (uj) {
+
+	json_object *json_obj = NULL, *json_mac_obj = NULL;
+	if (uj) { /* json format */
+		json_obj = json_object_new_object();
+		json_mac_obj = json_object_new_object();
 		json_object_string_add(json_obj, "bridge", br_if->name);
 		json_object_int_add(json_obj, "VID", vid);
 		json_object_int_add(json_obj, "number of local MACS", num_macs);

@@ -382,7 +382,7 @@ TRACEPOINT_EVENT(
 		uint32_t, nhg_id,
 		vni_t, vni,
 		struct ethaddr *, mac,
-		struct in_addr, vtep_ip),
+		struct ipaddr *, vtep_ip),
 	TP_FIELDS(
 		ctf_string(nl_msg_type,  nlmsg_type2str(h->nlmsg_type) ?
 			   nlmsg_type2str(h->nlmsg_type): "(Invalid Msg Type )")
@@ -393,7 +393,8 @@ TRACEPOINT_EVENT(
 		ctf_integer(vni_t, vni, vni)
 		ctf_array(unsigned char, mac, mac,
 			  sizeof(struct ethaddr))
-		ctf_integer_network_hex(unsigned int, vtep_ip, vtep_ip.s_addr)
+		ctf_array(unsigned char, vtep_ip, vtep_ip,
+			  sizeof(struct ipaddr))
 		)
 	)
 
@@ -632,7 +633,8 @@ TRACEPOINT_EVENT(
 		ctf_integer(int, vni, zevpn->vni)
 		ctf_integer(int, flags, zevpn->flags)
 		ctf_integer(uint16_t, vlan_id, zevpn->vid)
-		ctf_integer_network_hex(unsigned int, vtep_ip, zevpn->local_vtep_ip.s_addr)
+		ctf_array(unsigned char, vtep_ip, &zevpn->local_vtep_ip,
+			  sizeof(struct ipaddr))
 		)
 	)
 
@@ -668,7 +670,8 @@ TRACEPOINT_EVENT(
 	TP_FIELDS(
 		ctf_integer(int, vni, zevpn->vni)
 		ctf_integer(int, vrfid, zevpn->vrf_id)
-		ctf_integer_network_hex(unsigned int, vtep_ip, zevpn->local_vtep_ip.s_addr)
+		ctf_array(unsigned char, vtep_ip, &zevpn->local_vtep_ip,
+			  sizeof(struct ipaddr))
 		ctf_integer(uint8_t, client_proto, client->proto)
 		)
 	)
@@ -683,7 +686,7 @@ TRACEPOINT_EVENT(
 		struct zebra_evpn *, zevpn,
 		const struct ethaddr *, mac,
 		struct in_addr *, ip,
-		struct in_addr, vtep_ip,
+		const struct ipaddr *, vtep_ip,
 		const esi_t *, esi,
 		uint8_t, flags,
 		uint32_t, seq,
@@ -693,7 +696,8 @@ TRACEPOINT_EVENT(
 		ctf_array(unsigned char, mac, mac,
 			  sizeof(struct ethaddr))
 		ctf_integer_network_hex(unsigned int, ip, ip->s_addr)
-		ctf_integer_network_hex(unsigned int, vtep_ip, vtep_ip.s_addr)
+		ctf_array(unsigned char, vtep_ip, vtep_ip,
+			  sizeof(struct ipaddr))
 		ctf_array(unsigned char, esi, esi, sizeof(esi_t))
 		ctf_integer(uint8_t, flags, flags)
 		ctf_integer(uint32_t, seq, seq)
@@ -710,7 +714,7 @@ TRACEPOINT_EVENT(
 		vni_t, vni,
 		const struct ethaddr *, mac,
 		const struct ipaddr *, ip,
-		struct in_addr, vtep_ip,
+		const struct ipaddr *, vtep_ip,
 		uint8_t, location),
 	TP_FIELDS(
 		ctf_integer(vni_t, vni, vni)
@@ -718,7 +722,8 @@ TRACEPOINT_EVENT(
 			  sizeof(struct ethaddr))
 		ctf_array(unsigned char, ip, ip,
 			  sizeof(struct ipaddr))
-		ctf_integer_network_hex(unsigned int, vtep_ip, vtep_ip.s_addr)
+		ctf_array(unsigned char, vtep_ip, vtep_ip,
+			  sizeof(struct ipaddr))
 		ctf_integer(uint8_t, location, location)
 		)
 	)
@@ -877,12 +882,13 @@ TRACEPOINT_EVENT(
 	TP_ARGS(
 		const struct interface *, ifp,
 		vni_t , vni,
-		const struct in_addr *, ip),
+		const struct ipaddr *, ip),
 	TP_FIELDS(
 		ctf_string(ifp,ifp->name)
 		ctf_integer(int, ifp_index, ifp->ifindex)
 		ctf_integer(int, vni, vni)
-		ctf_integer_network_hex(unsigned int, vtep_ip, ip->s_addr)
+		ctf_array(unsigned char, vtep_ip, ip,
+			  sizeof(struct ipaddr))
 		)
 	)
 
@@ -894,12 +900,13 @@ TRACEPOINT_EVENT(
 	TP_ARGS(
 		const struct interface *, ifp,
 		vni_t , vni,
-		const struct in_addr *, ip),
+		const struct ipaddr *, ip),
 	TP_FIELDS(
 		ctf_string(ifp,ifp->name)
 		ctf_integer(int, ifp_index, ifp->ifindex)
 		ctf_integer(int, vni, vni)
-		ctf_integer_network_hex(unsigned int, vtep_ip, ip->s_addr)
+		ctf_array(unsigned char, vtep_ip, ip,
+			  sizeof(struct ipaddr))
 		)
 	)
 
@@ -914,7 +921,8 @@ TRACEPOINT_EVENT(
 		ctf_integer(int, vni, zevpn->vni)
 		ctf_integer(int, flags, zevpn->flags)
 		ctf_integer(uint16_t, vlan_id, zevpn->vid)
-		ctf_integer_network_hex(unsigned int, vtep_ip, zevpn->local_vtep_ip.s_addr)
+		ctf_array(unsigned char, vtep_ip, &zevpn->local_vtep_ip,
+			  sizeof(struct ipaddr))
 		)
 	)
 
@@ -1040,7 +1048,7 @@ TRACEPOINT_EVENT(
 		const struct ethaddr *, mac,
 		const struct ipaddr *, ip,
 		vni_t, vni,
-		struct in_addr, vtep_ip,
+		struct ipaddr*, vtep_ip,
 		uint8_t, flags,
 		esi_t *, esi),
 	TP_FIELDS(
@@ -1049,7 +1057,8 @@ TRACEPOINT_EVENT(
 			  sizeof(struct ethaddr))
 		ctf_array(unsigned char, ip, ip,
 			  sizeof(struct ipaddr))
-		ctf_integer_network_hex(unsigned int, vtep_ip, vtep_ip.s_addr)
+		ctf_array(unsigned char, vtep_ip, vtep_ip,
+			  sizeof(struct ipaddr))
 		ctf_integer(uint8_t, flags, flags)
 		ctf_array(unsigned char, esi, esi, sizeof(esi_t))
 		)
@@ -1064,7 +1073,7 @@ TRACEPOINT_EVENT(
 		const struct ethaddr *, mac,
 		const struct ipaddr *, ip,
 		vni_t, vni,
-		struct in_addr, vtep_ip,
+		const struct ipaddr *, vtep_ip,
 		uint16_t, ipa_len),
 	TP_FIELDS(
 		ctf_integer(vni_t, vni, vni)
@@ -1072,7 +1081,8 @@ TRACEPOINT_EVENT(
 			  sizeof(struct ethaddr))
 		ctf_array(unsigned char, ip, ip,
 			  sizeof(struct ipaddr))
-		ctf_integer_network_hex(unsigned int, vtep_ip, vtep_ip.s_addr)
+		ctf_array(unsigned char, vtep_ip, vtep_ip,
+			  sizeof(struct ipaddr))
 		ctf_integer(int, ip_len, ipa_len)
 		)
 	)
@@ -1139,12 +1149,13 @@ TRACEPOINT_EVENT(
 	frr_zebra,
 	zebra_evpn_proc_remote_es,
 	TP_ARGS(
-		struct in_addr, vtep_ip,
+		struct ipaddr*, vtep_ip,
 		esi_t *, esi,
 		uint16_t, cmd),
 	TP_FIELDS(
 		ctf_string(cmd, zserv_command_string(cmd))
-		ctf_integer_network_hex(unsigned int, vtep_ip, vtep_ip.s_addr)
+		ctf_array(unsigned char, vtep_ip, vtep_ip,
+			  sizeof(struct ipaddr))
 		ctf_array(unsigned char, esi, esi, sizeof(esi_t))
 		)
 	)
@@ -1156,14 +1167,15 @@ TRACEPOINT_EVENT(
 	evpn_dplane_remote_rmac_add,
 	TP_ARGS(
 		struct zebra_mac *, zrmac,
-		struct in_addr, vtep_ip,
+		struct ipaddr*, vtep_ip,
 		vni_t, vni,
 		vlanid_t, vid,
 		const struct interface *, vxlan_if),
 	TP_FIELDS(
 		ctf_array(unsigned char, rmac, &zrmac->macaddr,
 			  sizeof(struct ethaddr))
-		ctf_integer_network_hex(unsigned int, vtep_ip, vtep_ip.s_addr)
+		ctf_array(unsigned char, vtep_ip, vtep_ip,
+			  sizeof(struct ipaddr))
 		ctf_integer(vni_t, vni, vni)
 		ctf_integer(uint16_t, vlan_id, vid)
 		ctf_integer(unsigned int, vxlan_if, vxlan_if->ifindex)
@@ -1177,14 +1189,15 @@ TRACEPOINT_EVENT(
 	evpn_dplane_remote_rmac_del,
 	TP_ARGS(
 		struct zebra_mac *, zrmac,
-		struct in_addr, vtep_ip,
+		struct ipaddr *, vtep_ip,
 		vni_t, vni,
 		vlanid_t, vid,
 		const struct interface *, vxlan_if),
 	TP_FIELDS(
 		ctf_array(unsigned char, rmac, &zrmac->macaddr,
 			  sizeof(struct ethaddr))
-		ctf_integer_network_hex(unsigned int, vtep_ip, vtep_ip.s_addr)
+		ctf_array(unsigned char, vtep_ip, vtep_ip,
+			  sizeof(struct ipaddr))
 		ctf_integer(vni_t, vni, vni)
 		ctf_integer(uint16_t, vlan_id, vid)
 		ctf_integer(unsigned int, vxlan_if, vxlan_if->ifindex)
@@ -1197,11 +1210,12 @@ TRACEPOINT_EVENT(
 	frr_zebra,
 	zebra_vxlan_remote_vtep_add,
 	TP_ARGS(
-		struct in_addr, vtep_ip,
+		const struct ipaddr *, vtep_ip,
 		vni_t, vni,
 		int, flood_control),
 	TP_FIELDS(
-		ctf_integer_network_hex(unsigned int, vtep_ip, vtep_ip.s_addr)
+		ctf_array(unsigned char, vtep_ip, vtep_ip,
+			  sizeof(struct ipaddr))
 		ctf_integer(vni_t, vni, vni)
 		ctf_integer(int, flood_control, flood_control)
 		)
@@ -1213,11 +1227,12 @@ TRACEPOINT_EVENT(
     frr_zebra,
     zebra_vxlan_remote_vtep_del,
     TP_ARGS(
-        struct in_addr, vtep_ip,
+        const struct ipaddr *, vtep_ip,
         vni_t, vni,
         uint8_t, client_proto),
     TP_FIELDS(
-        ctf_integer_network_hex(unsigned int, vtep_ip, vtep_ip.s_addr)
+        ctf_array(unsigned char, vtep_ip, vtep_ip,
+			  sizeof(struct ipaddr))
         ctf_integer(vni_t, vni, vni)
         ctf_integer(uint8_t, client_proto, client_proto)
         )
@@ -1488,12 +1503,13 @@ TRACEPOINT_EVENT(
         vni_t, vni,
         char *, if_name,
         ifindex_t, ifindex,
-        struct in_addr, vtep_ip),
+        struct ipaddr *, vtep_ip),
     TP_FIELDS(
         ctf_integer(vni_t, vni, vni)
         ctf_string(interface, if_name)
         ctf_integer(ifindex_t, ifindex, ifindex)
-        ctf_integer_network_hex(unsigned int, vtep_ip, vtep_ip.s_addr)
+        ctf_array(unsigned char, vtep_ip, vtep_ip,
+                  sizeof(struct ipaddr))
         )
    )
 TRACEPOINT_LOGLEVEL(frr_zebra, zevpn_build_l2vni_hash, TRACE_INFO)
@@ -1545,12 +1561,13 @@ TRACEPOINT_EVENT(
     l3vni_remote_rmac_update,
     TP_ARGS(
         vni_t, vni,
-        struct in_addr, old_vtep_ip,
+        struct ipaddr *, old_vtep_ip,
         struct ipaddr *, ip,
         const struct ethaddr *, rmac),
     TP_FIELDS(
         ctf_integer(vni_t, vni, vni)
-        ctf_integer_network_hex(unsigned int, old_vtep_ip, old_vtep_ip.s_addr)
+        ctf_array(unsigned char, old_vtep_ip, old_vtep_ip,
+                  sizeof(struct ipaddr))
         ctf_array(unsigned char, new_vtep, ip,
 			  sizeof(struct ipaddr))
         ctf_array(unsigned char, rmac, rmac,
@@ -1589,13 +1606,14 @@ TRACEPOINT_EVENT(
     TP_ARGS(
         vni_t, vni,
         const struct ipaddr *, ip,
-        struct in_addr, new_vtep_ip,
+        struct ipaddr *, new_vtep_ip,
         struct ethaddr, mac),
     TP_FIELDS(
         ctf_integer(vni_t, vni, vni)
         ctf_array(unsigned char, old_vtep, ip,
 			  sizeof(struct ipaddr))
-        ctf_integer_network_hex(unsigned int, new_vtep_ip, new_vtep_ip.s_addr)
+        ctf_array(unsigned char, new_vtep_ip, new_vtep_ip,
+                  sizeof(struct ipaddr))
         ctf_array(unsigned char, rmac, &mac,
 			  sizeof(struct ethaddr))
         )
@@ -2119,9 +2137,10 @@ TRACEPOINT_EVENT(
     frr_zebra,
     evpn_arp_nd_failover_enable,
     TP_ARGS(
-        uint32_t, originator_ip),
+        const struct ipaddr *, originator_ip),
     TP_FIELDS(
-        ctf_integer_network_hex(unsigned int, vtep_ip, originator_ip)
+        ctf_array(unsigned char, vtep_ip, originator_ip,
+                  sizeof(struct ipaddr))
         )
    )
 
@@ -2142,9 +2161,10 @@ TRACEPOINT_EVENT(
     frr_zebra,
     evpn_arp_nd_udp_sock_create,
     TP_ARGS(
-        uint32_t, originator_ip),
+        const struct ipaddr *, originator_ip),
     TP_FIELDS(
-        ctf_integer_network_hex(unsigned int, vtep_ip, originator_ip)
+        ctf_array(unsigned char, vtep_ip, originator_ip,
+                  sizeof(struct ipaddr))
         )
    )
 

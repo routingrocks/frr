@@ -129,8 +129,7 @@ void zebra_evpn_arp_nd_if_print(struct vty *vty, struct zebra_if *zif)
 
 #ifdef GNU_LINUX
 /* Send to the ES peer VTEP-IP */
-static void zebra_evpn_arp_nd_udp_send(struct in_addr vtep_ip, uint8_t *data,
-				       int len)
+static void zebra_evpn_arp_nd_udp_send(struct ipaddr vtep_ip, uint8_t *data, int len)
 {
 	struct sockaddr_in sin;
 	ssize_t sent_len;
@@ -142,7 +141,7 @@ static void zebra_evpn_arp_nd_udp_send(struct in_addr vtep_ip, uint8_t *data,
 	 * standard port
 	 */
 	sin.sin_port = htons(ZEBRA_EVPN_VXLAN_UDP_PORT);
-	sin.sin_addr = vtep_ip;
+	sin.sin_addr = IS_IPADDR_V4(&vtep_ip) ? vtep_ip.ipaddr_v4 : (struct in_addr){ 0 };
 
 	sent_len = sendto(zevpn_arp_nd_info.udp_fd, data, len, 0, (struct sockaddr *)&sin,
 			  sizeof(sin));
@@ -174,9 +173,8 @@ struct vxlanhdr {
 /***************************** from net/vxlan.h ****************************/
 
 /* vxlan encapsulate the data */
-static void zebra_evpn_arp_nd_vxlan_encap(struct zebra_evpn *zevpn,
-					  struct in_addr vtep_ip, uint8_t *data,
-					  int len)
+static void zebra_evpn_arp_nd_vxlan_encap(struct zebra_evpn *zevpn, struct ipaddr vtep_ip,
+					  uint8_t *data, int len)
 {
 	struct vxlanhdr *vxh;
 	uint8_t vxlan_data[ZEBRA_EVPN_ARP_ND_MAX_PKT_LEN +
@@ -190,7 +188,7 @@ static void zebra_evpn_arp_nd_vxlan_encap(struct zebra_evpn *zevpn,
 	memcpy(vxlan_data + sizeof(struct vxlanhdr), data, len);
 
 	if (IS_ZEBRA_DEBUG_EVPN_MH_ARP_ND_PKT)
-		zlog_debug("evpn arp_nd of len %lu redirect to vni %d %pI4 with vxh(0x%x 0x%x)",
+		zlog_debug("evpn arp_nd of len %lu redirect to vni %d %pIA with vxh(0x%x 0x%x)",
 			   (unsigned long)(len + sizeof(struct vxlanhdr)), zevpn->vni, &vtep_ip,
 			   vxh->vx_flags, vxh->vx_vni);
 
@@ -198,11 +196,10 @@ static void zebra_evpn_arp_nd_vxlan_encap(struct zebra_evpn *zevpn,
 				   len + sizeof(struct vxlanhdr));
 }
 /* Locate an ES peer to redirect the packet to */
-static struct in_addr zebra_evpn_arp_nd_get_vtep(struct zebra_evpn_es *es,
-						 struct ethhdr *ethh)
+static struct ipaddr zebra_evpn_arp_nd_get_vtep(struct zebra_evpn_es *es, struct ethhdr *ethh)
 {
 	struct zebra_evpn_es_vtep *es_vtep = NULL;
-	struct in_addr nh;
+	struct ipaddr nh;
 
 	/* XXX - use a modulo hash to loadbalance the traffic instead
 	 * of redirecting to the first active nexthop
@@ -213,7 +210,7 @@ static struct in_addr zebra_evpn_arp_nd_get_vtep(struct zebra_evpn_es *es,
 	if (es_vtep)
 		nh = es_vtep->vtep_ip;
 	else
-		nh.s_addr = 0;
+		memset(&nh, 0, sizeof(struct ipaddr));
 
 	return nh;
 }
@@ -235,7 +232,7 @@ static int zebra_evpn_arp_nd_proc(struct zebra_if *zif, uint16_t vlan,
 	struct zebra_evpn_access_bd *acc_bd;
 	struct zebra_mac *zmac;
 	struct zebra_evpn_es *es;
-	struct in_addr nh;
+	struct ipaddr nh;
 
 	zebra_evpn_arp_nd_pkt_dump(zif, vlan, data, len);
 
@@ -312,7 +309,7 @@ static int zebra_evpn_arp_nd_proc(struct zebra_if *zif, uint16_t vlan,
 	 * redirect the traffic to
 	 */
 	nh = zebra_evpn_arp_nd_get_vtep(es, ethh);
-	if (!nh.s_addr) {
+	if (ipaddr_is_zero(&nh)) {
 		++zevpn_arp_nd_info.stat.nh_missing;
 		zlog_debug("evpn arp_nd on %s vni %d; no ES peers",
 			   zif->ifp->name, acc_bd->zevpn->vni);
@@ -612,12 +609,12 @@ void zebra_evpn_arp_nd_udp_sock_create(void)
 	struct sockaddr_in sin;
 	int reuse = 1;
 
-	if (!zmh_info->es_originator_ip.s_addr)
+	if (ipaddr_is_zero(&zmh_info->es_originator_ip))
 		goto close_sock;
 
 	lo_p.family = AF_INET;
 	lo_p.prefixlen = IPV4_MAX_BITLEN;
-	lo_p.u.prefix4 = zmh_info->es_originator_ip;
+	lo_p.u.prefix4 = zmh_info->es_originator_ip.ipaddr_v4;
 
 	ifp = if_lookup_by_name("lo", VRF_DEFAULT);
 	if (!ifp)
@@ -631,8 +628,7 @@ void zebra_evpn_arp_nd_udp_sock_create(void)
 		zlog_debug("Create UDP sock for arp_nd redirect from %pI4",
 			   &zmh_info->es_originator_ip);
 
-	frrtrace(1, frr_zebra, evpn_arp_nd_udp_sock_create,
-		 zmh_info->es_originator_ip.s_addr);
+	frrtrace(1, frr_zebra, evpn_arp_nd_udp_sock_create, &zmh_info->es_originator_ip);
 
 	if (zevpn_arp_nd_info.udp_fd <= 0) {
 		zevpn_arp_nd_info.udp_fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
@@ -651,7 +647,7 @@ void zebra_evpn_arp_nd_udp_sock_create(void)
 
 	memset(&sin, 0, sizeof(sin));
 	sin.sin_family = AF_INET;
-	sin.sin_addr = zmh_info->es_originator_ip;
+	sin.sin_addr = zmh_info->es_originator_ip.ipaddr_v4;
 	if (bind(zevpn_arp_nd_info.udp_fd, (struct sockaddr *)&sin, sizeof(sin)) < 0) {
 		flog_err(EC_LIB_SOCKET, "evpn arp_nd UDP sock fd %d bind to %pI4 errno %s",
 			 zevpn_arp_nd_info.udp_fd, &zmh_info->es_originator_ip,
@@ -715,8 +711,7 @@ void zebra_evpn_arp_nd_failover_enable(void)
 	if (IS_ZEBRA_DEBUG_EVPN_MH_ARP_ND_EVT)
 		zlog_debug("Enable arp_nd failover");
 
-	frrtrace(1, frr_zebra, evpn_arp_nd_failover_enable,
-		 zmh_info->es_originator_ip.s_addr);
+	frrtrace(1, frr_zebra, evpn_arp_nd_failover_enable, &zmh_info->es_originator_ip);
 
 	zevpn_arp_nd_info.flags |= ZEBRA_EVPN_ARP_ND_FAILOVER;
 
