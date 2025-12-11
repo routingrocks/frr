@@ -2948,7 +2948,7 @@ static void rfapiBgpInfoFilteredImportEncap(
 	case AFI_UNSPEC:
 	case AFI_L2VPN:
 	case AFI_MAX:
-		flog_err(EC_LIB_DEVELOPMENT, "%s: bad afi %d", __func__, afi);
+		flog_err(EC_LIB_DEVELOPMENT, "%s: Unsupported AFI %d", __func__, afi);
 		return;
 	}
 
@@ -3397,7 +3397,7 @@ void rfapiBgpInfoFilteredImportVPN(
 
 	case AFI_UNSPEC:
 	case AFI_MAX:
-		flog_err(EC_LIB_DEVELOPMENT, "%s: bad afi %d", __func__, afi);
+		flog_err(EC_LIB_DEVELOPMENT, "%s: Unsupported AFI %d", __func__, afi);
 		return;
 	}
 
@@ -3797,7 +3797,7 @@ rfapiBgpInfoFilteredImportFunction(safi_t safi)
 	case SAFI_FLOWSPEC:
 	case SAFI_MAX:
 		/* not expected */
-		flog_err(EC_LIB_DEVELOPMENT, "%s: bad safi %d", __func__, safi);
+		flog_err(EC_LIB_DEVELOPMENT, "%s: Unsupported SAFI %d", __func__, safi);
 		return rfapiBgpInfoFilteredImportBadSafi;
 	}
 

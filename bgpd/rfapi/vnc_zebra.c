@@ -711,8 +711,7 @@ static void vnc_zebra_add_del_group_afi(struct bgp *bgp,
 	}
 
 	if (!family) {
-		flog_err(EC_LIB_DEVELOPMENT, "%s: computed bad family: %d",
-			 __func__, family);
+		flog_err(EC_LIB_DEVELOPMENT, "%s: Invalid address family %d", __func__, family);
 		return;
 	}
 

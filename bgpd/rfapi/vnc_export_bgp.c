@@ -176,8 +176,7 @@ void vnc_direct_bgp_add_route_ce(struct bgp *bgp, struct agg_node *rn,
 
 
 	if (!afi) {
-		flog_err(EC_LIB_DEVELOPMENT, "%s: can't get afi of route node",
-			 __func__);
+		flog_err(EC_LIB_DEVELOPMENT, "%s: Cannot determine AFI from route node", __func__);
 		return;
 	}
 
@@ -325,7 +324,7 @@ void vnc_direct_bgp_del_route_ce(struct bgp *bgp, struct agg_node *rn,
 	struct prefix ce_nexthop;
 
 	if (!afi) {
-		flog_err(EC_LIB_DEVELOPMENT, "%s: bad afi", __func__);
+		flog_err(EC_LIB_DEVELOPMENT, "%s: Invalid AFI", __func__);
 		return;
 	}
 
@@ -682,8 +681,7 @@ void vnc_direct_bgp_add_prefix(struct bgp *bgp,
 	afi_t afi = family2afi(p->family);
 
 	if (!afi) {
-		flog_err(EC_LIB_DEVELOPMENT, "%s: can't get afi of route node",
-			 __func__);
+		flog_err(EC_LIB_DEVELOPMENT, "%s: Cannot determine AFI from route node", __func__);
 		return;
 	}
 
@@ -907,7 +905,7 @@ void vnc_direct_bgp_add_nve(struct bgp *bgp, struct rfapi_descriptor *rfd)
 	afi_t afi = family2afi(rfd->vn_addr.addr_family);
 
 	if (!afi) {
-		flog_err(EC_LIB_DEVELOPMENT, "%s: can't get afi of nve vn addr",
+		flog_err(EC_LIB_DEVELOPMENT, "%s: Cannot determine AFI from NVE VN address",
 			 __func__);
 		return;
 	}
@@ -957,8 +955,8 @@ void vnc_direct_bgp_add_nve(struct bgp *bgp, struct rfapi_descriptor *rfd)
 			if (afi == AFI_IP || afi == AFI_IP6) {
 				rt = import_table->imported_vpn[afi];
 			} else {
-				flog_err(EC_LIB_DEVELOPMENT, "%s: bad afi %d",
-					 __func__, afi);
+				flog_err(EC_LIB_DEVELOPMENT, "%s: Unsupported AFI %d", __func__,
+					 afi);
 				return;
 			}
 
@@ -1055,7 +1053,7 @@ void vnc_direct_bgp_del_nve(struct bgp *bgp, struct rfapi_descriptor *rfd)
 	afi_t afi = family2afi(rfd->vn_addr.addr_family);
 
 	if (!afi) {
-		flog_err(EC_LIB_DEVELOPMENT, "%s: can't get afi of nve vn addr",
+		flog_err(EC_LIB_DEVELOPMENT, "%s: Cannot determine AFI from NVE VN address",
 			 __func__);
 		return;
 	}
@@ -1103,8 +1101,8 @@ void vnc_direct_bgp_del_nve(struct bgp *bgp, struct rfapi_descriptor *rfd)
 			if (afi == AFI_IP || afi == AFI_IP6) {
 				rt = import_table->imported_vpn[afi];
 			} else {
-				flog_err(EC_LIB_DEVELOPMENT, "%s: bad afi %d",
-					 __func__, afi);
+				flog_err(EC_LIB_DEVELOPMENT, "%s: Unsupported AFI %d", __func__,
+					 afi);
 				return;
 			}
 
@@ -1621,8 +1619,7 @@ void vnc_direct_bgp_rh_add_route(struct bgp *bgp, afi_t afi,
 	struct attr *iattr;
 
 	if (!afi) {
-		flog_err(EC_LIB_DEVELOPMENT, "%s: can't get afi of route node",
-			 __func__);
+		flog_err(EC_LIB_DEVELOPMENT, "%s: Cannot determine AFI from route node", __func__);
 		return;
 	}
 

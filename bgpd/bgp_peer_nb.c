@@ -484,7 +484,6 @@ const void *lib_vrf_peer_afi_safi_get_next(struct nb_cb_get_next_args *args)
  */
 struct yang_data *lib_vrf_peer_afi_safi_afi_safi_name_get_elem(struct nb_cb_get_elem_args *args)
 {
-	flog_err(EC_LIB_DEVELOPMENT, "lib_vrf_peer_afi_safi_afi_safi_name_get_elem with afi safi");
 	struct peer_af *paf;
 	if (!args || !args->list_entry)
 		return NULL;
