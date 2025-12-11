@@ -112,8 +112,8 @@ static int ospf6_gr_lsa_originate(struct ospf6_interface *oi,
 		n = ospf6_sendmsg(oi->linklocal_addr, &allspfrouters6,
 				  oi->interface->ifindex, iovector, ospf6->fd);
 		if (n != length)
-			flog_err(EC_LIB_DEVELOPMENT,
-				 "%s: could not send entire message", __func__);
+			flog_err(EC_LIB_DEVELOPMENT, "%s: Incomplete Grace LSA transmission",
+				 __func__);
 	} else {
 		/* Create and install LSA. */
 		lsa = ospf6_lsa_create(lsa_header);

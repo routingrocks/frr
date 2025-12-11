@@ -689,8 +689,7 @@ void ospf_gr_helper_exit(struct ospf_neighbor *nbr,
 	ospf->last_exit_reason = reason;
 
 	if (ospf->active_restarter_cnt <= 0) {
-		flog_err(EC_LIB_DEVELOPMENT,
-			 "OSPF GR-Helper: active_restarter_cnt should be greater than zero here.");
+		flog_err(EC_LIB_DEVELOPMENT, "OSPF GR Helper: Active restarter count already zero");
 		return;
 	}
 	/* Decrement active Restarter count */

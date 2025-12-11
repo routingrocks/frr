@@ -621,9 +621,8 @@ static void route_table_assert(struct ospf6_route_table *table)
 	if (link_error == 0 && num == table->count)
 		return;
 
-	flog_err(EC_LIB_DEVELOPMENT, "PANIC !!");
-	flog_err(EC_LIB_DEVELOPMENT,
-		 "Something has gone wrong with ospf6_route_table[%p]", table);
+	flog_err(EC_LIB_DEVELOPMENT, "OSPFv3 route table integrity check failed");
+	flog_err(EC_LIB_DEVELOPMENT, "OSPFv3 route table %p: count mismatch detected", table);
 	zlog_debug("table count = %d, real number = %d", table->count, num);
 	zlog_debug("DUMP START");
 	for (r = ospf6_route_head(table); r; r = ospf6_route_next(r))
