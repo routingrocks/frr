@@ -388,8 +388,7 @@ eigrp_topology_update_distance(struct eigrp_fsm_action_message *msg)
 		}
 		break;
 	default:
-		flog_err(EC_LIB_DEVELOPMENT, "%s: Please implement handler",
-			 __func__);
+		flog_err(EC_LIB_DEVELOPMENT, "%s: Unsupported EIGRP event type", __func__);
 		break;
 	}
 distance_done:
