@@ -234,8 +234,7 @@ frr_confd_cdb_diff_iter(confd_hkeypath_t *kp, enum cdb_iter_op cdb_op,
 		/* We're not interested on this. */
 		return ITER_RECURSE;
 	default:
-		flog_err(EC_LIB_DEVELOPMENT,
-			 "%s: unexpected operation %u [xpath %s]", __func__,
+		flog_err(EC_LIB_DEVELOPMENT, "%s: Unsupported operation %u [xpath %s]", __func__,
 			 cdb_op, xpath);
 		iter_args->error = true;
 		return ITER_STOP;

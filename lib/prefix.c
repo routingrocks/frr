@@ -348,8 +348,7 @@ void prefix_copy(union prefixptr udest, union prefixconstptr usrc)
 		memcpy((void *)dest->u.prefix_flowspec.ptr,
 		       (void *)src->u.prefix_flowspec.ptr, len);
 	} else {
-		flog_err(EC_LIB_DEVELOPMENT,
-			 "prefix_copy(): Unknown address family %d",
+		flog_err(EC_LIB_DEVELOPMENT, "prefix_copy(): Unsupported address family %d",
 			 src->family);
 		assert(0);
 	}

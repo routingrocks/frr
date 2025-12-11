@@ -1706,8 +1706,7 @@ static int nb_callback_configuration(struct nb_context *context,
 	case NB_CB_RPC:
 	case NB_CB_NOTIFY:
 		yang_dnode_get_path(dnode, xpath, sizeof(xpath));
-		flog_err(EC_LIB_DEVELOPMENT,
-			 "%s: unknown operation (%u) [xpath %s]", __func__,
+		flog_err(EC_LIB_DEVELOPMENT, "%s: Unsupported operation (%u) [xpath %s]", __func__,
 			 operation, xpath);
 		exit(1);
 	}
@@ -1745,8 +1744,7 @@ static int nb_callback_configuration(struct nb_context *context,
 				 errmsg[0] ? " message: " : "", errmsg);
 			break;
 		default:
-			flog_err(EC_LIB_DEVELOPMENT,
-				 "%s: unknown event (%u) [xpath %s]", __func__,
+			flog_err(EC_LIB_DEVELOPMENT, "%s: Invalid event (%u) [xpath %s]", __func__,
 				 event, xpath);
 			exit(1);
 		}
