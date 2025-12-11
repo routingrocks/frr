@@ -1694,8 +1694,7 @@ int isis_handle_pdu(struct isis_circuit *circuit, uint8_t *ssnpa)
 	pdu_counter_count(circuit->area->pdu_rx_counters, pdu_type);
 
 	if (idrp == ISO9542_ESIS) {
-		flog_err(EC_LIB_DEVELOPMENT,
-			 "No support for ES-IS packet IDRP=%hhx", idrp);
+		flog_err(EC_LIB_DEVELOPMENT, "Received unsupported ES-IS packet (IDRP=%hhx)", idrp);
 		pdu_counter_count_drop(circuit->area, pdu_type);
 		return ISIS_ERROR;
 	}

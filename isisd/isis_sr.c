@@ -814,8 +814,8 @@ static void sr_adj_sid_del(struct sr_adjacency *sra)
 		isis_tlvs_del_adj_sid(circuit->ext, sra->u.adj_sid);
 		break;
 	default:
-		flog_err(EC_LIB_DEVELOPMENT, "%s: unexpected circuit type: %u",
-			 __func__, circuit->circ_type);
+		flog_err(EC_LIB_DEVELOPMENT, "%s: Invalid circuit type %u", __func__,
+			 circuit->circ_type);
 		exit(1);
 	}
 
