@@ -1821,7 +1821,7 @@ static int ospf6_read_helper(int sockfd, struct ospf6 *ospf6)
 		return OSPF6_READ_ERROR;
 
 	if ((uint)len > iobuflen) {
-		flog_err(EC_LIB_DEVELOPMENT, "Excess message read");
+		flog_err(EC_LIB_DEVELOPMENT, "Message exceeds buffer size");
 		return OSPF6_READ_ERROR;
 	}
 
@@ -2168,8 +2168,7 @@ static void ospf6_write(struct event *thread)
 				    ospf6->fd);
 
 		if (len != (op->length + (int)at_len))
-			flog_err(EC_LIB_DEVELOPMENT,
-				 "Could not send entire message");
+			flog_err(EC_LIB_DEVELOPMENT, "Incomplete message transmission");
 
 		if (IS_OSPF6_DEBUG_MESSAGE(oh->type, SEND_HDR)) {
 			zlog_debug("%s send on %s",

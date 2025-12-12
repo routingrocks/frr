@@ -197,9 +197,8 @@ static int isis_zebra_add_nexthops(struct isis *isis, struct list *nexthops,
 			api_nh->type = NEXTHOP_TYPE_IPV6_IFINDEX;
 			break;
 		default:
-			flog_err(EC_LIB_DEVELOPMENT,
-				 "%s: unknown address family [%d]", __func__,
-				 nexthop->family);
+			flog_err(EC_LIB_DEVELOPMENT, "%s: Unsupported address family [%d]",
+				 __func__, nexthop->family);
 			exit(1);
 		}
 

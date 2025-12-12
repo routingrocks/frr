@@ -629,7 +629,7 @@ int bgp_flowspec_match_rules_fill(uint8_t *nlri_content, int len,
 			offset += ret;
 			break;
 		default:
-			flog_err(EC_LIB_DEVELOPMENT, "%s: unknown type %d",
+			flog_err(EC_LIB_DEVELOPMENT, "%s: Unsupported flowspec match type %d",
 				 __func__, type);
 		}
 	}

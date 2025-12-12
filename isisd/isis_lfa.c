@@ -507,9 +507,8 @@ tilfa_compute_label_stack(struct lspdb_head *lspdb,
 			label = sid->value.label;
 			break;
 		default:
-			flog_err(EC_LIB_DEVELOPMENT,
-				 "%s: unknown TI-LFA SID type [%u]", __func__,
-				 sid->type);
+			flog_err(EC_LIB_DEVELOPMENT, "%s: Unsupported TI-LFA SID type [%u]",
+				 __func__, sid->type);
 			exit(1);
 		}
 		label_stack->label[i++] = label;

@@ -2440,8 +2440,7 @@ static int nexthop_active(struct nexthop *nexthop, struct nhg_hash_entry *nhe,
 		case AFI_UNSPEC:
 		case AFI_L2VPN:
 		case AFI_MAX:
-			flog_err(EC_LIB_DEVELOPMENT,
-				 "%s: unknown address-family: %u", __func__,
+			flog_err(EC_LIB_DEVELOPMENT, "%s: Unsupported address family %u", __func__,
 				 afi);
 			exit(1);
 		}

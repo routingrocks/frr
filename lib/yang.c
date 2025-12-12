@@ -251,8 +251,7 @@ void yang_snode_get_path(const struct lysc_node *snode,
 		(void)lysc_path(snode, LYSC_PATH_DATA, xpath, xpath_len);
 		break;
 	default:
-		flog_err(EC_LIB_DEVELOPMENT, "%s: unknown yang path type: %u",
-			 __func__, type);
+		flog_err(EC_LIB_DEVELOPMENT, "%s: Invalid YANG path type %u", __func__, type);
 		exit(1);
 	}
 }

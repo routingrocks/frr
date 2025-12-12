@@ -330,8 +330,7 @@ static LYD_FORMAT encoding2lyd_format(enum frr::Encoding encoding)
 	case frr::XML:
 		return LYD_XML;
 	default:
-		flog_err(EC_LIB_DEVELOPMENT,
-			 "%s: unknown data encoding format (%u)", __func__,
+		flog_err(EC_LIB_DEVELOPMENT, "%s: Unsupported data encoding format (%u)", __func__,
 			 encoding);
 		exit(1);
 	}

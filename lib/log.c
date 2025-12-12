@@ -479,8 +479,7 @@ static const struct zebra_desc_table *zroute_lookup(unsigned int zroute)
 	unsigned int i;
 
 	if (zroute >= array_size(route_types)) {
-		flog_err(EC_LIB_DEVELOPMENT, "unknown zebra route type: %u",
-			 zroute);
+		flog_err(EC_LIB_DEVELOPMENT, "Invalid zebra route type %u", zroute);
 		return &unknown;
 	}
 	if (zroute == route_types[zroute].type)
@@ -493,8 +492,7 @@ static const struct zebra_desc_table *zroute_lookup(unsigned int zroute)
 			return &route_types[i];
 		}
 	}
-	flog_err(EC_LIB_DEVELOPMENT,
-		 "internal error: cannot find route type %u in table!", zroute);
+	flog_err(EC_LIB_DEVELOPMENT, "Route type %u not found in lookup table", zroute);
 	return &unknown;
 }
 
@@ -511,8 +509,7 @@ char zebra_route_char(unsigned int zroute)
 const char *zserv_command_string(unsigned int command)
 {
 	if (command >= array_size(command_types)) {
-		flog_err(EC_LIB_DEVELOPMENT, "unknown zserv command type: %u",
-			 command);
+		flog_err(EC_LIB_DEVELOPMENT, "Invalid zebra server command %u", command);
 		return unknown.string;
 	}
 	return command_types[command].string;
@@ -531,8 +528,7 @@ static const struct zebra_desc_table gr_client_cap_types[] = {
 const char *zserv_gr_client_cap_string(uint32_t zcc)
 {
 	if (zcc >= array_size(gr_client_cap_types)) {
-		flog_err(EC_LIB_DEVELOPMENT, "unknown zserv command type: %u",
-			 zcc);
+		flog_err(EC_LIB_DEVELOPMENT, "Invalid zebra server command %u", zcc);
 		return unknown.string;
 	}
 	return gr_client_cap_types[zcc].string;

@@ -63,8 +63,7 @@ static void pim_msdp_sock_accept(struct event *thread)
 	/* re-register accept thread */
 	accept_sock = EVENT_FD(thread);
 	if (accept_sock < 0) {
-		flog_err(EC_LIB_DEVELOPMENT, "accept_sock is negative value %d",
-			 accept_sock);
+		flog_err(EC_LIB_DEVELOPMENT, "Invalid MSDP socket descriptor %d", accept_sock);
 		return;
 	}
 	pim->msdp.listener.thread = NULL;

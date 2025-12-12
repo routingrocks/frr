@@ -148,8 +148,7 @@ static struct isis_nexthop *nexthoplookup(struct list *nexthops, int family,
 				continue;
 			break;
 		default:
-			flog_err(EC_LIB_DEVELOPMENT,
-				 "%s: unknown address family [%d]", __func__,
+			flog_err(EC_LIB_DEVELOPMENT, "%s: Unsupported address family %d", __func__,
 				 family);
 			exit(1);
 		}
@@ -205,8 +204,7 @@ void adjinfo2nexthop(int family, struct list *nexthops,
 		}
 		break;
 	default:
-		flog_err(EC_LIB_DEVELOPMENT, "%s: unknown address family [%d]",
-			 __func__, family);
+		flog_err(EC_LIB_DEVELOPMENT, "%s: Unsupported address family %d", __func__, family);
 		exit(1);
 	}
 }

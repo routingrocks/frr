@@ -212,8 +212,7 @@ static int frr_sr_process_change(struct nb_config *candidate,
 		nb_op = NB_OP_MOVE;
 		break;
 	default:
-		flog_err(EC_LIB_DEVELOPMENT,
-			 "%s: unexpected operation %u [xpath %s]", __func__,
+		flog_err(EC_LIB_DEVELOPMENT, "%s: Unsupported operation %u [xpath %s]", __func__,
 			 sr_op, xpath);
 		return NB_ERR;
 	}

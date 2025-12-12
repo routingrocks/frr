@@ -735,7 +735,7 @@ static void rpki_update_cb_sync_rtr(struct pfx_table *p __attribute__((unused)),
 		RPKI_DEBUG("Could not write to rpki_sync_socket_rtr");
 	return;
 err:
-	flog_err(EC_LIB_DEVELOPMENT, "RPKI: %s", msg);
+	flog_err(EC_LIB_DEVELOPMENT, "RPKI prefix validation failed: %s", msg);
 }
 
 static void rpki_init_sync_socket(struct rpki_vrf *rpki_vrf)
@@ -768,7 +768,7 @@ static void rpki_init_sync_socket(struct rpki_vrf *rpki_vrf)
 	return;
 
 err:
-	flog_err(EC_LIB_DEVELOPMENT, "RPKI: %s", msg);
+	flog_err(EC_LIB_DEVELOPMENT, "RPKI socket initialization failed: %s", msg);
 	abort();
 
 }

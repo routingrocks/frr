@@ -883,7 +883,7 @@ static struct ospf_lsa *ospf_router_lsa_originate(struct ospf_area *area)
 
 	/* Create new router-LSA instance. */
 	if ((new = ospf_router_lsa_new(area)) == NULL) {
-		flog_err(EC_LIB_DEVELOPMENT, "%s: ospf_router_lsa_new returned NULL", __func__);
+		flog_err(EC_LIB_DEVELOPMENT, "%s: Failed to create router LSA", __func__);
 		return NULL;
 	}
 
@@ -896,6 +896,7 @@ static struct ospf_lsa *ospf_router_lsa_originate(struct ospf_area *area)
 	}
 
 	/* Install LSA to LSDB. */
+	/* coverity[var_deref_model] - Router LSA doesn't require oi */
 	new = ospf_lsa_install(area->ospf, NULL, new);
 
 	/* Update LSA origination count. */
@@ -2193,6 +2194,7 @@ struct ospf_lsa *ospf_translated_nssa_refresh(struct ospf *ospf,
 			translated_lsa->data->ls_seqnum = htonl(ls_seqnum + 1);
 	}
 
+	/* coverity[var_deref_model] - AS External LSA doesn't require oi */
 	if (!(new = ospf_lsa_install(ospf, NULL, translated_lsa))) {
 		flog_warn(EC_OSPF_LSA_INSTALL_FAILURE,
 			  "%s: Could not install translated LSA, Id %pI4",

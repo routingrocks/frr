@@ -472,8 +472,7 @@ void bgp_timer_set(struct peer_connection *connection)
 		EVENT_OFF(connection->t_delayopen);
 		break;
 	case BGP_STATUS_MAX:
-		flog_err(EC_LIB_DEVELOPMENT,
-			 "BGP_STATUS_MAX while a legal state is not valid state for the FSM");
+		flog_err(EC_LIB_DEVELOPMENT, "Invalid BGP FSM state BGP_STATUS_MAX");
 		break;
 	}
 }
@@ -3256,7 +3255,7 @@ bgp_peer_inherit_global_gr_mode(struct peer *peer,
 		break;
 	case GLOBAL_INVALID:
 	default:
-		flog_err(EC_LIB_DEVELOPMENT, "Unexpected Global GR mode %d", global_gr_mode);
+		flog_err(EC_LIB_DEVELOPMENT, "Invalid Graceful Restart mode %d", global_gr_mode);
 	}
 }
 
@@ -3554,8 +3553,7 @@ void bgp_peer_move_to_gr_mode(struct peer *peer, enum peer_mode new_state)
 		break;
 	case PEER_INVALID:
 	default:
-		flog_err(EC_LIB_DEVELOPMENT,
-			 "[BGP_GR] Default switch mode ::: SOMETHING IS WRONG !!!");
+		flog_err(EC_LIB_DEVELOPMENT, "Invalid peer Graceful Restart mode");
 		break;
 	}
 	bgp_peer_gr_flags_update(peer);

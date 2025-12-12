@@ -410,8 +410,8 @@ int setsockopt_ifindex(int af, int sock, ifindex_t val)
 		ret = setsockopt_ipv6_pktinfo(sock, val);
 		break;
 	default:
-		flog_err(EC_LIB_DEVELOPMENT,
-			 "setsockopt_ifindex: unknown address family %d", af);
+		flog_err(EC_LIB_DEVELOPMENT, "setsockopt_ifindex: Unsupported address family %d",
+			 af);
 	}
 	return ret;
 }
@@ -480,8 +480,8 @@ ifindex_t getsockopt_ifindex(int af, struct msghdr *msgh)
 	case AF_INET6:
 		return (getsockopt_ipv6_ifindex(msgh));
 	default:
-		flog_err(EC_LIB_DEVELOPMENT,
-			 "getsockopt_ifindex: unknown address family %d", af);
+		flog_err(EC_LIB_DEVELOPMENT, "getsockopt_ifindex: Unsupported address family %d",
+			 af);
 		return 0;
 	}
 }

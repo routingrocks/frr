@@ -7362,7 +7362,8 @@ static void dplane_provider_init(void)
 				       kernel_dplane_shutdown_func, NULL, NULL);
 
 	if (ret != AOK)
-		flog_err(EC_LIB_DEVELOPMENT, "Unable to register kernel dplane provider: %d", ret);
+		flog_err(EC_LIB_DEVELOPMENT, "Failed to register kernel dataplane provider: %d",
+			 ret);
 
 #ifdef DPLANE_TEST_PROVIDER
 	/* Optional test provider ... */
@@ -7374,7 +7375,7 @@ static void dplane_provider_init(void)
 				       NULL /* data */, NULL);
 
 	if (ret != AOK)
-		flog_err(EC_LIB_DEVELOPMENT, "Unable to register test dplane provider: %d", ret);
+		flog_err(EC_LIB_DEVELOPMENT, "Failed to register test dataplane provider: %d", ret);
 #endif	/* DPLANE_TEST_PROVIDER */
 }
 
