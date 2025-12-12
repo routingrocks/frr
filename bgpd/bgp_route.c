@@ -29,6 +29,7 @@
 #include "lib_errors.h"
 #include "zclient.h"
 #include "frrdistance.h"
+#include "lib/if.h"
 
 #include "bgpd/bgpd.h"
 #include "bgpd/bgp_table.h"
@@ -3053,11 +3054,37 @@ bool subgroup_announce_check(struct bgp_dest *dest, struct bgp_path_info *pi,
 								attr)));
 	}
 
-	/* Add SoO extended community for per-source NHG, but skip for conditional
-	 * disaggregation routes*/
-	if (CHECK_FLAG(bgp->per_src_nhg_flags[afi][safi], BGP_FLAG_ADVERTISE_ORIGIN) &&
-	    !CHECK_FLAG(pi->flags, BGP_PATH_CONDITIONAL_DISAGG))
-		bgp_attr_add_soo_community(bgp->per_source_nhg_soo, attr);
+	/* Add SoO extended community for per-source NHG, but skip for:
+	 * 1. Conditional disaggregation routes)
+	 * 2. Redistributed connected loopback routes (multiplane scenario - each leaf
+	 *    has unique loopback that should not have SOO attached when soo-source is configured)
+	 */
+	if (CHECK_FLAG(bgp->per_src_nhg_flags[afi][safi], BGP_FLAG_ADVERTISE_ORIGIN)) {
+		bool add_soo = true;
+
+		/* Don't add SOO for conditional disaggregation routes */
+		if (CHECK_FLAG(pi->flags, BGP_PATH_CONDITIONAL_DISAGG))
+			add_soo = false;
+
+		/* Don't add SOO for loopback routes when soo-source is set.
+		 * In multi-plane anycast scenarios, individual leaf loopback IPs should not
+		 * have SOO attached to avoid confusion at superspines where planes merge.
+		 */
+		if (bgp->soo_source_ip_set) {
+			struct interface *ifp = NULL;
+
+			if (p->family == AF_INET)
+				ifp = if_lookup_by_ipv4_exact(&p->u.prefix4, bgp->vrf_id);
+			else if (p->family == AF_INET6)
+				ifp = if_lookup_by_ipv6_exact(&p->u.prefix6, 0, bgp->vrf_id);
+
+			if (ifp && if_is_loopback(ifp))
+				add_soo = false;
+		}
+
+		if (add_soo)
+			bgp_attr_add_soo_community(bgp->per_source_nhg_soo, attr);
+	}
 
 	/*
 	 * When the next hop is set to ourselves, if all multipaths have
