@@ -80,6 +80,10 @@ def wrdiff(filename, buf, reffiles=[]):
         return
 
     newname = "%s.new-%d" % (filename, os.getpid())
+    # Ensure parent directory exists to avoid race conditions with parallel make
+    outdir = os.path.dirname(os.path.abspath(newname))
+    if outdir:
+        os.makedirs(outdir, exist_ok=True)
     with open(newname, "w") as out:
         out.write(buf)
     os.rename(newname, filename)
