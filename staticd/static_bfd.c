@@ -24,6 +24,9 @@
 static void static_next_hop_bfd_change(struct static_nexthop *sn,
 				       const struct bfd_session_status *bss)
 {
+	DEBUGD(&static_dbg_bfd,
+	       "%s: BFD session status changed, state: %d, previous_state: %d, path_down: %d",
+	       __func__, bss->state, bss->previous_state, sn->path_down);
 	switch (bss->state) {
 	case BSS_UNKNOWN:
 		/* FALLTHROUGH: no known state yet. */
@@ -31,6 +34,20 @@ static void static_next_hop_bfd_change(struct static_nexthop *sn,
 		/* NOTHING: we or the remote end administratively shutdown. */
 		break;
 	case BSS_DOWN:
+		/*
+		 * If transitioning from Admin Down to Down, don't remove the
+		 * route. Admin Down is an intentional shutdown (local or remote),
+		 * not a path failure. When coming out of Admin Down, the BFD
+		 * session transitions through Down state before reaching Up.
+		 * We should not remove the route during this transient state
+		 * to avoid unnecessary route churn.
+		 */
+		if (bss->previous_state == BSS_ADMIN_DOWN && !sn->path_down) {
+			DEBUGD(&static_dbg_bfd,
+			       "%s: BFD transitioning from Admin Down to Down, keeping route in current state, path_down: %d",
+			       __func__, sn->path_down);
+			break;
+		}
 		/* Peer went down, remove this next hop. */
 		DEBUGD(&static_dbg_bfd,
 		       "%s: next hop is down, remove it from RIB", __func__);
@@ -38,6 +55,13 @@ static void static_next_hop_bfd_change(struct static_nexthop *sn,
 		static_zebra_route_add(sn->pn, true);
 		break;
 	case BSS_UP:
+		/* If route is already installed, no action needed. */
+		if (!sn->path_down) {
+			DEBUGD(&static_dbg_bfd,
+			       "%s: next hop is up, route already installed",
+			       __func__);
+			break;
+		}
 		/* Peer is back up, add this next hop. */
 		DEBUGD(&static_dbg_bfd, "%s: next hop is up, add it to RIB",
 		       __func__);
