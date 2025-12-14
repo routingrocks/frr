@@ -107,6 +107,7 @@ struct bfd_echo_pkt {
 #define BFD_DEMANDBIT 0x02
 #define BFD_MBIT	      0x01
 #define BFD_GETMBIT(flags)    (flags & BFD_MBIT)
+#define BFD_GETDEMANDBIT(flags) (flags & BFD_DEMANDBIT)
 #define BFD_SETDEMANDBIT(flags, val)                                           \
 	{                                                                      \
 		if ((val))                                                     \

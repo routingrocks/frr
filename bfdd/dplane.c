@@ -30,6 +30,7 @@
 
 #include "bfd.h"
 #include "bfddp_packet.h"
+#include "bfd_trace.h"
 
 #include "lib/openbsd-queue.h"
 
@@ -334,6 +335,9 @@ bfd_dplane_session_state_change(struct bfd_dplane_ctx *bdc,
 	/* Look up session. */
 	bs = bfd_id_lookup(ntohl(state->lid));
 	if (bs == NULL) {
+		/* Trace session lookup failure */
+		frrtrace(1, frr_bfd, dplane_session_not_found, ntohl(state->lid));
+
 		if (bglobal.debug_dplane)
 			zlog_debug("%s: failed to find session to update",
 				   __func__);
@@ -441,6 +445,7 @@ static void bfd_dplane_echo_request_handle(struct bfd_dplane_ctx *bdc,
 	struct bfddp_message msg = {};
 	uint16_t msglen = sizeof(msg.header) + sizeof(msg.data.echo);
 	struct timeval tv;
+	uint64_t dp_time, bfdd_time;
 
 	gettimeofday(&tv, NULL);
 
@@ -453,6 +458,11 @@ static void bfd_dplane_echo_request_handle(struct bfd_dplane_ctx *bdc,
 	msg.data.echo.dp_time = bm->data.echo.dp_time;
 	msg.data.echo.bfdd_time =
 		htobe64((uint64_t)((tv.tv_sec * 1000000) + tv.tv_usec));
+
+	/* Trace echo request and reply */
+	dp_time = be64toh(bm->data.echo.dp_time);
+	bfdd_time = be64toh(msg.data.echo.bfdd_time);
+	frrtrace(3, frr_bfd, dplane_echo, true, dp_time, bfdd_time);
 
 	/* Enqueue for output. */
 	bfd_dplane_enqueue(bdc, &msg, msglen);
@@ -561,6 +571,9 @@ skip_read:
 
 		/* Check for bad version. */
 		if (bh->version != BFD_DP_VERSION) {
+			/* Trace bad dataplane client version */
+			frrtrace(2, frr_bfd, dplane_client_error, 1,
+				 bh->version);
 			zlog_err("%s: bad data plane client version: %d",
 				 __func__, bh->version);
 			return -1;
@@ -828,6 +841,7 @@ static void bfd_dplane_accept(struct event *t)
 	/* Accept new connection. */
 	sock = accept(bg->bg_dplane_sock, NULL, 0);
 	if (sock == -1) {
+		frrtrace(2, frr_bfd, dplane_init_error, 4, errno);
 		zlog_warn("%s: accept failed: %s", __func__, strerror(errno));
 		goto reschedule_and_return;
 	}
@@ -892,6 +906,7 @@ static bool bfd_dplane_client_connecting(struct bfd_dplane_ctx *bdc)
 		return true;
 
 	default:
+		frrtrace(2, frr_bfd, dplane_init_error, 5, errno);
 		zlog_warn("%s: connection failed: %s", __func__,
 			  strerror(errno));
 		bfd_dplane_ctx_free(bdc);
@@ -908,6 +923,7 @@ static void bfd_dplane_client_connect(struct event *t)
 	/* Allocate new socket. */
 	sock = socket(bdc->addr.sa.sa_family, SOCK_STREAM, 0);
 	if (sock == -1) {
+		frrtrace(2, frr_bfd, dplane_init_error, 1, errno);
 		zlog_warn("%s: failed to initialize socket: %s", __func__,
 			  strerror(errno));
 		goto reschedule_connect;
@@ -925,6 +941,7 @@ static void bfd_dplane_client_connect(struct event *t)
 	/* Attempt to connect. */
 	rv = connect(sock, &bdc->addr.sa, bdc->addrlen);
 	if (rv == -1 && (errno != EINPROGRESS && errno != EAGAIN)) {
+		frrtrace(2, frr_bfd, dplane_init_error, 5, errno);
 		zlog_warn("%s: data plane connection failed: %s", __func__,
 			  strerror(errno));
 		goto reschedule_connect;
@@ -1036,12 +1053,14 @@ void bfd_dplane_init(const struct sockaddr *sa, socklen_t salen, bool client)
 	 */
 	sock = socket(sa->sa_family, SOCK_STREAM, 0);
 	if (sock == -1) {
+		frrtrace(2, frr_bfd, dplane_init_error, 1, errno);
 		zlog_warn("%s: failed to initialize socket: %s", __func__,
 			  strerror(errno));
 		return;
 	}
 
 	if (sockopt_reuseaddr(sock) == -1) {
+		frrtrace(2, frr_bfd, dplane_init_error, 6, errno);
 		zlog_warn("%s: failed to set reuseaddr: %s", __func__,
 			  strerror(errno));
 		close(sock);
@@ -1053,6 +1072,7 @@ void bfd_dplane_init(const struct sockaddr *sa, socklen_t salen, bool client)
 		unlink(((struct sockaddr_un *)sa)->sun_path);
 
 	if (bind(sock, sa, salen) == -1) {
+		frrtrace(2, frr_bfd, dplane_init_error, 2, errno);
 		zlog_warn("%s: failed to bind socket: %s", __func__,
 			  strerror(errno));
 		close(sock);
@@ -1060,6 +1080,7 @@ void bfd_dplane_init(const struct sockaddr *sa, socklen_t salen, bool client)
 	}
 
 	if (listen(sock, SOMAXCONN) == -1) {
+		frrtrace(2, frr_bfd, dplane_init_error, 3, errno);
 		zlog_warn("%s: failed to put socket on listen: %s", __func__,
 			  strerror(errno));
 		close(sock);
@@ -1093,6 +1114,11 @@ int bfd_dplane_update_session(const struct bfd_session *bs)
 
 	_bfd_dplane_session_fill(bs, &msg);
 
+	/* Trace session add/update */
+	frrtrace(5, frr_bfd, dplane_session_update, true, bs->discrs.my_discr,
+		 ntohl(msg.data.session.flags), msg.data.session.detect_mult,
+		 msg.data.session.ttl);
+
 	/* Enqueue message to data plane client. */
 	return bfd_dplane_enqueue(bs->bdc, &msg, ntohs(msg.header.length));
 }
@@ -1111,6 +1137,11 @@ int bfd_dplane_delete_session(struct bfd_session *bs)
 
 	/* Change the message type. */
 	msg.header.type = ntohs(DP_DELETE_SESSION);
+
+	/* Trace session delete */
+	frrtrace(5, frr_bfd, dplane_session_update, false, bs->discrs.my_discr,
+		 ntohl(msg.data.session.flags), msg.data.session.detect_mult,
+		 msg.data.session.ttl);
 
 	/* Enqueue message to data plane client. */
 	rv = bfd_dplane_enqueue(bs->bdc, &msg, ntohs(msg.header.length));

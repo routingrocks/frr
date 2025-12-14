@@ -16,6 +16,7 @@
 #include "lib/json.h"
 
 #include "bfd.h"
+#include "bfd_trace.h"
 
 DEFINE_MTYPE_STATIC(BFDD, BFDD_LABEL, "long-lived label memory");
 
@@ -144,6 +145,8 @@ static int parse_list(struct json_object *jo, enum peer_list_type plt,
 
 		default:
 			error++;
+			/* Trace unsupported peer type */
+			frrtrace(2, frr_bfd, config_error, 1, __LINE__);
 			zlog_err("%s:%d: unsupported peer type", __func__,
 				 __LINE__);
 			break;
