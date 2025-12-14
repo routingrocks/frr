@@ -322,7 +322,7 @@ static uint16_t bfd_dplane_next_id(struct bfd_dplane_ctx *bdc)
 static ssize_t bfd_dplane_flush(struct bfd_dplane_ctx *bdc)
 {
 	buffer_status_t status;
-	ssize_t written;
+	__attribute__((unused)) ssize_t written;
 
 	/* Flush as much buffered data as possible. */
 	status = buffer_flush_available(bdc->outbuf, bdc->sock);
@@ -791,6 +791,7 @@ static void _bfd_dplane_session_fill(const struct bfd_session *bs,
 	} else {
 		vrf = vrf_lookup_by_id(VRF_DEFAULT);
 	}
+	/* coverity[PW.NON_CONST_PRINTF_FORMAT_STRING] - assert() macro, not actual printf */
 	assert(vrf);
 	msg->data.session.vrf_id = vrf->vrf_id;
 	strlcpy(msg->data.session.vrfname, vrf->name, sizeof(msg->data.session.vrfname));
@@ -1260,7 +1261,6 @@ int bfd_dplane_delete_session(struct bfd_session *bs)
 void bfd_dplane_show_counters(struct vty *vty)
 {
 	struct bfd_dplane_ctx *bdc;
-	const char *queue_status;
 
 #define SHOW_COUNTER(label, counter, formatter)                                \
 	vty_out(vty, "%28s: %" formatter "\n", (label), (counter))
@@ -1277,7 +1277,6 @@ void bfd_dplane_show_counters(struct vty *vty)
 		SHOW_COUNTER("Output bytes peak", bdc->out_bytes_peak, PRIu64);
 		SHOW_COUNTER("Output messages", bdc->out_msgs, PRIu64);
 		SHOW_COUNTER("Output full events", bdc->out_fullev, PRIu64);
-		vty_out(vty, "%28s: %s\n", "Output queue status", queue_status);
 		vty_out(vty, "\n");
 	}
 #undef SHOW_COUNTER

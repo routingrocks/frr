@@ -1172,12 +1172,10 @@ static void bfd_vrf_close_all_sockets(void)
 static void bfd_vrf_re_enable_all_sockets(void)
 {
 	struct vrf *vrf;
-	struct bfd_vrf_global *bvrf;
 
 	RB_FOREACH(vrf, vrf_name_head, &vrfs_by_name) {
 		if (!vrf->info)
 			continue;
-		bvrf = vrf->info;
 		/* Re-enable VRF with control plane sockets */
 		bfd_vrf_enable(vrf);
 	}
@@ -1294,13 +1292,6 @@ static void _bfd_migrate_to_dplane_create(struct hash_bucket *hb, void *arg)
 	bfd_migrate_session_to_dplane(bs);
 }
 
-static void _bfd_migrate_set_no_shutdown(struct hash_bucket *hb, void *arg)
-{
-	struct bfd_session *bs = hb->data;
-
-	bfd_set_shutdown(bs, false);
-}
-
 /*
  * Hash iteration callback for migrating to control plane
  */
@@ -1343,6 +1334,9 @@ static void bfd_migrate_all_sessions_to_dplane(void)
 	if (session_count == 0 || !migration_state.sessions) {
 		if (bglobal.debug_peer_event)
 			zlog_debug("No sessions to migrate to data plane");
+		/* Free allocated memory before clearing state */
+		if (migration_state.sessions) 
+			XFREE(MTYPE_TMP, migration_state.sessions);
 		/* Ensure state is clean */
 		memset(&migration_state, 0, sizeof(migration_state));
 		return;
@@ -1389,15 +1383,20 @@ static void bfd_migrate_all_sessions_to_control_plane(void)
 
 	/* Step 4: Collect all sessions for batched no-shutdown */
 	migration_state.sessions = bfd_collect_all_sessions(&session_count);
+
+	if (session_count == 0 || !migration_state.sessions) {
+		if (bglobal.debug_peer_event)
+			zlog_debug("No sessions to migrate to control plane");
+		/* Free allocated memory before returning */
+		if (migration_state.sessions) 
+			XFREE(MTYPE_TMP, migration_state.sessions);
+		memset(&migration_state, 0, sizeof(migration_state));
+		return;
+	}
+
 	migration_state.total_sessions = session_count;
 	migration_state.current_index = 0;
 	migration_state.to_dplane = false;
-
-	if (session_count == 0) {
-		if (bglobal.debug_peer_event)
-			zlog_debug("No sessions to migrate to control plane");
-		return;
-	}
 
 	if (bglobal.debug_peer_event)
 		zlog_debug("Collected %zu sessions for batched no-shutdown (control plane)",

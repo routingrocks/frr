@@ -1975,7 +1975,6 @@ static struct sock_filter bfd_shop6_filter[] = {
 int bp_shop6_raw_socket(const struct vrf *vrf)
 {
 	int s;
-	int optval;
 	struct ifreq ifr;
 
 	frr_with_privs(&bglobal.bfdd_privs) {
@@ -2000,7 +1999,7 @@ int bp_shop6_raw_socket(const struct vrf *vrf)
 	}
 
 	/* Bind socket to VRF device if not default VRF */
-	if (vrf->vrf_id != VRF_DEFAULT && vrf->name && vrf->name[0]) {
+	if (vrf->vrf_id != VRF_DEFAULT && vrf->name[0] != '\0') {
 		memset(&ifr, 0, sizeof(ifr));
 		strlcpy(ifr.ifr_name, vrf->name, sizeof(ifr.ifr_name));
 		

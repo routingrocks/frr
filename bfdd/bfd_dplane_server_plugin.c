@@ -61,9 +61,6 @@ int num_sessions = 0;
 /** Default Unix socket path for BFD data plane server. */
 #define BFD_DPLANE_SERVER_SOCK_PATH "/var/run/frr/bfdd_dplane.sock"
 
-/** Plugin name. */
-static const char *plugin_name = "BFD_DPLANE_SERVER_PLUGIN";
-
 static int bfd_dplane_server_plugin_start(void);
 
 /** BFD session state values. */
@@ -332,8 +329,8 @@ static void bfd_dplane_sess_up(struct bfd_dplane_server_session *session);
 static void bfd_dplane_sess_dn(struct bfd_dplane_server_session *session, uint8_t diag, bool notify_admin_down);
 static void bfd_dplane_state_handler(struct bfd_dplane_server_session *session, int nstate);
 
-static struct event timeout_trap_event;
-static struct event packet_trap_event;
+static struct event *timeout_trap_event = NULL;
+static struct event *packet_trap_event = NULL;
 
 #define BFD_DPLANE_DEF_SLOWTX (1000 * 1000) /* microseconds. */
 #define BFD_DPLANE_DEFDETECTMULT 3
@@ -355,6 +352,7 @@ static sx_status_t initialize_sx_sdk(void) {
 	sx_handle = 0;
 
 	frr_with_privs(&bglobal.bfdd_privs) {
+		/* coverity[PW.MIXED_ENUM_TYPE] - SDK API sx_api_open uses mixed enum types */
 		rc = sx_api_open(NULL, &sx_handle);
 	}
 	if (rc != SX_STATUS_SUCCESS) {
@@ -366,9 +364,9 @@ static sx_status_t initialize_sx_sdk(void) {
 
 static sx_status_t initialize_sx_bfd_module(void) {
         sx_status_t rc;
-        sx_bfd_init_params_t init_params;
+        sx_bfd_init_params_t init_params = {0};
 
-	memset(&init_params, 0, sizeof(init_params));
+	//memset(&init_params, 0, sizeof(init_params));
 	frr_with_privs(&bglobal.bfdd_privs) {
 		rc = sx_api_bfd_init_set(sx_handle, &init_params);
 	}
@@ -389,6 +387,7 @@ static sx_status_t deinitialize_sx_sdk_bfd(void)
 	 */
 	if (packet_notif_channel.channel.fd.valid) {
 		frr_with_privs(&bglobal.bfdd_privs) {
+			/* coverity[PW.MIXED_ENUM_TYPE] - SDK API sx_api_host_ifc_close uses mixed enum types */
 			rc = sx_api_host_ifc_close(sx_handle,
             			&packet_notif_channel.channel.fd);
 		}
@@ -400,6 +399,7 @@ static sx_status_t deinitialize_sx_sdk_bfd(void)
 
 	if (timeout_notif_channel.channel.fd.valid) {
 		frr_with_privs(&bglobal.bfdd_privs) {
+			/* coverity[PW.MIXED_ENUM_TYPE] - SDK API sx_api_host_ifc_close uses mixed enum types */
 			rc = sx_api_host_ifc_close(sx_handle,
             			&timeout_notif_channel.channel.fd);
 		}
@@ -481,38 +481,44 @@ static void bfd_dplane_server_handle_state_change(const struct bfd_dplane_server
 
 static void bfd_dplane_read_timeout_trap(struct event *t) {
         sx_status_t rc;
-        sx_receive_info_t receive_info;
+        sx_receive_info_t *receive_info = NULL;
         uint8_t packet_buffer[2048];
         uint32_t packet_size = sizeof(packet_buffer);
 	struct bfd_dplane_server_session *session = NULL;
-	struct bfd_timeout_event* event = NULL;
+	
+	/* Allocate receive_info on heap to avoid large stack usage */
+	receive_info = XCALLOC(MTYPE_TMP, sizeof(sx_receive_info_t));
 
         frr_with_privs(&bglobal.bfdd_privs) {
-                rc = sx_lib_host_ifc_recv(&timeout_notif_channel.channel.fd, packet_buffer, &packet_size, &receive_info);
+                rc = sx_lib_host_ifc_recv(&timeout_notif_channel.channel.fd, packet_buffer, &packet_size, receive_info);
         }
         if (rc != SX_STATUS_SUCCESS) {
                 zlog_err("%s: Failed to read timeout %d", __func__, rc);
+                XFREE(MTYPE_TMP, receive_info);
                 frr_with_privs(&bglobal.bfdd_privs) {
                         event_add_read(master, bfd_dplane_read_timeout_trap, NULL, timeout_notif_channel.channel.fd.fd, &timeout_trap_event);
                 }
                 return;
         }
-	uint32_t opaque_data = receive_info.event_info.bfd_timeout.timeout_event.opaque_data;
+	uint32_t opaque_data = receive_info->event_info.bfd_timeout.timeout_event.opaque_data;
 	if (bglobal.debug_dplane)
-		zlog_debug("%s: Opaque Data for session %lu lid %u", __func__, receive_info.event_info.bfd_timeout.timeout_event.opaque_data, opaque_data);
+		zlog_debug("%s: Opaque Data for session %lu lid %u", __func__, receive_info->event_info.bfd_timeout.timeout_event.opaque_data, opaque_data);
 	session = hash_lookup(server_ctx->sessions, &opaque_data);
 	if (!session) {
 		zlog_err("%s: Session does not exist with LID=%u", __func__, opaque_data);
+		XFREE(MTYPE_TMP, receive_info);
 		goto TIMEOUT_ERROR;
 	}
 	/* Don't process the packet if the session is in admin down state*/
 	if (session->state == BFD_SESSION_ADMIN_DOWN && (session->flags & SESSION_SHUTDOWN)) {
+		XFREE(MTYPE_TMP, receive_info);
 		goto TIMEOUT_ERROR;
 	} 
 	/*Ignore the timeout trap if we are in middle of poll for this session*/
 	if (session->polling || session->send_final) {
 		if (bglobal.debug_dplane)
 			zlog_debug("%s: Polling is happening for lid=%u", __func__, opaque_data);
+		XFREE(MTYPE_TMP, receive_info);
 		goto TIMEOUT_ERROR;
 	}
 
@@ -526,6 +532,7 @@ static void bfd_dplane_read_timeout_trap(struct event *t) {
         }
 
 	bfd_dplane_server_handle_state_change(session);
+	XFREE(MTYPE_TMP, receive_info);
 
 TIMEOUT_ERROR:
 	/** Schedule next read*/
@@ -564,7 +571,6 @@ static void bfd_dplane_process_rx_packet(struct bfd_dplane_server_session *sessi
 					  const struct bfd_pkt *cp)
 {
 	bool tx_updated = false;
-	bool rx_updated = false;
 	if (!session || !cp) {
 		zlog_err("%s: NULL session or packet", __func__);
 		return;
@@ -651,9 +657,9 @@ static void bfd_dplane_process_rx_packet(struct bfd_dplane_server_session *sessi
 	}
 	
 	if (session->cur_timers_required_min_rx > session->remote_desired_tx)
-		session->detect_TO = session->remote_detect_mult * session->cur_timers_required_min_rx;
+		session->detect_TO = (uint64_t)session->remote_detect_mult * session->cur_timers_required_min_rx;
 	else
-		session->detect_TO = session->remote_detect_mult * session->remote_desired_tx;
+		session->detect_TO = (uint64_t)session->remote_detect_mult * session->remote_desired_tx;
 
 	bfd_dplane_update_rx_session_offload(session);	
 
@@ -790,7 +796,7 @@ static void bfd_dplane_down_handler(struct bfd_dplane_server_session *session, i
                  * bring it up.
                  */
 		session->state = BFD_SESSION_INIT;
-		
+
 		if (bglobal.debug_dplane)
 			zlog_debug("state-change: [dplane lid=%u] DOWN -> INIT",
 				   session->lid);
@@ -925,25 +931,29 @@ static void bfd_dplane_state_handler(struct bfd_dplane_server_session *session, 
 
 static void bfd_dplane_read_packet_trap(struct event *t)
 {
-	sx_status_t rc;
-	sx_receive_info_t receive_info;
-	uint8_t packet_buffer[2048];
-	uint32_t packet_size = sizeof(packet_buffer);
+        sx_status_t rc;
+	sx_receive_info_t *receive_info = NULL;
+	uint8_t packet_buffer[2048] ={0};
+        uint32_t packet_size = sizeof(packet_buffer);
 	struct bfd_packet_event* event;
 	struct bfd_pkt* bfd_packet;
 	uint32_t lid, opaque_data;
+	
+	/* Allocate receive_info on heap to avoid large stack usage */
+	receive_info = XCALLOC(MTYPE_TMP, sizeof(sx_receive_info_t));
 
 //	frr_with_privs(&bglobal.bfdd_privs) {
 //		event_add_read(master, bfd_dplane_read_packet_trap, NULL, packet_notif_channel.channel.fd.fd, &packet_trap_event);
 	//}
 
 	frr_with_privs(&bglobal.bfdd_privs) {
-		rc = sx_lib_host_ifc_recv(&packet_notif_channel.channel.fd, packet_buffer, &packet_size, &receive_info);
+		rc = sx_lib_host_ifc_recv(&packet_notif_channel.channel.fd, packet_buffer, &packet_size, receive_info);
 	}
 	if (rc != SX_STATUS_SUCCESS) {
 		zlog_err("%s: Failed to read packet from packet fd  %d",__func__, rc);
+		XFREE(MTYPE_TMP, receive_info);
 		goto PACKET_ERROR;
-	}
+		}
 
 	/* Compare the current state of the RX packet to the one which we received */
 	/* Check what has changed */
@@ -977,24 +987,28 @@ static void bfd_dplane_read_packet_trap(struct event *t)
 		if (bglobal.debug_dplane)
 			zlog_debug("%s: [lid=%u] bad version",
 				   __func__, lid ? lid:opaque_data);
+		XFREE(MTYPE_TMP, receive_info);
                goto PACKET_ERROR;
 	}
 	if (bfd_packet->detect_mult == 0) {
 		if (bglobal.debug_dplane)
 			zlog_debug("%s: [lid=%u] detect multiplier set to 0",
 				   __func__, lid ? lid:opaque_data);
+		XFREE(MTYPE_TMP, receive_info);
 		goto PACKET_ERROR;
 	}
 	if (bfd_packet->len < BFD_PKT_LEN) {
 		if (bglobal.debug_dplane)
 			zlog_debug("%s: [lid=%u] packet too small",
 				   __func__, lid ? lid:opaque_data);
+		XFREE(MTYPE_TMP, receive_info);
 		goto PACKET_ERROR;
 	}
         if (ntohl(bfd_packet->discrs.my_discr) == 0) {
 		if (bglobal.debug_dplane)
 			zlog_debug("%s: [lid=%u] my discriminator is 0",
 				   __func__, lid ? lid:opaque_data);
+		XFREE(MTYPE_TMP, receive_info);
 		goto PACKET_ERROR;
 	}
 	/*
@@ -1021,6 +1035,7 @@ static void bfd_dplane_read_packet_trap(struct event *t)
 		if (bglobal.debug_dplane)
 			zlog_debug("PACKET_TRAP_RX: No session for LID=%u, discarding (RAW socket will handle link-local)",
 				   lid == 0 ? opaque_data : lid);
+		XFREE(MTYPE_TMP, receive_info);
 		goto PACKET_ERROR;
 	}
 
@@ -1029,6 +1044,7 @@ static void bfd_dplane_read_packet_trap(struct event *t)
 	 * This is similar to what bfd_recv_cb does in control plane
 	 */
 	bfd_dplane_process_rx_packet(session, bfd_packet);
+	XFREE(MTYPE_TMP, receive_info);
 
 PACKET_ERROR:
 	//Schedule for next read 
@@ -1046,6 +1062,7 @@ static sx_status_t bfd_register_sdk_packet_traps(void)
 	packet_notif_channel.type = SX_USER_CHANNEL_TYPE_FD;
 	// Open host interface for receiving events
 	frr_with_privs(&bglobal.bfdd_privs) {
+		/* coverity[PW.MIXED_ENUM_TYPE] - SDK API sx_api_host_ifc_open uses mixed enum types */
 		rc = sx_api_host_ifc_open(sx_handle, &packet_notif_channel.channel.fd);
 	}
 	if (rc != SX_STATUS_SUCCESS) {
@@ -1054,6 +1071,7 @@ static sx_status_t bfd_register_sdk_packet_traps(void)
 	}
 
 	frr_with_privs(&bglobal.bfdd_privs) {
+		/* coverity[PW.MIXED_ENUM_TYPE] - SDK API sxd_fd_get uses mixed enum types */
 		rc = sxd_fd_get(packet_notif_channel.channel.fd.driver_handle, &poll_fd);
 	}
         if (rc != SX_STATUS_SUCCESS) {
@@ -1062,6 +1080,7 @@ static sx_status_t bfd_register_sdk_packet_traps(void)
         }
 
 	frr_with_privs(&bglobal.bfdd_privs) {
+		/* coverity[PW.MIXED_ENUM_TYPE] - SDK API sx_api_host_ifc_trap_id_register_set uses mixed enum types */
 		rc = sx_api_host_ifc_trap_id_register_set(sx_handle, SX_ACCESS_CMD_REGISTER, 0,
 							SX_TRAP_ID_BFD_PACKET_EVENT, &packet_notif_channel);
 	}
@@ -1084,6 +1103,7 @@ static sx_status_t bfd_register_sdk_timeout_traps(void)
 	timeout_notif_channel.type = SX_USER_CHANNEL_TYPE_FD;
 	// Open host interface for receiving events
 	frr_with_privs(&bglobal.bfdd_privs) {
+		/* coverity[PW.MIXED_ENUM_TYPE] - SDK API sx_api_host_ifc_open uses mixed enum types */
 		 rc = sx_api_host_ifc_open(sx_handle, &timeout_notif_channel.channel.fd);
 	}
         if (rc != SX_STATUS_SUCCESS) {
@@ -1091,6 +1111,7 @@ static sx_status_t bfd_register_sdk_timeout_traps(void)
                 return rc;
         }
 	frr_with_privs(&bglobal.bfdd_privs) {
+		/* coverity[PW.MIXED_ENUM_TYPE] - SDK API sxd_fd_get uses mixed enum types */
 		rc = sxd_fd_get(timeout_notif_channel.channel.fd.driver_handle, &poll_fd);
 	}
         if (rc != SX_STATUS_SUCCESS) {
@@ -1098,6 +1119,7 @@ static sx_status_t bfd_register_sdk_timeout_traps(void)
                 return rc;
         }
 	frr_with_privs(&bglobal.bfdd_privs) {
+		/* coverity[PW.MIXED_ENUM_TYPE] - SDK API sx_api_host_ifc_trap_id_register_set uses mixed enum types */
 		rc = sx_api_host_ifc_trap_id_register_set(sx_handle, SX_ACCESS_CMD_REGISTER, 0,
 							SX_TRAP_ID_BFD_TIMEOUT_EVENT, &timeout_notif_channel);
 	}
@@ -1111,6 +1133,7 @@ static sx_status_t bfd_register_sdk_timeout_traps(void)
 	return rc;
 }
 
+static const char *bfd_dplane_server_messagetype2str(sx_access_cmd_t cmd) __attribute__((unused));
 static const char *bfd_dplane_server_messagetype2str(sx_access_cmd_t cmd) 
 {
 	switch (cmd) {
@@ -1120,7 +1143,7 @@ static const char *bfd_dplane_server_messagetype2str(sx_access_cmd_t cmd)
 			return "Destroy";
 		case SX_ACCESS_CMD_EDIT:
 			return "EDIT";
-		deafult:
+		default:
 			return "Unknown";
 	}
 }
@@ -1147,7 +1170,7 @@ static int bfd_dplane_new_tx_session_offload(struct bfd_dplane_server_session *b
 	bfd_construct_tx_packet(&session_params_tx, &bfd_packet_tx, bfd_session, true);
 
 	if (bfd_session->flags & BFD_SESSION_FLAG_SHUTDOWN)
-		return;
+		return 0;
 
 	/* Find available UDP port and create session */
 	frr_with_privs(&bglobal.bfdd_privs) {
@@ -1197,7 +1220,7 @@ static int bfd_dplane_new_rx_session_offload(struct bfd_dplane_server_session *b
 	bfd_construct_rx_packet(&session_params_rx, &bfd_packet_rx, bfd_session, true);
 
 	if (bfd_session->flags & BFD_SESSION_FLAG_SHUTDOWN)
-		return;
+		return 0;
 
 	/* Create RX session */
 	frr_with_privs(&bglobal.bfdd_privs) {
@@ -1461,7 +1484,7 @@ static void bfd_construct_tx_packet(sx_bfd_session_params_t *session_params_tx, 
 	//	session_params_tx->session_data.data.tx_data.interval = session->config_desired_tx;
 	//} else {
 		/* Use calculated transmit interval */
-		session_params_tx->session_data.data.tx_data.interval = session->transmit_interval;
+	session_params_tx->session_data.data.tx_data.interval = session->transmit_interval;
 	//}
 
 	session_params_tx->session_data.data.tx_data.packet_encap.encap_type = SX_BFD_UDP_OVER_IP;
@@ -1517,8 +1540,8 @@ static void bfd_construct_tx_packet(sx_bfd_session_params_t *session_params_tx, 
 	//	bfd_packet_tx->timers.desired_min_tx = htonl(session->cur_timers_desired_min_tx);
 	//	bfd_packet_tx->timers.required_min_rx = htonl(session->cur_timers_required_min_rx);
 //	} else {
-		bfd_packet_tx->timers.desired_min_tx = htonl(session->config_desired_tx);
-		bfd_packet_tx->timers.required_min_rx = htonl(session->config_required_rx);
+	bfd_packet_tx->timers.desired_min_tx = htonl(session->config_desired_tx);
+	bfd_packet_tx->timers.required_min_rx = htonl(session->config_required_rx);
 //	}
 	bfd_packet_tx->timers.required_min_echo = htonl(session->config_required_echo_rx);
 
@@ -1632,9 +1655,9 @@ static void bfd_construct_rx_packet(sx_bfd_session_params_t *session_params_rx, 
 
 	/* Log final RX packet template in a single line */
 	if (bglobal.debug_dplane)
-		zlog_debug("%s: LID=%u detect_TO=%u opaque_data=%u new=%u state=Up my_discr=%u remote_discr=%u detect_mult=%u min_tx=%u min_rx=%u",
+		zlog_debug("%s: LID=%u detect_TO=%u opaque_data=%llu new=%u state=Up my_discr=%u remote_discr=%u detect_mult=%u min_tx=%u min_rx=%u",
 		   	__func__, session->lid, session_params_rx->session_data.data.rx_data.interval,
-		   	session_params_rx->session_data.data.rx_data.opaque_data, new_session ? 1 : 0,
+		   	(unsigned long long)session_params_rx->session_data.data.rx_data.opaque_data, new_session ? 1 : 0,
 		   	ntohl(bfd_packet_rx->discrs.my_discr), ntohl(bfd_packet_rx->discrs.remote_discr),
 		   	bfd_packet_rx->detect_mult, ntohl(bfd_packet_rx->timers.desired_min_tx), ntohl(bfd_packet_rx->timers.required_min_rx));
 
@@ -1713,18 +1736,10 @@ static void bfd_dplane_server_handle_update_session(struct bfd_dplane_server_cli
 						    const struct bfddp_message *msg,
 						    struct bfd_dplane_server_session *session)
 {
-	uint32_t flags = ntohl(msg->data.session.flags);
-	uint32_t lid = ntohl(msg->data.session.lid);
-	sx_bfd_session_params_t session_params_tx;
-	sx_bfd_session_params_t session_params_rx;
-	struct bfd_pkt bfd_packet_tx = {};
-	struct bfd_pkt bfd_packet_rx = {};
-        memset(&session_params_tx, 0, sizeof(session_params_tx));
-        memset(&session_params_rx, 0, sizeof(session_params_rx));
+	__attribute__((unused)) uint32_t lid = ntohl(msg->data.session.lid);
 	bool old_shutdown = session->flags & BFD_SESSION_FLAG_SHUTDOWN;
 	uint32_t old_config_desired_tx = session->config_desired_tx;
 	uint32_t old_config_required_rx = session->config_required_rx;
-	uint8_t old_multiplier = session->detect_mult;	
 	bool old_passive_mode  = session->flags & BFD_SESSION_FLAG_PASSIVE;
 	bool is_up = (session->state == BFD_SESSION_UP);
 
@@ -1827,9 +1842,9 @@ static void bfd_dplane_server_handle_update_session(struct bfd_dplane_server_cli
 		
 		/* Recalculate detect_TO with updated cur_timers */
 		if (session->cur_timers_required_min_rx > session->remote_desired_tx)
-			session->detect_TO = session->remote_detect_mult * session->cur_timers_required_min_rx;
+			session->detect_TO = (uint64_t)session->remote_detect_mult * session->cur_timers_required_min_rx;
 		else
-			session->detect_TO = session->remote_detect_mult * session->remote_desired_tx;
+			session->detect_TO = (uint64_t)session->remote_detect_mult * session->remote_desired_tx;
 		
 		/* Update both RX (detect_TO) and TX (send POLL) */
 		if (rx_changed) 
@@ -1844,9 +1859,9 @@ static void bfd_dplane_server_handle_update_session(struct bfd_dplane_server_cli
 static void bfd_dplane_server_handle_add_session(struct bfd_dplane_server_client *client,
 						 const struct bfddp_message *msg)
 {
-	sx_status_t rc;
+	__attribute__((unused)) sx_status_t rc;
 	struct bfd_dplane_server_session *session = NULL;
-	uint32_t lid = ntohl(msg->data.session.lid);
+	__attribute__((unused)) uint32_t lid = ntohl(msg->data.session.lid);
 
 	session = XCALLOC(MTYPE_BFDD_DPLANE_SERVER_PLUGIN_SESSION, sizeof(*session));
 
@@ -1889,7 +1904,6 @@ static void bfd_dplane_server_handle_add_session(struct bfd_dplane_server_client
 static void bfd_dplane_server_handle_delete_session(struct bfd_dplane_server_client *client,
 						    const struct bfddp_message *msg)
 {
-	sx_status_t rc;
 	struct bfd_dplane_server_session *session = NULL;
 	uint32_t lid = ntohl(msg->data.session.lid);
 
@@ -1959,6 +1973,7 @@ static void bfd_dplane_server_handle_request_counters(struct bfd_dplane_server_c
 static int bfd_dplane_server_handle_message(struct bfd_dplane_server_client *client,
 					    const struct bfddp_message *msg)
 {
+	/* coverity[PW.MIXED_ENUM_TYPE] - ntohs returns uint16_t cast to enum bfddp_message_type */
 	enum bfddp_message_type msg_type = ntohs(msg->header.type);
 
 	server_ctx->stats.messages_processed++;
@@ -2233,6 +2248,7 @@ static int bfd_dplane_server_plugin_start(void)
 		return -1;
 	}
 
+	/* coverity[lock_evasion] - False positive: BFD runs in single-threaded event loop */
 	if (plugin_running) {
 		zlog_warn("BFD data plane server plugin already running");
 		return -1;
@@ -2262,7 +2278,10 @@ static int bfd_dplane_server_plugin_start(void)
 	}
 
 	/* Set socket permissions. */
-	chmod(server_ctx->socket_path, 0777);
+	if (chmod(server_ctx->socket_path, 0777) < 0) {
+		zlog_warn("%s: Failed to chmod socket %s: %s", __func__, 
+			  server_ctx->socket_path, strerror(errno));
+	}
 
 	/* Listen for connections. */
 	if (listen(sock, SOMAXCONN) == -1) {
@@ -2411,7 +2430,7 @@ is_hardware_platform(void)
  */
 static int bfd_dplane_server_plugin_hook_init(struct event_loop *tm)
 {
-	sx_status_t rc;
+	__attribute__((unused)) sx_status_t rc;
 	
 	/* Check if this is a hardware platform */
 	if (!is_hardware_platform()) {
@@ -2420,7 +2439,7 @@ static int bfd_dplane_server_plugin_hook_init(struct event_loop *tm)
 		/* Return success to not break FRR initialization, just skip plugin loading */
 		return 0;
 	}
-	
+
 	/* Initialize the plugin. */
 	if (bfd_dplane_server_plugin_init(NULL) != 0) {
 		zlog_err("%s: Failed to initialize BFD data plane server plugin", __func__);
@@ -2526,7 +2545,7 @@ static void bfd_dplane_server_handle_deinit_sdk(struct bfd_dplane_server_client 
 		TAILQ_FOREACH_SAFE(session, &server_ctx->session_list, entry, session_next) {
 			if (bglobal.debug_dplane)
 				zlog_debug("%s: DP_DEINIT_SDK - Removing session LID=%u", 
-			        	__func__);
+			        	__func__, session->lid);
 			//session->state == BFD_SESSION_ADMIN_DOWN;
 			//session->remote_diagnostics = BFD_DPLANE_CONTROL_EXPIRED;
 		 	//bfd_dplane_server_handle_state_change(session);	
@@ -2597,6 +2616,8 @@ static int bfd_dplane_server_plugin_module_init(void)
 /**
  * FRR module setup.
  */
+/* coverity[RW.EXP_TYPE_SPECIFIER] - FRR_MODULE_SETUP macro expands correctly */
+/* coverity[PW.MISSING_DECL_SPECIFIERS] - FRR_MODULE_SETUP macro expands correctly */
 FRR_MODULE_SETUP(
 	.name = "bfd_dplane_server_plugin",
 	.version = "0.0.1",
