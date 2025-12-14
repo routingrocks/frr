@@ -765,6 +765,8 @@ AC_ARG_ENABLE([bgp-lttng],
   AS_HELP_STRING([--enable-bgp-lttng], [enable BGP LTTng tracing]))
 AC_ARG_ENABLE([zebra-lttng],
   AS_HELP_STRING([--enable-zebra-lttng], [enable Zebra LTTng tracing]))
+AC_ARG_ENABLE([bfd-lttng],
+  AS_HELP_STRING([--enable-bfd-lttng], [enable BFD LTTng tracing]))
 AC_ARG_ENABLE([usdt],
   AS_HELP_STRING([--enable-usdt], [enable USDT probes]))
 AC_ARG_WITH([libpam],
@@ -2203,6 +2205,18 @@ if test "$enable_zebra_lttng" = "yes"; then
   ])
 fi
 
+dnl ---------
+dnl BFD LTTng
+dnl ---------
+if test "$enable_bfd_lttng" = "yes"; then
+  PKG_CHECK_MODULES([BFDUST], [lttng-ust >= 2.10.0], [
+    AC_DEFINE([HAVE_BFD_LTTNG], [1], [Enable BFD LTTng support])
+    BFD_LTTNG=true
+  ], [
+    AC_MSG_ERROR([configuration specifies --enable-bfd-lttng but lttng-ust was not found])
+  ])
+fi
+
 dnl ----
 dnl USDT
 dnl ----
@@ -2849,6 +2863,7 @@ AM_CONDITIONAL([RIPD], [test "$enable_ripd" != "no"])
 AM_CONDITIONAL([OSPFD], [test "$enable_ospfd" != "no"])
 AM_CONDITIONAL([LDPD], [test "$enable_ldpd" != "no"])
 AM_CONDITIONAL([BFDD], [test "$BFDD" = "bfdd"])
+AM_CONDITIONAL([BFD_LTTNG], [test "$BFD_LTTNG" = "true"])
 AM_CONDITIONAL([NHRPD], [test "$NHRPD" = "nhrpd"])
 AM_CONDITIONAL([EIGRPD], [test "$enable_eigrpd" != "no"])
 AM_CONDITIONAL([WATCHFRR], [test "$WATCHFRR" = "watchfrr"])

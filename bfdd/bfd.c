@@ -18,6 +18,7 @@
 #include "lib/network.h"
 
 #include "bfd.h"
+#include "bfd_trace.h"
 
 DEFINE_MTYPE_STATIC(BFDD, BFDD_CONFIG, "long-lived configuration memory");
 DEFINE_MTYPE_STATIC(BFDD, BFDD_PROFILE, "long-lived profile memory");
@@ -132,6 +133,10 @@ void bfd_profile_apply(const char *profname, struct bfd_session *bs)
 
 	/* Point to profile if it exists. */
 	bs->profile = bp;
+
+	/* Trace profile application */
+	if (bp)
+		frrtrace(2, frr_bfd, profile_apply, bs, profname);
 
 	/* Apply configuration. */
 	bfd_session_apply(bs);
@@ -299,6 +304,8 @@ int bfd_session_enable(struct bfd_session *bs)
 	if (bs->key.vrfname[0]) {
 		vrf = vrf_lookup_by_name(bs->key.vrfname);
 		if (vrf == NULL) {
+			/* Trace VRF lookup failure */
+			frrtrace(1, frr_bfd, vrf_not_found, bs->key.vrfname);
 			zlog_err(
 				"session-enable: specified VRF %s doesn't exists.",
 				bs->key.vrfname);
@@ -313,6 +320,9 @@ int bfd_session_enable(struct bfd_session *bs)
 	if (bs->key.ifname[0]) {
 		ifp = if_lookup_by_name(bs->key.ifname, vrf->vrf_id);
 		if (ifp == NULL) {
+			/* Trace interface lookup failure */
+			frrtrace(2, frr_bfd, interface_not_found,
+				 bs->key.ifname, vrf->vrf_id);
 			zlog_err(
 				"session-enable: specified interface %s (VRF %s) doesn't exist.",
 				bs->key.ifname, vrf->name);
@@ -371,6 +381,9 @@ int bfd_session_enable(struct bfd_session *bs)
 	/* initialize RTT */
 	bfd_rtt_init(bs);
 
+	/* Trace session enable */
+	frrtrace(2, frr_bfd, session_enable_event, true, bs);
+
 	return 0;
 }
 
@@ -385,6 +398,8 @@ void bfd_session_disable(struct bfd_session *bs)
 	/* We are using data plane, we don't need software. */
 	if (bs->bdc)
 		return;
+
+	frrtrace(2, frr_bfd, session_enable_event, false, bs);
 
 	/* Free up socket resources. */
 	if (bs->sock != -1) {
@@ -477,6 +492,8 @@ void ptm_bfd_echo_stop(struct bfd_session *bfd)
 
 	bfd_echo_xmttimer_delete(bfd);
 	bfd_echo_recvtimer_delete(bfd);
+
+	frrtrace(2, frr_bfd, echo_mode_change, bfd, false);
 }
 
 void ptm_bfd_echo_start(struct bfd_session *bfd)
@@ -485,6 +502,7 @@ void ptm_bfd_echo_start(struct bfd_session *bfd)
 	if (bfd->echo_detect_TO > 0) {
 		bfd_echo_recvtimer_update(bfd);
 		ptm_bfd_echo_xmt_TO(bfd);
+		frrtrace(2, frr_bfd, echo_mode_change, bfd, true);
 	}
 }
 
@@ -503,6 +521,9 @@ void ptm_bfd_sess_up(struct bfd_session *bfd)
 	ptm_bfd_snd(bfd, 0);
 
 	control_notify(bfd, bfd->ses_state);
+
+	/* Trace state change */
+	frrtrace(4, frr_bfd, state_change, bfd, old_state, bfd->ses_state, bfd->local_diag);
 
 	if (old_state != bfd->ses_state) {
 		bfd->stats.session_up++;
@@ -569,6 +590,9 @@ void ptm_bfd_sess_dn(struct bfd_session *bfd, uint8_t diag,
 		bfd_recvtimer_delete(bfd);
 		bfd_xmttimer_delete(bfd);
 	}
+
+	/* Trace state change */
+	frrtrace(4, frr_bfd, state_change, bfd, old_state, bfd->ses_state, bfd->local_diag);
 
 	if (old_state != bfd->ses_state) {
 		bfd->stats.session_down++;
@@ -723,6 +747,7 @@ int bfd_session_update_label(struct bfd_session *bs, const char *nlabel)
 		}
 
 		pl_new(nlabel, bs);
+		frrtrace(2, frr_bfd, session_label_update, bs, nlabel);
 
 		return 0;
 	}
@@ -739,6 +764,7 @@ int bfd_session_update_label(struct bfd_session *bs, const char *nlabel)
 		return -1;
 
 	strlcpy(bs->pl->pl_label, nlabel, sizeof(bs->pl->pl_label));
+	frrtrace(2, frr_bfd, session_label_update, bs, nlabel);
 	return 0;
 }
 
@@ -820,6 +846,9 @@ static int bfd_session_update(struct bfd_session *bs, struct bfd_peer_cfg *bpc)
 void bfd_session_free(struct bfd_session *bs)
 {
 	struct bfd_session_observer *bso;
+
+	/* Trace session deletion */
+	frrtrace(2, frr_bfd, session_lifecycle, false, bs);
 
 	bfd_session_disable(bs);
 
@@ -934,6 +963,9 @@ struct bfd_session *bs_registrate(struct bfd_session *bfd)
 	if (bfd->key.ifname[0] || bfd->key.vrfname[0] || bfd->sock == -1)
 		bs_observer_add(bfd);
 
+	/* Trace session creation */
+	frrtrace(2, frr_bfd, session_lifecycle, true, bfd);
+
 	if (bglobal.debug_peer_event)
 		zlog_debug("session-new: %s", bs_to_string(bfd));
 
@@ -953,6 +985,8 @@ int ptm_bfd_sess_del(struct bfd_peer_cfg *bpc)
 
 	/* This pointer is being referenced, don't let it be deleted. */
 	if (bs->refcount > 0) {
+		/* Trace refcount failure */
+		frrtrace(1, frr_bfd, refcount_error, bs->refcount);
 		zlog_err("session-delete: refcount failure: %" PRIu64" references",
 			 bs->refcount);
 		return -1;
@@ -1214,6 +1248,11 @@ void bs_final_handler(struct bfd_session *bs)
 		bs->xmt_TO = bs->timers.desired_min_tx;
 	else
 		bs->xmt_TO = bs->remote_timers.required_min_rx;
+
+	/* Trace timer negotiation results. */
+	frrtrace(6, frr_bfd, timer_negotiation,
+		 bs, bs->xmt_TO, bs->cur_timers.required_min_rx, bs->detect_TO,
+		 bs->echo_xmt_TO, bs->echo_detect_TO);
 
 	/* Apply new transmission timer immediately. */
 	ptm_bfd_start_xmt_timer(bs, false);
@@ -1935,6 +1974,8 @@ static int bfd_vrf_new(struct vrf *vrf)
 	if (bglobal.debug_zebra)
 		zlog_debug("VRF Created: %s(%u)", vrf->name, vrf->vrf_id);
 
+	frrtrace(2, frr_bfd, vrf_lifecycle, 1, vrf->vrf_id);
+
 	return 0;
 }
 
@@ -1942,6 +1983,8 @@ static int bfd_vrf_delete(struct vrf *vrf)
 {
 	if (bglobal.debug_zebra)
 		zlog_debug("VRF Deletion: %s(%u)", vrf->name, vrf->vrf_id);
+
+	frrtrace(2, frr_bfd, vrf_lifecycle, 2, vrf->vrf_id);
 
 	return 0;
 }
@@ -1970,6 +2013,8 @@ static int bfd_vrf_enable(struct vrf *vrf)
 
 	if (bglobal.debug_zebra)
 		zlog_debug("VRF enable add %s id %u", vrf->name, vrf->vrf_id);
+
+	frrtrace(2, frr_bfd, vrf_lifecycle, 3, vrf->vrf_id);
 
 	if (!bvrf->bg_shop)
 		bvrf->bg_shop = bp_udp_shop(vrf);
@@ -2025,6 +2070,8 @@ static int bfd_vrf_disable(struct vrf *vrf)
 
 	if (bglobal.debug_zebra)
 		zlog_debug("VRF disable %s id %d", vrf->name, vrf->vrf_id);
+
+	frrtrace(2, frr_bfd, vrf_lifecycle, 4, vrf->vrf_id);
 
 	/* Disable read/write poll triggering. */
 	EVENT_OFF(bvrf->bg_ev[0]);

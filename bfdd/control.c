@@ -18,6 +18,7 @@
 #include <sys/un.h>
 
 #include "bfd.h"
+#include "bfd_trace.h"
 
 /*
  * Prototypes
@@ -106,12 +107,16 @@ int control_init(const char *path)
 
 	sd = socket(AF_UNIX, SOCK_STREAM, PF_UNSPEC);
 	if (sd == -1) {
+		/* Trace control socket creation failed */
+		frrtrace(3, frr_bfd, socket_error, 1, 1, errno);
 		zlog_err("%s: socket: %s", __func__, strerror(errno));
 		return -1;
 	}
 
 	umval = umask(0);
 	if (bind(sd, (struct sockaddr *)&sun_, sizeof(sun_)) == -1) {
+		/* Trace control socket bind failed */
+		frrtrace(3, frr_bfd, socket_error, 2, 1, errno);
 		zlog_err("%s: bind: %s", __func__, strerror(errno));
 		close(sd);
 		return -1;
@@ -119,6 +124,8 @@ int control_init(const char *path)
 	umask(umval);
 
 	if (listen(sd, SOMAXCONN) == -1) {
+		/* Trace control socket listen failed */
+		frrtrace(3, frr_bfd, socket_error, 3, 1, errno);
 		zlog_err("%s: listen: %s", __func__, strerror(errno));
 		close(sd);
 		return -1;
@@ -180,6 +187,8 @@ struct bfd_control_socket *control_new(int sd)
 	TAILQ_INIT(&bcs->bcs_bnplist);
 	TAILQ_INSERT_TAIL(&bglobal.bg_bcslist, bcs, bcs_entry);
 
+	frrtrace(2, frr_bfd, control_client_event, true, sd);
+
 	return bcs;
 }
 
@@ -190,6 +199,8 @@ static void control_free(struct bfd_control_socket *bcs)
 
 	event_cancel(&(bcs->bcs_ev));
 	event_cancel(&(bcs->bcs_outev));
+
+	frrtrace(2, frr_bfd, control_client_event, false, bcs->bcs_sd);
 
 	close(bcs->bcs_sd);
 
@@ -421,6 +432,7 @@ static void control_read(struct event *t)
 	if (plen < 2) {
 		zlog_debug("%s: client closed due small message length: %d",
 			   __func__, bcm.bcm_length);
+		frrtrace(3, frr_bfd, control_protocol_error, 1, bcs->bcs_sd, bcm.bcm_length);
 		control_free(bcs);
 		return;
 	}
@@ -430,6 +442,7 @@ static void control_read(struct event *t)
 	if (plen > FRR_BFD_MAXLEN) {
 		zlog_debug("%s: client closed, invalid message length: %d",
 			   __func__, bcm.bcm_length);
+		frrtrace(3, frr_bfd, control_protocol_error, 2, bcs->bcs_sd, bcm.bcm_length);
 		control_free(bcs);
 		return;
 	}
@@ -437,6 +450,7 @@ static void control_read(struct event *t)
 	if (bcm.bcm_ver != BMV_VERSION_1) {
 		zlog_debug("%s: client closed due bad version: %d", __func__,
 			   bcm.bcm_ver);
+		frrtrace(3, frr_bfd, control_protocol_error, 3, bcs->bcs_sd, bcm.bcm_ver);
 		control_free(bcs);
 		return;
 	}
@@ -503,6 +517,7 @@ skip_header:
 	default:
 		zlog_debug("%s: unhandled message type: %d", __func__,
 			   bcb->bcb_bcm->bcm_type);
+		frrtrace(3, frr_bfd, control_protocol_error, 4, bcs->bcs_sd, bcb->bcb_bcm->bcm_type);
 		control_response(bcs, bcb->bcb_bcm->bcm_id, BCM_RESPONSE_ERROR,
 				 "invalid message type");
 		break;
@@ -752,6 +767,9 @@ int control_notify(struct bfd_session *bs, uint8_t notify_state)
 {
 	struct bfd_control_socket *bcs;
 	struct bfd_notify_peer *bnp;
+
+	/* Trace control notification */
+	frrtrace(2, frr_bfd, control_notify, bs, notify_state);
 
 	/* Notify zebra listeners as well. */
 	ptm_bfd_notify(bs, notify_state);

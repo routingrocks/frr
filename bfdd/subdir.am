@@ -22,6 +22,7 @@ bfdd_libbfd_a_SOURCES = \
 	bfdd/dplane.c \
 	bfdd/event.c \
 	bfdd/ptm_adapter.c \
+	bfdd/bfd_trace.c \
 	# end
 
 # Install headers so it can be used by external data plane
@@ -40,6 +41,7 @@ noinst_HEADERS += \
 	bfdd/bfdctl.h \
 	bfdd/bfdd_nb.h \
 	bfdd/bfd.h \
+	bfdd/bfd_trace.h \
 	# end
 
 nodist_bfdd_bfdd_SOURCES = \
@@ -47,4 +49,4 @@ nodist_bfdd_bfdd_SOURCES = \
 	# end
 
 bfdd_bfdd_SOURCES = bfdd/bfdd.c
-bfdd_bfdd_LDADD = bfdd/libbfd.a lib/libfrr.la
+bfdd_bfdd_LDADD = bfdd/libbfd.a lib/libfrr.la $(BFDUST_LIBS) $(UST_LIBS)
