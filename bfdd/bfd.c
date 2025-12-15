@@ -337,7 +337,9 @@ int bfd_session_enable(struct bfd_session *bs)
 	bs->ifp = ifp;
 
 	/* Attempt to use data plane. */
-	if (bglobal.bg_use_dplane && bfd_dplane_add_session(bs) == 0) {
+	if (!bfd_session_is_link_local(bs) && bglobal.bg_use_dplane && bfd_dplane_add_session(bs) == 0) {
+		/* Mark session as offloaded to data plane */
+		bs->offloaded = true;
 		control_notify_config(BCM_NOTIFY_CONFIG_ADD, bs);
 		return 0;
 	}
@@ -567,6 +569,7 @@ void ptm_bfd_sess_dn(struct bfd_session *bfd, uint8_t diag,
 
 	/* Slow down the control packets, the connection is down. */
 	bs_set_slow_timers(bfd);
+	bfd_recvtimer_update(bfd);
 
 	/* only signal clients when going from up->down state */
 	if (old_state == PTM_BFD_UP) {
@@ -730,6 +733,8 @@ struct bfd_session *bfd_session_new(void)
 	bs->sock = -1;
 	monotime(&bs->uptime);
 	bs->downtime = bs->uptime;
+	/* Initialize offload status - set to true on basis of dplane flag*/
+	bs->offloaded = false;
 
 	return bs;
 }
@@ -1346,19 +1351,21 @@ void bfd_set_shutdown(struct bfd_session *bs, bool shutdown)
 		if (bs->sock != -1)
 			ptm_bfd_snd(bs, 0);
 	} else {
+		UNSET_FLAG(bs->flags, BFD_SESS_FLAG_SHUTDOWN);
+
 		/* Already working. */
 		if (!is_shutdown)
 			return;
 
-		UNSET_FLAG(bs->flags, BFD_SESS_FLAG_SHUTDOWN);
-
 		/* Handle data plane shutdown case. */
 		if (bs->bdc) {
+			UNSET_FLAG(bs->flags, BFD_SESS_FLAG_SHUTDOWN);
 			bs->ses_state = PTM_BFD_DOWN;
 			bfd_dplane_update_session(bs);
 			control_notify(bs, bs->ses_state);
 			return;
 		}
+
 
 		/* Change and notify state change. */
 		bs->ses_state = PTM_BFD_DOWN;
@@ -1989,7 +1996,7 @@ static int bfd_vrf_delete(struct vrf *vrf)
 	return 0;
 }
 
-static int bfd_vrf_enable(struct vrf *vrf)
+int bfd_vrf_enable(struct vrf *vrf)
 {
 	struct bfd_vrf_global *bvrf;
 
@@ -1998,55 +2005,74 @@ static int bfd_vrf_enable(struct vrf *vrf)
 		bvrf = XCALLOC(MTYPE_BFDD_VRF, sizeof(struct bfd_vrf_global));
 		bvrf->vrf = vrf;
 		vrf->info = (void *)bvrf;
-
-		/* Disable sockets if using data plane. */
-		if (bglobal.bg_use_dplane) {
-			bvrf->bg_shop = -1;
-			bvrf->bg_mhop = -1;
-			bvrf->bg_shop6 = -1;
-			bvrf->bg_mhop6 = -1;
-			bvrf->bg_echo = -1;
-			bvrf->bg_echov6 = -1;
-		}
 	} else
 		bvrf = vrf->info;
 
 	if (bglobal.debug_zebra)
 		zlog_debug("VRF enable add %s id %u", vrf->name, vrf->vrf_id);
 
-	frrtrace(2, frr_bfd, vrf_lifecycle, 3, vrf->vrf_id);
 
-	if (!bvrf->bg_shop)
-		bvrf->bg_shop = bp_udp_shop(vrf);
-	if (!bvrf->bg_mhop)
-		bvrf->bg_mhop = bp_udp_mhop(vrf);
-	if (!bvrf->bg_shop6)
-		bvrf->bg_shop6 = bp_udp6_shop(vrf);
-	if (!bvrf->bg_mhop6)
-		bvrf->bg_mhop6 = bp_udp6_mhop(vrf);
-	if (!bvrf->bg_echo)
-		bvrf->bg_echo = bp_echo_socket(vrf);
-	if (!bvrf->bg_echov6)
-		bvrf->bg_echov6 = bp_echov6_socket(vrf);
+	/*
+	 * Socket management based on mode:
+	 * - Control plane mode: Create standard UDP sockets
+	 * - Distributed mode: Create RAW socket with BPF filter for IPv6
+	 */
+	if (!bglobal.bg_use_dplane) {
+		frrtrace(2, frr_bfd, vrf_lifecycle, 3, vrf->vrf_id);
+		/* Control plane mode - create standard UDP sockets */
+		if (!bvrf->bg_shop || bvrf->bg_shop == -1)
+			bvrf->bg_shop = bp_udp_shop(vrf);
+		if (!bvrf->bg_mhop || bvrf->bg_mhop == -1)
+			bvrf->bg_mhop = bp_udp_mhop(vrf);
+		if (!bvrf->bg_shop6 || bvrf->bg_shop6 == -1)
+			bvrf->bg_shop6 = bp_udp6_shop(vrf);
+		if (!bvrf->bg_mhop6 || bvrf->bg_mhop6 == -1)
+			bvrf->bg_mhop6 = bp_udp6_mhop(vrf);
+		if (!bvrf->bg_echo || bvrf->bg_echo == -1)
+			bvrf->bg_echo = bp_echo_socket(vrf);
+		if (!bvrf->bg_echov6 || bvrf->bg_echov6 == -1)
+			bvrf->bg_echov6 = bp_echov6_socket(vrf);
 
-	if (!bvrf->bg_ev[0] && bvrf->bg_shop != -1)
-		event_add_read(master, bfd_recv_cb, bvrf, bvrf->bg_shop,
-			       &bvrf->bg_ev[0]);
-	if (!bvrf->bg_ev[1] && bvrf->bg_mhop != -1)
-		event_add_read(master, bfd_recv_cb, bvrf, bvrf->bg_mhop,
-			       &bvrf->bg_ev[1]);
-	if (!bvrf->bg_ev[2] && bvrf->bg_shop6 != -1)
-		event_add_read(master, bfd_recv_cb, bvrf, bvrf->bg_shop6,
-			       &bvrf->bg_ev[2]);
-	if (!bvrf->bg_ev[3] && bvrf->bg_mhop6 != -1)
-		event_add_read(master, bfd_recv_cb, bvrf, bvrf->bg_mhop6,
-			       &bvrf->bg_ev[3]);
-	if (!bvrf->bg_ev[4] && bvrf->bg_echo != -1)
-		event_add_read(master, bfd_recv_cb, bvrf, bvrf->bg_echo,
-			       &bvrf->bg_ev[4]);
-	if (!bvrf->bg_ev[5] && bvrf->bg_echov6 != -1)
-		event_add_read(master, bfd_recv_cb, bvrf, bvrf->bg_echov6,
-			       &bvrf->bg_ev[5]);
+		if (!bvrf->bg_ev[0] && bvrf->bg_shop != -1)
+			event_add_read(master, bfd_recv_cb, bvrf, bvrf->bg_shop,
+				       &bvrf->bg_ev[0]);
+		if (!bvrf->bg_ev[1] && bvrf->bg_mhop != -1)
+			event_add_read(master, bfd_recv_cb, bvrf, bvrf->bg_mhop,
+				       &bvrf->bg_ev[1]);
+		if (!bvrf->bg_ev[2] && bvrf->bg_shop6 != -1)
+			event_add_read(master, bfd_recv_cb, bvrf, bvrf->bg_shop6,
+				       &bvrf->bg_ev[2]);
+		if (!bvrf->bg_ev[3] && bvrf->bg_mhop6 != -1)
+			event_add_read(master, bfd_recv_cb, bvrf, bvrf->bg_mhop6,
+				       &bvrf->bg_ev[3]);
+		if (!bvrf->bg_ev[4] && bvrf->bg_echo != -1)
+			event_add_read(master, bfd_recv_cb, bvrf, bvrf->bg_echo,
+				       &bvrf->bg_ev[4]);
+		if (!bvrf->bg_ev[5] && bvrf->bg_echov6 != -1)
+			event_add_read(master, bfd_recv_cb, bvrf, bvrf->bg_echov6,
+				       &bvrf->bg_ev[5]);
+	} else {
+		/* Distributed mode - create RAW socket with BPF filter for IPv6 BFD */
+		bvrf->bg_shop = -1;
+		bvrf->bg_mhop = -1;
+		bvrf->bg_shop6 = -1;  /* Regular UDP socket not used */
+		bvrf->bg_mhop6 = -1;
+		bvrf->bg_echo = -1;
+		bvrf->bg_echov6 = -1;
+
+		/* Create RAW socket with BPF filter for IPv6 BFD packets */
+		if (bglobal.bg_shop6_raw == -1) {
+			bglobal.bg_shop6_raw = bp_shop6_raw_socket(vrf);
+			if (bglobal.bg_shop6_raw != -1) {
+				event_add_read(master, bfd_recv_cb, bvrf,
+					       bglobal.bg_shop6_raw,
+					       &bglobal.bg_shop6_raw_ev);
+				if (bglobal.debug_dplane)
+					zlog_debug("%s: Created RAW socket",
+						   __func__);
+			}
+		}
+	}
 
 	if (vrf->vrf_id != VRF_DEFAULT) {
 		bfdd_zclient_register(vrf->vrf_id);
@@ -2141,4 +2167,24 @@ void bfd_rtt_init(struct bfd_session *bfd)
 	bfd->rtt_index = 0;
 	for (i = 0; i < BFD_RTT_SAMPLE; i++)
 		bfd->rtt[i] = 0;
+}
+
+/*
+ * Check if a BFD session uses an IPv6 link-local address.
+ *
+ * Link-local addresses (fe80::/10) are interface-specific and cannot be
+ * offloaded to the data plane. Sessions using link-local addresses must
+ * use the control plane.
+ *
+ * \param bs the BFD session to check.
+ *
+ * \returns true if the session uses an IPv6 link-local peer address.
+ */
+bool bfd_session_is_link_local(const struct bfd_session *bs)
+{
+	if (bs->key.family == AF_INET6) {
+		const struct in6_addr *peer_addr = (const struct in6_addr *)&bs->key.peer;
+		return IN6_IS_ADDR_LINKLOCAL(peer_addr);
+	}
+	return false;
 }

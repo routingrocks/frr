@@ -579,6 +579,7 @@ AC_CHECK_HEADERS([pthread_np.h],,, [
 #include <pthread.h>
 ])
 AC_CHECK_FUNCS([pthread_setname_np pthread_set_name_np pthread_getthreadid_np])
+AC_CHECK_HEADERS([sx/sdk/sx_api.h], [], -)
 
 CFLAGS="$orig_cflags"
 
@@ -617,6 +618,7 @@ fi
 AC_SUBST([AC_LDFLAGS])
 AC_SUBST([AC_LDFLAGS_EXEC])
 AM_CONDITIONAL([STATIC_BIN], [test "$enable_static_bin" = "yes"])
+AM_CONDITIONAL([MLXSDK_LIBS_BUILT_INSTALLED], [test x"$ac_cv_header_sx_sdk_sx_api_h" = x"yes"])
 
 dnl libtool, the repository of all knowledge related linkers, is too stupid to
 dnl correctly tell the linker how to build modules.
@@ -747,6 +749,8 @@ AC_ARG_ENABLE([bgp-vnc],
   AS_HELP_STRING([--disable-bgp-vnc],[turn off BGP VNC support]))
 AC_ARG_ENABLE([bgp-bmp],
   AS_HELP_STRING([--disable-bgp-bmp],[turn off BGP BMP support]))
+AC_ARG_ENABLE([bfd-dplane-server],
+  AS_HELP_STRING([--enable-bfd-dplane-server],[enable BFD data plane server plugin]))
 AC_ARG_ENABLE([snmp],
   AS_HELP_STRING([--enable-snmp], [enable SNMP support for agentx]))
 AC_ARG_ENABLE([config_rollbacks],
@@ -2019,6 +2023,18 @@ case "${enable_bgp_bmp}" in
     ;;
 esac
 
+bfdd_dplane_server=true
+
+#case "${enable_bfd_dplane_server}" in
+#  yes)
+#    bfdd_dplane_server=true
+#    ;;
+#  *)
+#    bfdd_dplane_server=false
+#    ;;
+#esac
+
+
 if test "$enable_version_build_config" != "no";then
   AC_DEFINE([ENABLE_VERSION_BUILD_CONFIG], [1], [Report build configs in show version])
 fi
@@ -2827,6 +2843,7 @@ dnl various features
 AM_CONDITIONAL([SUPPORT_REALMS], [test "$enable_realms" = "yes"])
 AM_CONDITIONAL([ENABLE_BGP_VNC], [test "$enable_bgp_vnc" != "no"])
 AM_CONDITIONAL([BGP_BMP], [$bgpd_bmp])
+AM_CONDITIONAL([BFDD_DPLANE_SERVER], [test "$bfdd_dplane_server" = "true"])
 AM_CONDITIONAL([ENABLE_ASIC_SUPPORT_VRF_LEAK], [test "$enable_asic_support_vrf_leak" != "no"])
 dnl northbound
 AM_CONDITIONAL([SQLITE3], [$SQLITE3])

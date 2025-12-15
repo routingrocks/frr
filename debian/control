@@ -42,7 +42,8 @@ Build-Depends: bison,
                libprotobuf-dev,
                libprotobuf-c-dev,
                csmgrd-dev,
-               liblttng-ust-dev
+               liblttng-ust-dev,
+               sx-sdk-eth-dev (>= 1.mlnx.4.5.1208-cl5.0.0u0~0) [amd64]
 Standards-Version: 4.5.0.3
 Homepage: https://www.frrouting.org/
 Vcs-Browser: https://github.com/FRRouting/frr/tree/debian/master
@@ -56,7 +57,7 @@ Depends: iproute2,
          ${misc:Depends},
          ${shlibs:Depends}
 Pre-Depends: adduser
-Recommends: frr-pythontools
+Recommends: frr-pythontools, sx-sdk-eth [amd64]
 Suggests: frr-doc
 Conflicts: pimd,
            quagga,

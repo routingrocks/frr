@@ -71,6 +71,10 @@ enum bfddp_message_type {
 	DP_REQUEST_SESSION_COUNTERS = 5,
 	/** Tell BFD daemon about counters values. */
 	BFD_SESSION_COUNTERS = 6,
+	DP_INIT_SDK = 7,
+	/** Deinitialize SDK in data plane plugin. */
+	DP_DEINIT_SDK = 8,
+
 };
 
 /**
@@ -169,6 +173,11 @@ struct bfddp_session {
 	uint32_t ifindex;
 	/** Interface name (empty when unavailable). */
 	char ifname[64];
+
+	/** VRF ID **/
+	uint32_t vrf_id;	
+	/** VRF NAME **/
+	char vrfname[36];
 
 	/* TODO: missing authentication. */
 };

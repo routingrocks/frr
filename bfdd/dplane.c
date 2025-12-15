@@ -22,6 +22,7 @@
 #include <errno.h>
 #include <time.h>
 
+#include "lib/buffer.h"
 #include "lib/hook.h"
 #include "lib/network.h"
 #include "lib/printfrr.h"
@@ -38,7 +39,7 @@ DEFINE_MTYPE_STATIC(BFDD, BFDD_DPLANE_CTX,
 		    "Data plane client allocated memory");
 
 /** Data plane client socket buffer size. */
-#define BFD_DPLANE_CLIENT_BUF_SIZE 8192
+#define BFD_DPLANE_CLIENT_BUF_SIZE 32768
 
 struct bfd_dplane_ctx {
 	/** Client file descriptor. */
@@ -62,7 +63,7 @@ struct bfd_dplane_ctx {
 	/** Input buffer data. */
 	struct stream *inbuf;
 	/** Output buffer data. */
-	struct stream *outbuf;
+	struct buffer *outbuf;
 	/** Input event data. */
 	struct event *inbufev;
 	/** Output event data. */
@@ -101,6 +102,44 @@ static void bfd_dplane_ctx_free(struct bfd_dplane_ctx *bdc);
 static int _bfd_dplane_add_session(struct bfd_dplane_ctx *bdc,
 				   struct bfd_session *bs);
 
+static void bfd_dplane_sdk_monitor_timer(struct event *thread);
+static void bfd_dplane_sdk_init_timer_cb(struct event *thread);
+static void bfd_dplane_sdk_resync_all_sessions(void);
+
+/* SDK monitoring state */
+enum bfd_dplane_sdk_state {
+	BFD_DPLANE_SDK_DOWN = 0,
+	BFD_DPLANE_SDK_UP = 1,
+	BFD_DPLANE_SDK_INIT_PENDING = 2,  /* SDK is up, waiting for init delay */
+};
+
+/* SDK monitor context */
+struct bfd_dplane_sdk_monitor {
+	enum bfd_dplane_sdk_state state;
+	uint32_t check_interval_ms;
+	struct event *monitor_timer;
+	struct event *init_timer;  /* Timer for delayed SDK initialization */
+	time_t last_check;
+	char sdk_service_name[64];
+};
+
+/* Global SDK monitor context */
+static struct bfd_dplane_sdk_monitor sdk_monitor = {
+	.state = BFD_DPLANE_SDK_DOWN,
+	.check_interval_ms = 1000,  /* Check every 1 seconds */
+	.monitor_timer = NULL,
+	.init_timer = NULL,
+	.sdk_service_name = "sx_sdk.service",
+};
+
+
+/* Structure to pass resync statistics to iterator callback */
+struct bfd_dplane_resync_stats {
+	int sync_count;
+	int fail_count;
+	int skip_count;
+};
+
 /*
  * BFD data plane helper functions.
  */
@@ -121,6 +160,11 @@ static const char *bfd_dplane_messagetype2str(enum bfddp_message_type bmt)
 		return "DP_REQUEST_SESSION_COUNTERS";
 	case BFD_SESSION_COUNTERS:
 		return "BFD_SESSION_COUNTERS";
+	case DP_INIT_SDK:
+		return "DP_INIT_SDK";
+	case DP_DEINIT_SDK:
+		return "DP_DEINIT_SDK";
+
 	default:
 		return "UNKNOWN";
 	}
@@ -246,6 +290,14 @@ static void bfd_dplane_debug_message(const struct bfddp_message *msg)
 			be64toh(msg->data.session_counters
 				.echo_output_packets));
 		break;
+	case DP_INIT_SDK:
+		zlog_debug("  [SDK initialization request]");
+		break;
+
+	case DP_DEINIT_SDK:
+		zlog_debug("  [SDK deinitialization request]");
+		break;
+
 	}
 }
 
@@ -269,48 +321,34 @@ static uint16_t bfd_dplane_next_id(struct bfd_dplane_ctx *bdc)
 
 static ssize_t bfd_dplane_flush(struct bfd_dplane_ctx *bdc)
 {
-	ssize_t total = 0;
-	int rv;
+	buffer_status_t status;
+	__attribute__((unused)) ssize_t written;
 
-	while (STREAM_READABLE(bdc->outbuf)) {
-		/* Flush buffer contents to socket. */
-		rv = stream_flush(bdc->outbuf, bdc->sock);
-		if (rv == -1) {
-			/* Interruption: try again. */
-			if (errno == EAGAIN || errno == EWOULDBLOCK
-			    || errno == EINTR)
-				continue;
+	/* Flush as much buffered data as possible. */
+	status = buffer_flush_available(bdc->outbuf, bdc->sock);
 
-			zlog_warn("%s: socket failed: %s", __func__,
-				  strerror(errno));
-			bfd_dplane_ctx_free(bdc);
-			return 0;
-		}
-		if (rv == 0) {
-			if (bglobal.debug_dplane)
-				zlog_info("%s: connection closed", __func__);
+	switch (status) {
+	case BUFFER_ERROR:
+		zlog_warn("%s: socket failed: %s", __func__, strerror(errno));
+		bfd_dplane_ctx_free(bdc);
+		return 0;
 
-			bfd_dplane_ctx_free(bdc);
-			return 0;
-		}
+	case BUFFER_EMPTY:
+		/* All data flushed successfully. */
+		EVENT_OFF(bdc->outbufev);
+		if (bglobal.debug_dplane)
+			zlog_debug("%s: output buffer fully flushed", __func__);
+		break;
 
-		/* Account total written. */
-		total += rv;
-
-		/* Account output bytes. */
-		bdc->out_bytes += (uint64_t)rv;
-
-		/* Forward pointer. */
-		stream_forward_getp(bdc->outbuf, (size_t)rv);
+	case BUFFER_PENDING:
+		/* More data to flush, write event should already be scheduled. */
+		if (bglobal.debug_dplane)
+			zlog_debug("%s: output buffer still has pending data",
+				   __func__);
+		break;
 	}
 
-	/* Make more space for new data. */
-	stream_pulldown(bdc->outbuf);
-
-	/* Disable write ready events. */
-	EVENT_OFF(bdc->outbufev);
-
-	return total;
+	return 0;
 }
 
 static void bfd_dplane_write(struct event *t)
@@ -357,12 +395,14 @@ bfd_dplane_session_state_change(struct bfd_dplane_ctx *bdc,
 	bs->remote_timers.required_min_rx = ntohl(state->required_rx);
 	bs->remote_timers.required_min_echo = ntohl(state->required_echo_rx);
 
-	/* Notify and update counters. */
-	control_notify(bs, bs->ses_state);
-
 	/* No state change. */
 	if (old_state == bs->ses_state)
 		return;
+
+	if (bs->remote_diag != BD_ADMIN_DOWN) // && old_state == PTM_BFD_UP)
+		control_notify(bs, bs->ses_state);
+	else
+		control_notify(bs, PTM_BFD_ADM_DOWN);
 
 	switch (bs->ses_state) {
 	case PTM_BFD_ADM_DOWN:
@@ -406,35 +446,39 @@ bfd_dplane_session_state_change(struct bfd_dplane_ctx *bdc,
 static int bfd_dplane_enqueue(struct bfd_dplane_ctx *bdc, const void *buf,
 			      size_t buflen)
 {
-	size_t rlen;
+	buffer_status_t status;
 
 	/* Handle not connected yet client. */
 	if (bdc->client && bdc->sock == -1)
 		return -1;
 
-	/* Not enough space. */
-	if (buflen > STREAM_WRITEABLE(bdc->outbuf)) {
-		bdc->out_fullev++;
-		return -1;
-	}
-
 	/* Show debug message if active. */
 	bfd_dplane_debug_message((struct bfddp_message *)buf);
 
-	/* Buffer the message. */
-	stream_write(bdc->outbuf, buf, buflen);
+	/* Use buffer_write - same pattern as zclient. */
+	status = buffer_write(bdc->outbuf, bdc->sock, buf, buflen);
 
-	/* Account message as sent. */
-	bdc->out_msgs++;
-	/* Register peak buffered bytes. */
-	rlen = STREAM_READABLE(bdc->outbuf);
-	if (bdc->out_bytes_peak < rlen)
-		bdc->out_bytes_peak = rlen;
+	switch (status) {
+	case BUFFER_ERROR:
+		zlog_err("%s: write error on socket %d", __func__, bdc->sock);
+		bfd_dplane_ctx_free(bdc);
+		return -1;
 
-	/* Schedule if it is not yet. */
-	if (bdc->outbufev == NULL)
-		event_add_write(master, bfd_dplane_write, bdc, bdc->sock,
-				&bdc->outbufev);
+	case BUFFER_EMPTY:
+		/* All written immediately, no need for write event. */
+		EVENT_OFF(bdc->outbufev);
+		bdc->out_msgs++;
+		return 0;
+
+	case BUFFER_PENDING:
+		/* Data queued, schedule write event if not already scheduled. */
+		if (bdc->outbufev == NULL)
+			event_add_write(master, bfd_dplane_write, bdc,
+					bdc->sock, &bdc->outbufev);
+		bdc->out_msgs++;
+		bdc->out_fullev++; /* Track buffering events. */
+		return 0;
+	}
 
 	return 0;
 }
@@ -648,7 +692,7 @@ static struct bfd_dplane_ctx *bfd_dplane_ctx_new(int sock)
 
 	bdc->sock = sock;
 	bdc->inbuf = stream_new(BFD_DPLANE_CLIENT_BUF_SIZE);
-	bdc->outbuf = stream_new(BFD_DPLANE_CLIENT_BUF_SIZE);
+	bdc->outbuf = buffer_new(BFD_DPLANE_CLIENT_BUF_SIZE);
 
 	/* If not socket ready, skip read and session registration. */
 	if (sock == -1)
@@ -711,7 +755,7 @@ free_resources:
 	/* Free resources. */
 	socket_close(&bdc->sock);
 	stream_free(bdc->inbuf);
-	stream_free(bdc->outbuf);
+	buffer_free(bdc->outbuf);
 	EVENT_OFF(bdc->inbufev);
 	EVENT_OFF(bdc->outbufev);
 	XFREE(MTYPE_BFDD_DPLANE_CTX, bdc);
@@ -721,6 +765,7 @@ static void _bfd_dplane_session_fill(const struct bfd_session *bs,
 				     struct bfddp_message *msg)
 {
 	uint16_t msglen = sizeof(msg->header) + sizeof(msg->data.session);
+	struct vrf *vrf = NULL;
 
 	/* Message header. */
 	msg->header.version = BFD_DP_VERSION;
@@ -737,6 +782,20 @@ static void _bfd_dplane_session_fill(const struct bfd_session *bs,
 		strlcpy(msg->data.session.ifname, bs->ifp->name,
 			sizeof(msg->data.session.ifname));
 	}
+	if (bs->key.vrfname[0]) {
+		vrf = vrf_lookup_by_name(bs->key.vrfname);
+		if (vrf == NULL) {
+			zlog_err("session-enable: specified VRF %s doesn't exists.", bs->key.vrfname);
+			return;
+		}
+	} else {
+		vrf = vrf_lookup_by_id(VRF_DEFAULT);
+	}
+	/* coverity[PW.NON_CONST_PRINTF_FORMAT_STRING] - assert() macro, not actual printf */
+	assert(vrf);
+	msg->data.session.vrf_id = vrf->vrf_id;
+	strlcpy(msg->data.session.vrfname, vrf->name, sizeof(msg->data.session.vrfname));
+
 	if (bs->flags & BFD_SESS_FLAG_MH) {
 		msg->data.session.flags |= SESSION_MULTIHOP;
 		msg->data.session.ttl = bs->mh_ttl;
@@ -774,6 +833,25 @@ static int _bfd_dplane_add_session(struct bfd_dplane_ctx *bdc,
 	bs->remote_diag = 0;
 	bs->local_diag = 0;
 	bs->ses_state = PTM_BFD_DOWN;
+
+	/* Check if local address is null/zero - cannot offload to data plane. */
+	if (bs->key.family == AF_INET) {
+		const struct in_addr *local_addr = (const struct in_addr *)&bs->key.local;
+		if (local_addr->s_addr == INADDR_ANY) {
+			if (bglobal.debug_dplane)
+				zlog_debug("%s: session %s has null IPv4 local address (0.0.0.0), cannot offload to data plane",
+					   __func__, bs_to_string(bs));
+			return 0;
+		}
+	} else if (bs->key.family == AF_INET6) {
+		const struct in6_addr *local_addr = (const struct in6_addr *)&bs->key.local;
+		if (IN6_IS_ADDR_UNSPECIFIED(local_addr)) {
+			if (bglobal.debug_dplane)
+				zlog_debug("%s: session %s has null IPv6 local address (::), cannot offload to data plane",
+					   __func__, bs_to_string(bs));
+			return 0;
+		}
+	}
 
 	/* Enqueue message to data plane client. */
 	rv = bfd_dplane_update_session(bs);
@@ -867,7 +945,7 @@ static void _bfd_dplane_client_bootstrap(struct bfd_dplane_ctx *bdc)
 
 	/* Clean up buffers. */
 	stream_reset(bdc->inbuf);
-	stream_reset(bdc->outbuf);
+	buffer_reset(bdc->outbuf);
 
 	/* Ask for read notifications. */
 	event_add_read(master, bfd_dplane_read, bdc, bdc->sock, &bdc->inbufev);
@@ -939,7 +1017,11 @@ static void bfd_dplane_client_connect(struct event *t)
 		zlog_warn("%s: TCP_NODELAY: %s", __func__, strerror(errno));
 
 	/* Attempt to connect. */
-	rv = connect(sock, &bdc->addr.sa, bdc->addrlen);
+	if (bdc->addr.sa.sa_family == AF_UNIX) {
+		rv = connect(sock, (struct sockaddr *)&bdc->addr.sun, sizeof(struct sockaddr_un));
+	} else {
+		rv = connect(sock, &bdc->addr.sa, bdc->addrlen);
+	}
 	if (rv == -1 && (errno != EINPROGRESS && errno != EAGAIN)) {
 		frrtrace(2, frr_bfd, dplane_init_error, 5, errno);
 		zlog_warn("%s: data plane connection failed: %s", __func__,
@@ -964,6 +1046,8 @@ static void bfd_dplane_client_connect(struct event *t)
 		/* Otherwise just start accepting data. */
 		_bfd_dplane_client_bootstrap(bdc);
 	}
+	//Cherry-pick this change https://github.com/FRRouting/frr/commit/f5115307888dc8ca4b6369d1b705686d3c689d23
+	return;
 
 reschedule_connect:
 	EVENT_OFF(bdc->inbufev);
@@ -1112,6 +1196,25 @@ int bfd_dplane_update_session(const struct bfd_session *bs)
 	if (bs->bdc == NULL)
 		return 0;
 
+       /* Check if local address is null/zero - cannot offload to data plane. */
+       if (bs->key.family == AF_INET) {
+               const struct in_addr *local_addr = (const struct in_addr *)&bs->key.local;
+               if (local_addr->s_addr == INADDR_ANY) {
+                       if (bglobal.debug_dplane)
+                               zlog_debug("%s: session %s has null IPv4 local address (0.0.0.0), cannot offload to data plane",
+                                          __func__, bs_to_string(bs));
+                       return 0;
+               }
+       } else if (bs->key.family == AF_INET6) {
+               const struct in6_addr *local_addr = (const struct in6_addr *)&bs->key.local;
+               if (IN6_IS_ADDR_UNSPECIFIED(local_addr)) {
+                       if (bglobal.debug_dplane)
+                               zlog_debug("%s: session %s has null IPv6 local address (::), cannot offload to data plane",
+                                          __func__, bs_to_string(bs));
+                       return 0;
+               }
+       }
+
 	_bfd_dplane_session_fill(bs, &msg);
 
 	/* Trace session add/update */
@@ -1174,8 +1277,6 @@ void bfd_dplane_show_counters(struct vty *vty)
 		SHOW_COUNTER("Output bytes peak", bdc->out_bytes_peak, PRIu64);
 		SHOW_COUNTER("Output messages", bdc->out_msgs, PRIu64);
 		SHOW_COUNTER("Output full events", bdc->out_fullev, PRIu64);
-		SHOW_COUNTER("Output current usage",
-			     STREAM_READABLE(bdc->inbuf), "zu");
 		vty_out(vty, "\n");
 	}
 #undef SHOW_COUNTER
@@ -1205,3 +1306,352 @@ int bfd_dplane_update_session_counters(struct bfd_session *bs)
 
 	return rv;
 }
+
+/* ============================================================
+ * SX SDK Service Monitoring
+ * 
+ * Rules:
+ * 1. Check SDK only when enabling distributed mode
+ * 2. Start timer ONLY if SDK is UP when enabling
+ * 3. If SDK goes down, just log - don't retry, don't move sessions
+ * 4. If SDK comes back, resync sessions
+ * ============================================================ */
+
+
+/**
+ * Check if SX SDK systemd service is running
+ * 
+ * @return true if sx-sdk.service is active, false otherwise
+ */
+bool bfd_dplane_sdk_service_is_running(void)
+{
+	FILE *fp;
+	char result[128];
+	bool is_active = false;
+	char cmd[256];
+	
+	/* Build systemctl command */
+	snprintf(cmd, sizeof(cmd), "systemctl is-active %s 2>/dev/null", 
+	         sdk_monitor.sdk_service_name);
+	
+	fp = popen(cmd, "r");
+	if (fp == NULL) {
+		zlog_err("%s: SDK_MONITOR: Failed to execute systemctl command", __func__);
+		return false;
+	}
+	
+	if (fgets(result, sizeof(result), fp) != NULL) {
+		/* Remove newline */
+		result[strcspn(result, "\n")] = 0;
+		
+		if (strcmp(result, "active") == 0) {
+			is_active = true;
+			if (bglobal.debug_dplane) {
+				zlog_debug("%s: sx_sdk is active", __func__);
+			}
+		} else {
+			if (bglobal.debug_dplane) {
+				zlog_debug("%s: sx_sdk is not active", __func__);
+			}
+		}
+	}
+	
+	pclose(fp);
+	return is_active;
+}
+
+/**
+ * Send DP_INIT_SDK message to data plane plugin
+ * Called when SDK comes up
+ */
+static int bfd_dplane_send_init_sdk(void)
+{
+	struct bfddp_message msg = {};
+	struct bfd_dplane_ctx *bdc;
+	
+	/* Check if data plane connection exists */
+	if (TAILQ_EMPTY(&bglobal.bg_dplaneq)) {
+		zlog_err("%s: SDK_MONITOR: No data plane connection to send DP_INIT_SDK", __func__);
+		return -1;
+	}
+	
+	bdc = TAILQ_FIRST(&bglobal.bg_dplaneq);
+	
+	/* Build DP_INIT_SDK message (header only) */
+	msg.header.version = BFD_DP_VERSION;
+	msg.header.type = htons(DP_INIT_SDK);
+	msg.header.length = htons(sizeof(msg.header));
+	
+	if (bglobal.debug_dplane) {
+		zlog_debug("%s: SDK_MONITOR: Sending DP_INIT_SDK to data plane plugin", __func__);
+	}
+	/* Send message */
+	if (bfd_dplane_enqueue(bdc, &msg, sizeof(msg.header)) != 0) {
+		zlog_err("%s: SDK_MONITOR: Failed to send DP_INIT_SDK", __func__);
+		return -1;
+	}
+	
+	return 0;
+}
+
+/**
+ * Send DP_DEINIT_SDK message to data plane plugin
+ * Called when SDK goes down
+ */
+static int bfd_dplane_send_deinit_sdk(void)
+{
+	struct bfddp_message msg = {};
+	struct bfd_dplane_ctx *bdc;
+	
+	/* Check if data plane connection exists */
+	if (TAILQ_EMPTY(&bglobal.bg_dplaneq)) {
+		zlog_err("%s: SDK_MONITOR: No data plane connection to send DP_DEINIT_SDK", __func__);
+		return -1;
+	}
+	
+	bdc = TAILQ_FIRST(&bglobal.bg_dplaneq);
+	
+	/* Build DP_DEINIT_SDK message (header only) */
+	msg.header.version = BFD_DP_VERSION;
+	msg.header.type = htons(DP_DEINIT_SDK);
+	msg.header.length = htons(sizeof(msg.header));
+	
+	
+	/* Send message */
+	if (bfd_dplane_enqueue(bdc, &msg, sizeof(msg.header)) != 0) {
+		zlog_err("%s: SDK_MONITOR: Failed to send DP_DEINIT_SDK", __func__);
+		return -1;
+	}
+	
+	return 0;
+}
+
+/**
+ * Callback for bfd_key_iterate to resync a single session
+ */
+static void _bfd_dplane_resync_session(struct hash_bucket *hb, void *arg)
+{
+	struct bfd_session *bs = hb->data;
+	struct bfd_dplane_resync_stats *stats = arg;
+	
+	/* Skip shutdown sessions */
+	if (CHECK_FLAG(bs->flags, BFD_SESS_FLAG_SHUTDOWN)) {
+		stats->skip_count++;
+		return;
+	}
+	
+	/* Skip sessions not configured for distributed mode */
+	if (!bglobal.bg_use_dplane) {
+		stats->skip_count++;
+		return;
+	}
+	
+	/*
+	 * Skip link-local sessions - they cannot be offloaded to data plane.
+	 * Link-local addresses are interface-specific and must use control plane.
+	 */
+	if (bfd_session_is_link_local(bs)) {
+		stats->skip_count++;
+		if (bglobal.debug_peer_event)
+			zlog_debug("%s: SDK_MONITOR: Skipping link-local session %s (cannot offload)",
+				   __func__, bs_to_string(bs));
+		return;
+	}
+	
+	if (bglobal.debug_dplane) {
+		zlog_info("SDK_MONITOR: Resyncing session LID=%u %s state=%s",
+	        	 bs->discrs.my_discr,
+	         	bs_to_string(bs),
+	         	state_list[bs->ses_state].str);
+	}
+	
+	/* Add/update session in data plane */
+	if (bfd_dplane_add_session(bs) == 0) {
+		bs->offloaded = true;
+		stats->sync_count++;
+		
+		zlog_info("SDK_MONITOR: Session LID=%u offloaded successfully", 
+		         bs->discrs.my_discr);
+	} else {
+		stats->fail_count++;
+		
+		zlog_err("SDK_MONITOR: Failed to offload session LID=%u", 
+		        bs->discrs.my_discr);
+	}
+}
+
+/**
+ * Resync all sessions with data plane plugin
+ * Called when SDK comes back up after being down
+ */
+static void bfd_dplane_sdk_resync_all_sessions(void)
+{
+	struct bfd_dplane_resync_stats stats = {0};
+	
+	zlog_info("SDK_MONITOR: SX SDK service is back up - resyncing all BFD sessions");
+	
+	/* Send DP_INIT_SDK to data plane plugin first */
+	if (bfd_dplane_send_init_sdk() != 0) {
+		zlog_err("SDK_MONITOR: Failed to send DP_INIT_SDK, aborting session resync");
+		return;
+	}
+	
+	/* Iterate through all sessions using bfd_key_iterate */
+	bfd_key_iterate(_bfd_dplane_resync_session, &stats);
+	
+	zlog_info("SDK_MONITOR: Session resync complete - success=%d failed=%d skipped=%d",
+	         stats.sync_count, stats.fail_count, stats.skip_count);
+}
+
+/**
+ * Delayed SDK initialization callback
+ * Called 10 seconds after SDK comes up to allow SDK to fully initialize
+ */
+static void bfd_dplane_sdk_init_timer_cb(struct event *thread)
+{
+	zlog_info("SDK_MONITOR: SDK initialization delay complete, starting resync");
+	
+	/* Clear the timer pointer */
+	sdk_monitor.init_timer = NULL;
+	
+	/* Update state to UP */
+	sdk_monitor.state = BFD_DPLANE_SDK_UP;
+	
+	/* Now perform the init and resync */
+	bfd_dplane_sdk_resync_all_sessions();
+}
+
+/**
+ * SDK Monitor Timer Callback
+ * Periodically checks if SX SDK service is running
+ * Only detects SDK state changes (UP -> DOWN or DOWN -> UP)
+ */
+static void bfd_dplane_sdk_monitor_timer(struct event *thread)
+{
+	bool sdk_running;
+	
+	
+	sdk_monitor.last_check = time(NULL);
+	
+	/* Check if SX SDK service is running */
+	sdk_running = bfd_dplane_sdk_service_is_running();
+	
+	/* Detect state transitions */
+	if (sdk_monitor.state == BFD_DPLANE_SDK_UP && !sdk_running) {
+		/* SDK went DOWN */
+		zlog_err("SDK_MONITOR: SX SDK service went DOWN");
+		zlog_err("SDK_MONITOR: Sessions remain configured, waiting for manual intervention");
+		sdk_monitor.state = BFD_DPLANE_SDK_DOWN;
+		
+		/* Cancel any pending init timer */
+		EVENT_OFF(sdk_monitor.init_timer);
+		
+		/* Send DP_DEINIT_SDK to data plane plugin */
+		bfd_dplane_send_deinit_sdk();
+		
+		/* Do NOT move sessions to control plane */
+		/* Do NOT clear sessions */
+		/* Do NOT retry connection */
+		/* Just log and wait */
+		
+	} else if (sdk_monitor.state == BFD_DPLANE_SDK_DOWN && sdk_running) {
+		/* SDK came back UP - schedule delayed initialization */
+		zlog_info("SDK_MONITOR: SX SDK service came back UP - scheduling init in 10 seconds");
+		sdk_monitor.state = BFD_DPLANE_SDK_INIT_PENDING;
+		
+		/* Schedule init timer for 10 seconds to allow SDK to fully initialize */
+		event_add_timer(master, bfd_dplane_sdk_init_timer_cb, NULL,
+		                10, &sdk_monitor.init_timer);
+		
+	} else if (sdk_monitor.state == BFD_DPLANE_SDK_INIT_PENDING && !sdk_running) {
+		/* SDK went down again during init delay */
+		zlog_err("SDK_MONITOR: SX SDK service went DOWN during init delay");
+		sdk_monitor.state = BFD_DPLANE_SDK_DOWN;
+		
+		/* Cancel the init timer */
+		EVENT_OFF(sdk_monitor.init_timer);
+	}
+	
+	/* Re-register monitor timer */
+	event_add_timer_msec(master, bfd_dplane_sdk_monitor_timer, NULL,
+	                     sdk_monitor.check_interval_ms, &sdk_monitor.monitor_timer);
+}
+
+/**
+ * Start SDK monitoring
+ * ONLY called when distributed mode is successfully enabled AND SDK is UP
+ */
+void bfd_dplane_sdk_monitor_start(void)
+{
+	if (sdk_monitor.monitor_timer) {
+		zlog_warn("SDK_MONITOR: Already running");
+		return;
+	}
+	
+	zlog_info("SDK_MONITOR: Starting monitor for %s", sdk_monitor.sdk_service_name);
+	bfd_dplane_send_init_sdk();	
+	sdk_monitor.state = BFD_DPLANE_SDK_UP;
+	sdk_monitor.last_check = time(NULL);
+	
+	/* Start monitoring timer */
+	event_add_timer_msec(master, bfd_dplane_sdk_monitor_timer, NULL,
+	                     sdk_monitor.check_interval_ms, &sdk_monitor.monitor_timer);
+	
+	zlog_info("SDK_MONITOR: Monitor started (interval=%u ms)", sdk_monitor.check_interval_ms);
+}
+
+/**
+ * Stop SDK monitoring
+ * Called when distributed mode is disabled
+ */
+void bfd_dplane_sdk_monitor_stop(void)
+{
+	if (!sdk_monitor.monitor_timer) {
+		return;
+	}
+	
+	zlog_info("SDK_MONITOR: Stopping monitor");
+	
+	/* Cancel monitoring timer */
+	EVENT_OFF(sdk_monitor.monitor_timer);
+	sdk_monitor.monitor_timer = NULL;
+	
+	/* Cancel any pending init timer */
+	EVENT_OFF(sdk_monitor.init_timer);
+	sdk_monitor.init_timer = NULL;
+	
+	sdk_monitor.state = BFD_DPLANE_SDK_DOWN;
+	bfd_dplane_send_deinit_sdk();
+	
+	zlog_info("SDK_MONITOR: Monitor stopped");
+}
+
+/**
+ * Initialize SDK in data plane plugin
+ * Sends DP_INIT_SDK message to the plugin
+ * This is called when user explicitly enables distributed mode
+ */
+int bfd_dplane_initialize_sdk(void)
+{
+	zlog_info("Sending DP_INIT_SDK to data plane plugin");
+	
+	return bfd_dplane_send_init_sdk();
+}
+
+/**
+ * Set SDK service name (optional configuration)
+ */
+int bfd_dplane_sdk_set_service_name(const char *service_name)
+{
+	if (sdk_monitor.monitor_timer) {
+		zlog_err("Cannot change service name while monitoring is active");
+		return -1;
+	}
+	
+	strlcpy(sdk_monitor.sdk_service_name, service_name, 
+	        sizeof(sdk_monitor.sdk_service_name));
+	
+	zlog_info("SDK service name set to: %s", sdk_monitor.sdk_service_name);
+	return 0;
+}
+
