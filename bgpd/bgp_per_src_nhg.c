@@ -1271,7 +1271,7 @@ static void bgp_process_dest_soo_del(struct bgp_dest_soo_hash_entry *dest_he)
 
 	if (CHECK_FLAG(dest_he->flags, DEST_USING_SOO_NHGID)) {
 		/* wait for route with soo to move to zebra nhid */
-		if (CHECK_FLAG(dest_he->flags, DEST_SOO_DEL_PENDING)) {
+		if (!CHECK_FLAG(dest_he->flags, DEST_SOO_DEL_PENDING)) {
 			SET_FLAG(dest_he->flags, DEST_SOO_DEL_PENDING);
 			if (BGP_DEBUG(per_src_nhg, PER_SRC_NHG)) {
 				char buf[INET6_ADDRSTRLEN];
