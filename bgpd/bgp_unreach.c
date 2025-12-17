@@ -1401,6 +1401,55 @@ static bool bgp_prefix_covered_by_aggregate(struct bgp *bgp, afi_t afi, const st
 	return false;
 }
 
+/* Cleanup unreachability routes when an aggregate is removed */
+void bgp_unreach_cleanup_for_aggregate(struct bgp *bgp, afi_t afi, const struct prefix *aggr_p)
+{
+	struct bgp_table *table;
+	struct bgp_dest *dest;
+	struct bgp_path_info *pi;
+	struct prefix unreach_p;
+	bool restart_loop;
+
+	if (!bgp || !aggr_p)
+		return;
+
+	table = bgp->rib[afi][SAFI_UNREACH];
+	if (!table)
+		return;
+
+	do {
+		restart_loop = false;
+
+		for (dest = bgp_table_top(table); dest; dest = bgp_route_next(dest)) {
+			const struct prefix *dest_p = bgp_dest_get_prefix(dest);
+
+			if (!prefix_match(aggr_p, dest_p))
+				continue;
+
+			for (pi = bgp_dest_get_bgp_path_info(dest); pi; pi = pi->next) {
+				if (pi->peer != bgp->peer_self)
+					continue;
+
+				prefix_copy(&unreach_p, dest_p);
+
+				if (!bgp_prefix_covered_by_aggregate(bgp, afi, &unreach_p)) {
+					if (BGP_DEBUG(update, UPDATE_OUT))
+						zlog_debug("UNREACH CLEANUP: withdraw unreach %pFX, no covering aggregate",
+							   dest_p);
+
+					bgp_unreach_info_delete(bgp, afi, &unreach_p);
+					bgp_dest_unlock_node(dest);
+					restart_loop = true;
+					break;
+				}
+			}
+
+			if (restart_loop)
+				break;
+		}
+	} while (restart_loop);
+}
+
 void bgp_unreach_zebra_announce(struct bgp *bgp, struct interface *ifp,
 				struct prefix *prefix, bool withdraw)
 {

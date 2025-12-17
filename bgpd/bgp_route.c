@@ -7500,7 +7500,7 @@ static int clear_batch_rib_helper(struct bgp_clearing_info *cinfo)
 					/* This will resume the "inner" walk if necessary */
 					ret = walk_batch_table_helper(cinfo, table, true /*inner*/);
 					if (ret != 0) {
-						/* The "inner" resume info will be set; 
+						/* The "inner" resume info will be set;
 						 * capture the resume info we need
 						 * from the outer afi/safi and dest
 						 */
@@ -10147,12 +10147,16 @@ static int bgp_aggregate_unset(struct vty *vty, const char *prefix_str,
 	}
 
 	aggregate = bgp_dest_get_bgp_aggregate_info(dest);
+
 	bgp_aggregate_delete(bgp, &p, afi, safi, aggregate);
 	bgp_aggregate_install(bgp, afi, safi, &p, 0, NULL, NULL,
 			      NULL, NULL,  0, aggregate);
 
 	/* Unlock aggregate address configuration. */
 	bgp_dest_set_bgp_aggregate_info(dest, NULL);
+
+	if (safi == SAFI_UNICAST)
+		bgp_unreach_cleanup_for_aggregate(bgp, afi, &p);
 
 	bgp_free_aggregate_info(aggregate);
 	dest = bgp_dest_unlock_node(dest);
@@ -16452,8 +16456,8 @@ static int peer_adj_routes_brief(struct vty *vty, struct peer *peer, afi_t afi, 
         bool best_path_selected = false;
         bool found_match = false;
         char pfx_buf[PREFIX2STR_BUFFER];
-        
-        prefix2str(rn_p, pfx_buf, sizeof(pfx_buf));
+
+	prefix2str(rn_p, pfx_buf, sizeof(pfx_buf));
 
         if (type == bgp_show_adj_route_received) {
             /* Check for received routes from this peer */
@@ -16479,8 +16483,8 @@ static int peer_adj_routes_brief(struct vty *vty, struct peer *peer, afi_t afi, 
         } else if (type == bgp_show_adj_route_advertised) {
             struct bgp_adj_out *adj;
             struct peer_af *paf;
-            
-            RB_FOREACH (adj, bgp_adj_out_rb, &dest->adj_out) {
+
+	    RB_FOREACH (adj, bgp_adj_out_rb, &dest->adj_out) {
                 SUBGRP_FOREACH_PEER (adj->subgroup, paf) {
                     if (paf->peer == peer && adj->attr) {
                         found_match = true;
