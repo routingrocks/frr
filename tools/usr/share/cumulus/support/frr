@@ -52,6 +52,7 @@ func_frr()
     exec_cmd $jexec bgp.summary vtysh -c "show ip bgp vrf all summary $json"
     exec_cmd $jexec bgp.neighbors vtysh -c "show ip bgp vrf all neighbors $json"
     exec_cmd bgp.nexthop vtysh -c "show ip bgp vrf all nexthop"
+    exec_cmd $jexec bgp.interface_detail vtysh -c "show bgp interface detail $json"
     exec_cmd bgp.update_group vtysh -c "show ip bgp vrf all update-group"
     exec_cmd bgp.route vtysh -c "show ip bgp vrf all"
     exec_cmd $jexec bgp.vrfs vtysh -c "show bgp vrfs $json"
