@@ -132,9 +132,13 @@ static void _ptm_bfd_session_del(struct bfd_session *bs, uint8_t diag)
 	if (bglobal.debug_peer_event)
 		zlog_debug("session-delete: %s", bs_to_string(bs));
 
-	frrtrace(7, frr_bfd, ptm_session_event, 2, bs->discrs.my_discr, diag,
+	frrtrace(10, frr_bfd, ptm_session_event, 2, bs->discrs.my_discr, diag,
 		 bs->key.family, (uint8_t *)&bs->key.local,
-		 (uint8_t *)&bs->key.peer, bs->refcount);
+		 (uint8_t *)&bs->key.peer,
+		 bs->vrf ? bs->vrf->vrf_id : VRF_UNKNOWN,
+		 bs->ifp ? bs->ifp->ifindex : 0,
+		 bs->key.ifname[0] ? bs->key.ifname : "",
+		 bs->refcount);
 
 	/* Change state and notify peer. */
 	bs->ses_state = PTM_BFD_DOWN;
@@ -500,6 +504,14 @@ static void bfdd_dest_register(struct stream *msg, vrf_id_t vrf_id)
 			frrtrace(2, frr_bfd, ptm_error, 6, 0);
 			return;
 		}
+		/* Trace successful session creation */
+		frrtrace(10, frr_bfd, ptm_session_event, 1, bs->discrs.my_discr, 0,
+			 bs->key.family, (uint8_t *)&bs->key.local,
+			 (uint8_t *)&bs->key.peer,
+			 bs->vrf ? bs->vrf->vrf_id : VRF_UNKNOWN,
+			 bs->ifp ? bs->ifp->ifindex : 0,
+			 bs->key.ifname[0] ? bs->key.ifname : "",
+			 bs->refcount);
 	} else {
 		/*
 		 * BFD session was already created, we are just updating the
@@ -546,6 +558,14 @@ static void bfdd_dest_deregister(struct stream *msg, vrf_id_t vrf_id)
 	/* Unregister client peer notification. */
 	pcn = pcn_lookup(pc, bs);
 	if (pcn != NULL) {
+		/* Trace successful deregistration */
+		frrtrace(10, frr_bfd, ptm_session_event, 2, bs->discrs.my_discr, BD_NEIGHBOR_DOWN,
+			 bs->key.family, (uint8_t *)&bs->key.local,
+			 (uint8_t *)&bs->key.peer,
+			 bs->vrf ? bs->vrf->vrf_id : VRF_UNKNOWN,
+			 bs->ifp ? bs->ifp->ifindex : 0,
+			 bs->key.ifname[0] ? bs->key.ifname : "",
+			 bs->refcount);
 		pcn_free(pcn);
 		return;
 	}
@@ -1021,9 +1041,13 @@ static void pcn_free(struct ptm_client_notification *pcn)
 		zlog_debug("ptm-del-session: [%s] refcount=%" PRIu64,
 			   bs_to_string(bs), bs->refcount);
 
-	frrtrace(7, frr_bfd, ptm_session_event, 2, bs->discrs.my_discr, BD_NEIGHBOR_DOWN,
+	frrtrace(10, frr_bfd, ptm_session_event, 2, bs->discrs.my_discr, BD_NEIGHBOR_DOWN,
 		 bs->key.family, (uint8_t *)&bs->key.local,
-		 (uint8_t *)&bs->key.peer, bs->refcount);
+		 (uint8_t *)&bs->key.peer,
+		 bs->vrf ? bs->vrf->vrf_id : VRF_UNKNOWN,
+		 bs->ifp ? bs->ifp->ifindex : 0,
+		 bs->key.ifname[0] ? bs->key.ifname : "",
+		 bs->refcount);
 
 	/* Set session down. */
 	_ptm_bfd_session_del(bs, BD_NEIGHBOR_DOWN);

@@ -767,6 +767,32 @@ int control_notify(struct bfd_session *bs, uint8_t notify_state)
 {
 	struct bfd_control_socket *bcs;
 	struct bfd_notify_peer *bnp;
+	const char *state_str;
+
+	/* Get state string for debug log */
+	switch (notify_state) {
+	case PTM_BFD_ADM_DOWN:
+		state_str = "ADM_DOWN";
+		break;
+	case PTM_BFD_DOWN:
+		state_str = "DOWN";
+		break;
+	case PTM_BFD_INIT:
+		state_str = "INIT";
+		break;
+	case PTM_BFD_UP:
+		state_str = "UP";
+		break;
+	default:
+		state_str = "UNKNOWN";
+		break;
+	}
+
+	if (bglobal.debug_peer_event)
+		zlog_debug("control_notify: session [%s] state %s vrf_id %u ifindex %u",
+			   bs_to_string(bs), state_str,
+			   bs->vrf ? bs->vrf->vrf_id : VRF_UNKNOWN,
+			   bs->ifp ? bs->ifp->ifindex : 0);
 
 	/* Trace control notification */
 	frrtrace(2, frr_bfd, control_notify, bs, notify_state);
