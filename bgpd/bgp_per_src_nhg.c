@@ -1249,7 +1249,13 @@ static void bgp_dest_soo_del(struct bgp_dest_soo_hash_entry *dest_he,
 			     struct bgp_per_src_nhg_hash_entry *nhe)
 {
 	struct bgp_dest_soo_hash_entry *tmp_he;
-
+	char pfxprint[PREFIX2STR_BUFFER];
+	prefix2str(&dest_he->p, pfxprint, sizeof(pfxprint));
+	char buf[INET6_ADDRSTRLEN];
+	ipaddr2str(&nhe->ip, buf, sizeof(buf));
+	if (BGP_DEBUG(per_src_nhg, PER_SRC_NHG))
+		zlog_debug("bgp vrf %s per src nhg %s dest soo %s del dest flags %d dest refcnt %d",
+			   nhe->bgp->name_pretty, buf, pfxprint, dest_he->flags, dest_he->refcnt);
 	bgp_dest_soo_flush_entry(dest_he);
 	tmp_he = hash_release(nhe->route_with_soo_table, dest_he);
 	bgp_dest_soo_free(tmp_he);
@@ -1742,6 +1748,20 @@ static void bgp_process_route_with_soo_attr(struct bgp *bgp, afi_t afi, safi_t s
 		if (!bf_test_index(dest_he->bgp_pi_bitmap, pi->peer->bit_index)) {
 			bf_set_bit(dest_he->bgp_pi_bitmap, pi->peer->bit_index);
 			dest_he->refcnt++;
+			if (CHECK_FLAG(dest_he->flags, DEST_SOO_DEL_PENDING)) {
+				UNSET_FLAG(dest_he->flags, DEST_SOO_DEL_PENDING);
+				dest_he->dest = dest;
+				if (BGP_DEBUG(per_src_nhg, PER_SRC_NHG))
+					zlog_debug("bgp vrf %s per src nhg route with soo %s %s dest %s "
+						   "peer %pSU idx %d %s refcnt:%d soo_attr_del:%d "
+						   "add called for dest soo which is del pending[caller:%s]",
+						   bgp->name_pretty, buf,
+						   get_afi_safi_str(afi, safi, false),
+						   bgp_dest_get_prefix_str(dest),
+						   &pi->peer->connection->su, pi->peer->bit_index,
+						   is_add ? "upd" : "del", dest_he->refcnt,
+						   soo_attr_del, caller);
+			}
 			bgp_path_info_set_flag(dest, pi, BGP_PATH_ATTR_CHANGED);
 		}
 	} else {
@@ -1756,7 +1776,19 @@ static void bgp_process_route_with_soo_attr(struct bgp *bgp, afi_t afi, safi_t s
 					   pi->peer->bit_index, is_add ? "upd" : "del",
 					   dest_he->refcnt, soo_attr_del, caller);
 			bgp_path_info_set_flag(dest, pi, BGP_PATH_ATTR_CHANGED);
+		} else {
+			if (BGP_DEBUG(per_src_nhg, PER_SRC_NHG))
+				zlog_debug("bgp vrf %s per src nhg route with soo %s %s dest %s "
+					   "peer %pSU idx %d %s refcnt:%d soo_attr_del:%d "
+					   "del called for non existing peer bit index "
+					   "ignoring the del operation[caller:%s]",
+					   bgp->name_pretty, buf, get_afi_safi_str(afi, safi, false),
+					   bgp_dest_get_prefix_str(dest), &pi->peer->connection->su,
+					   pi->peer->bit_index, is_add ? "upd" : "del",
+					   dest_he->refcnt, soo_attr_del, caller);
+			return;
 		}
+
 		if (!dest_he->refcnt) {
 			soo_id_change = bgp_per_src_nhg_soo_id_change(dest, pi, bgp);
 
