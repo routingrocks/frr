@@ -489,6 +489,7 @@ static int static_route_nb_run(struct vty *vty, struct static_route_args *args)
 
 		if (args->flag) {
 			enum blackhole_type bh_type_new;
+			/* coverity[mixed_enum_type] */
 			enum blackhole_type bh_type_exist = yang_dnode_get_enum(dnode, "bh-type");
 
 			switch (args->flag[0]) {
