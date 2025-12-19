@@ -1673,7 +1673,7 @@ void vpn_leak_from_vrf_update(struct bgp *to_bgp,	     /* to */
 		route_map_result_t ret;
 
 		memset(&info, 0, sizeof(info));
-		info.peer = to_bgp->peer_self;
+		info.peer = path_vrf->peer ? path_vrf->peer : to_bgp->peer_self;
 		info.attr = &static_attr;
 		ret = route_map_apply(from_bgp->vpn_policy[afi]
 					      .rmap[BGP_VPN_POLICY_DIR_TOVPN],
@@ -1915,7 +1915,7 @@ void vpn_leak_from_vrf_update(struct bgp *to_bgp,	     /* to */
 	 * because of loop checking.
 	 */
 	if (new_info)
-		vpn_leak_to_vrf_update(from_bgp, new_info, NULL);
+		vpn_leak_to_vrf_update(from_bgp, new_info, NULL, path_vrf->peer);
 	else
 		bgp_dest_unlock_node(bn);
 }
@@ -2107,10 +2107,10 @@ static struct bgp *bgp_lookup_by_rd(struct bgp_path_info *bpi,
 	return NULL;
 }
 
-static void vpn_leak_to_vrf_update_onevrf(struct bgp *to_bgp,   /* to */
+static void vpn_leak_to_vrf_update_onevrf(struct bgp *to_bgp,	/* to */
 					  struct bgp *from_bgp, /* from */
-					  struct bgp_path_info *path_vpn,
-					  struct prefix_rd *prd)
+					  struct bgp_path_info *path_vpn, struct prefix_rd *prd,
+					  struct peer *from)
 {
 	const struct prefix *p = bgp_dest_get_prefix(path_vpn->net);
 	afi_t afi = family2afi(p->family);
@@ -2131,6 +2131,8 @@ static void vpn_leak_to_vrf_update_onevrf(struct bgp *to_bgp,   /* to */
 	struct interface *ifp;
 	char rd_buf[RD_ADDRSTRLEN];
 	struct aspath *new_aspath;
+	int32_t aspath_loop_count = 0;
+	struct peer *peer = path_vpn->peer;
 
 	int debug = BGP_DEBUG(vpn, VPN_LEAK_TO_VRF);
 
@@ -2191,7 +2193,15 @@ static void vpn_leak_to_vrf_update_onevrf(struct bgp *to_bgp,   /* to */
 	bn = bgp_afi_node_get(to_bgp->rib[afi][safi], afi, safi, p, NULL);
 
 	/* Check if leaked route has our asn. If so, don't import it. */
-	if (aspath_loop_check(path_vpn->attr->aspath, to_bgp->as)) {
+	if (CHECK_FLAG(peer->af_flags[afi][SAFI_MPLS_VPN], PEER_FLAG_ALLOWAS_IN))
+		aspath_loop_count = peer->allowas_in[afi][SAFI_MPLS_VPN];
+	else if (peer == peer->bgp->peer_self && from)
+		/* If this is an import from one VRF to another and the source
+		 * VRF's peer has allowas-in applied, respect it.
+		 */
+		aspath_loop_count = from->allowas_in[afi][SAFI_UNICAST];
+
+	if (aspath_loop_check(path_vpn->attr->aspath, to_bgp->as) > aspath_loop_count) {
 		for (bpi = bgp_dest_get_bgp_path_info(bn); bpi; bpi = bpi->next) {
 			if (bpi->extra && bpi->extra->vrfleak &&
 			    (struct bgp_path_info *)bpi->extra->vrfleak->parent == path_vpn) {
@@ -2339,7 +2349,7 @@ static void vpn_leak_to_vrf_update_onevrf(struct bgp *to_bgp,   /* to */
 		route_map_result_t ret;
 
 		memset(&info, 0, sizeof(info));
-		info.peer = to_bgp->peer_self;
+		info.peer = from ? from : to_bgp->peer_self;
 		info.attr = &static_attr;
 		info.extra = path_vpn->extra; /* Used for source-vrf filter */
 		ret = route_map_apply(to_bgp->vpn_policy[afi]
@@ -2472,9 +2482,8 @@ bool vpn_leak_to_vrf_no_retain_filter_check(struct bgp *from_bgp,
 	return true;
 }
 
-void vpn_leak_to_vrf_update(struct bgp *from_bgp,
-			    struct bgp_path_info *path_vpn,
-			    struct prefix_rd *prd)
+void vpn_leak_to_vrf_update(struct bgp *from_bgp, struct bgp_path_info *path_vpn,
+			    struct prefix_rd *prd, struct peer *peer)
 {
 	struct listnode *mnode, *mnnode;
 	struct bgp *bgp;
@@ -2488,8 +2497,7 @@ void vpn_leak_to_vrf_update(struct bgp *from_bgp,
 	for (ALL_LIST_ELEMENTS(bm->bgp, mnode, mnnode, bgp)) {
 		if (!path_vpn->extra || !path_vpn->extra->vrfleak ||
 		    path_vpn->extra->vrfleak->bgp_orig != bgp) { /* no loop */
-			vpn_leak_to_vrf_update_onevrf(bgp, from_bgp, path_vpn,
-						      prd);
+			vpn_leak_to_vrf_update_onevrf(bgp, from_bgp, path_vpn, prd, peer);
 		}
 	}
 }
@@ -2688,8 +2696,8 @@ void vpn_leak_to_vrf_update_all(struct bgp *to_bgp, struct bgp *vpn_from,
 				    bpi->extra->vrfleak->bgp_orig == to_bgp)
 					continue;
 
-				vpn_leak_to_vrf_update_onevrf(to_bgp, vpn_from,
-							      bpi, NULL);
+				vpn_leak_to_vrf_update_onevrf(to_bgp, vpn_from, bpi, NULL,
+							      bpi->peer);
 			}
 		}
 	}
