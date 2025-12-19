@@ -2246,14 +2246,8 @@ static int update_evpn_route(struct bgp *bgp, struct bgpevpn *vpn,
 
 	/* Build path-attribute for this route. */
 	bgp_attr_default_set(&attr, bgp, BGP_ORIGIN_IGP);
-	if (IS_IPADDR_V4(&vpn->originator_ip)) {
-		attr.nexthop = vpn->originator_ip.ipaddr_v4;
-		attr.mp_nexthop_global_in = vpn->originator_ip.ipaddr_v4;
-		attr.mp_nexthop_len = BGP_ATTR_NHLEN_IPV4;
-	} else {
-		IPV6_ADDR_COPY(&attr.mp_nexthop_global, &vpn->originator_ip.ipaddr_v6);
-		attr.mp_nexthop_len = BGP_ATTR_NHLEN_IPV6_GLOBAL;
-	}
+	bgp_evpn_vtep_ip_to_attr_nh(&vpn->originator_ip, &attr);
+
 	attr.sticky = CHECK_FLAG(flags, ZEBRA_MACIP_TYPE_STICKY) ? 1 : 0;
 	attr.default_gw = CHECK_FLAG(flags, ZEBRA_MACIP_TYPE_GW) ? 1 : 0;
 	attr.router_flag = CHECK_FLAG(flags,
@@ -2557,14 +2551,8 @@ void bgp_evpn_update_type2_route_entry(struct bgp *bgp, struct bgpevpn *vpn,
 	 * attributes will be shared in the hash table.
 	 */
 	bgp_attr_default_set(&attr, bgp, BGP_ORIGIN_IGP);
-	if (IS_IPADDR_V4(&vpn->originator_ip)) {
-		attr.nexthop = vpn->originator_ip.ipaddr_v4;
-		attr.mp_nexthop_global_in = vpn->originator_ip.ipaddr_v4;
-		attr.mp_nexthop_len = BGP_ATTR_NHLEN_IPV4;
-	} else {
-		IPV6_ADDR_COPY(&attr.mp_nexthop_global, &vpn->originator_ip.ipaddr_v6);
-		attr.mp_nexthop_len = BGP_ATTR_NHLEN_IPV6_GLOBAL;
-	}
+	bgp_evpn_vtep_ip_to_attr_nh(&vpn->originator_ip, &attr);
+
 	attr.sticky = (local_pi->attr->sticky) ? 1 : 0;
 	attr.router_flag = (local_pi->attr->router_flag) ? 1 : 0;
 	attr.es_flags = local_pi->attr->es_flags;

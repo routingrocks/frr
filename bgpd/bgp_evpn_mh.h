@@ -467,5 +467,6 @@ extern void bgp_evpn_local_es_evi_unistall_local_routes_in_vrfs(struct bgp_evpn_
 								struct bgp_evpn_es_evi *es_evi);
 extern void bgp_evpn_switch_ead_evi_rx(void);
 extern void bgp_evpn_switch_ead_evi_tx(void);
+void bgp_evpn_vtep_ip_to_attr_nh(const struct ipaddr *vtep_ip, struct attr *attr);
 
 #endif /* _FRR_BGP_EVPN_MH_H */
