@@ -1780,12 +1780,29 @@ static void bgp_process_route_with_soo_attr(struct bgp *bgp, afi_t afi, safi_t s
 			if (BGP_DEBUG(per_src_nhg, PER_SRC_NHG))
 				zlog_debug("bgp vrf %s per src nhg route with soo %s %s dest %s "
 					   "peer %pSU idx %d %s refcnt:%d soo_attr_del:%d "
-					   "del called for non existing peer bit index "
-					   "ignoring the del operation[caller:%s]",
+					   "del called for non existing peer bit index ",
 					   bgp->name_pretty, buf, get_afi_safi_str(afi, safi, false),
 					   bgp_dest_get_prefix_str(dest), &pi->peer->connection->su,
 					   pi->peer->bit_index, is_add ? "upd" : "del",
-					   dest_he->refcnt, soo_attr_del, caller);
+					   dest_he->refcnt, soo_attr_del);
+			/*
+			 * New best path doesn't have SoO attribute while old best had it.
+			 * Clear the use flag here as we won't process route ack callback
+			 * without SoO attr attached to pi.
+			 */
+			if (soo_attr_del && (!dest_he->refcnt) &&
+			    CHECK_FLAG(dest_he->flags, DEST_SOO_DEL_PENDING) &&
+			    CHECK_FLAG(dest_he->flags, DEST_USING_SOO_NHGID)) {
+				nhe->route_with_soo_use_nhid_cnt--;
+				UNSET_FLAG(dest_he->flags, DEST_USING_SOO_NHGID);
+				if (BGP_DEBUG(per_src_nhg, PER_SRC_NHG))
+					zlog_debug("bgp vrf %s per src nhg %s %s dest soo %s "
+						   "soo_attr_del with del_pending, clearing use flag",
+						   nhe->bgp->name_pretty, buf,
+						   get_afi_safi_str(afi, safi, false),
+						   pfxprint);
+				bgp_dest_soo_del(dest_he, nhe);
+			}
 			return;
 		}
 
