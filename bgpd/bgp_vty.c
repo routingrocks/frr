@@ -74,6 +74,7 @@
 extern struct host host;
 
 /* Forward declarations */
+extern void bgp_unreach_vty_init(void);
 
 FRR_CFG_DEFAULT_BOOL(BGP_IMPORT_CHECK,
 	{
@@ -23715,6 +23716,9 @@ void bgp_vty_init(void)
 
 	/* per source nhg commands */
 	install_element(VIEW_NODE, &show_bgp_soo_route_cmd);
+
+	/* Unreachability Information VTY - Inject CLI */
+	bgp_unreach_vty_init();
 }
 
 #include "memory.h"

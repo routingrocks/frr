@@ -124,6 +124,7 @@ extern void bgp_unreach_cleanup_for_aggregate(struct bgp *bgp, afi_t afi,
 extern void bgp_unreach_show(struct vty *vty, struct bgp *bgp, afi_t afi, struct prefix *prefix,
 			     bool use_json, bool detail);
 extern const char *bgp_unreach_reason_str(uint16_t code);
+extern int bgp_unreach_reason_str2code(const char *str, uint16_t *code);
 
 
 #endif /* _QUAGGA_BGP_UNREACH_H */

@@ -53,6 +53,37 @@ const char *bgp_unreach_reason_str(uint16_t code)
 		return "Reserved";
 }
 
+/* Helper function to convert reason string to code
+ * Returns 0 on success, -1 if the string is not recognized
+ */
+int bgp_unreach_reason_str2code(const char *str, uint16_t *code)
+{
+	if (strmatch(str, "unspecified"))
+		*code = BGP_UNREACH_REASON_UNSPECIFIED;
+	else if (strmatch(str, "policy-blocked"))
+		*code = BGP_UNREACH_REASON_POLICY_BLOCKED;
+	else if (strmatch(str, "security-filtered"))
+		*code = BGP_UNREACH_REASON_SECURITY_FILTERED;
+	else if (strmatch(str, "rpki-invalid"))
+		*code = BGP_UNREACH_REASON_RPKI_INVALID;
+	else if (strmatch(str, "no-export-policy"))
+		*code = BGP_UNREACH_REASON_NO_EXPORT_POLICY;
+	else if (strmatch(str, "martian-address"))
+		*code = BGP_UNREACH_REASON_MARTIAN_ADDRESS;
+	else if (strmatch(str, "bogon-prefix"))
+		*code = BGP_UNREACH_REASON_BOGON_PREFIX;
+	else if (strmatch(str, "route-dampening"))
+		*code = BGP_UNREACH_REASON_ROUTE_DAMPENING;
+	else if (strmatch(str, "local-admin-action"))
+		*code = BGP_UNREACH_REASON_LOCAL_ADMIN_ACTION;
+	else if (strmatch(str, "local-link-down"))
+		*code = BGP_UNREACH_REASON_LOCAL_LINK_DOWN;
+	else
+		return -1;
+
+	return 0;
+}
+
 /* Parse TLVs from unreachability NLRI
  *
  * This function parses a single Reporter TLV from the NLRI data.
