@@ -3997,7 +3997,7 @@ DEFPY(bgp_advertise_origin, bgp_advertise_origin_cmd, "[no$no] bgp advertise-ori
 
 	/* Use custom SOO source IP if set, otherwise use router-id */
 	struct in_addr source_ip;
-	if (bgp->soo_source_ip.s_addr != INADDR_ANY) {
+	if (bgp->soo_source_ip_set) {
 		source_ip = bgp->soo_source_ip;
 	} else {
 		source_ip = bgp->router_id;
