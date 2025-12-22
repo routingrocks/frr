@@ -11327,7 +11327,7 @@ void route_vty_out(struct vty *vty, const struct prefix *p, struct bgp_path_info
 					esi_to_str(&attr->esi,
 					esi_buf, sizeof(esi_buf)));
 		}
-		if (safi == SAFI_EVPN &&
+		if ((safi == SAFI_EVPN || safi == SAFI_UNREACH) &&
 		    attr->flag & ATTR_FLAG_BIT(BGP_ATTR_EXT_COMMUNITIES)) {
 			json_ext_community = json_object_new_object();
 			json_object_string_add(
@@ -14257,6 +14257,12 @@ static int bgp_show_route_in_table(struct vty *vty, struct bgp *bgp,
 			else
 				json_object_free(json_paths);
 		}
+	} else if (safi == SAFI_UNREACH) {
+		/* Use custom unreachability display for SAFI_UNREACH */
+		if (use_json)
+			json_object_free(json);
+		bgp_unreach_show(vty, bgp, afi, &match, use_json, false);
+		return CMD_SUCCESS;
 	} else {
 		dest = bgp_node_match(rib, &match);
 		if (dest != NULL) {
@@ -15771,8 +15777,15 @@ static int bgp_peer_counts(struct vty *vty, struct peer *peer, afi_t afi,
 		json_loop = json_object_new_object();
 	}
 
-	if (!peer || !peer->bgp || !peer->afc[afi][safi]
-	    || !peer->bgp->rib[afi][safi]) {
+	/* Check if AFI/SAFI is activated. For SAFI_UNREACH, also allow if
+	 * capability was negotiated (afc_nego) since routes may exist even if
+	 * afc is not properly set in some edge cases.
+	 */
+	bool afi_safi_active = peer && peer->bgp &&
+			       (peer->afc[afi][safi] ||
+				(safi == SAFI_UNREACH && peer->afc_nego[afi][safi])) &&
+			       peer->bgp->rib[afi][safi];
+	if (!afi_safi_active) {
 		if (use_json) {
 			json_object_string_add(
 				json, "warning",
@@ -15847,21 +15860,15 @@ static int bgp_peer_counts(struct vty *vty, struct peer *peer, afi_t afi,
 	return CMD_SUCCESS;
 }
 
-DEFUN (show_ip_bgp_instance_neighbor_prefix_counts,
-       show_ip_bgp_instance_neighbor_prefix_counts_cmd,
-       "show [ip] bgp [<view|vrf> VIEWVRFNAME] ["BGP_AFI_CMD_STR" ["BGP_SAFI_CMD_STR"]] neighbors <A.B.C.D|X:X::X:X|WORD> prefix-counts [json]",
-       SHOW_STR
-       IP_STR
-       BGP_STR
-       BGP_INSTANCE_HELP_STR
-       BGP_AFI_HELP_STR
-       BGP_SAFI_HELP_STR
-       "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
-       "Neighbor on BGP configured interface\n"
-       "Display detailed prefix count information\n"
-       JSON_STR)
+DEFUN(show_ip_bgp_instance_neighbor_prefix_counts, show_ip_bgp_instance_neighbor_prefix_counts_cmd,
+      "show [ip] bgp [<view|vrf> VIEWVRFNAME] [" BGP_AFI_CMD_STR " [" BGP_SAFI_WITH_LABEL_CMD_STR
+      "]] neighbors <A.B.C.D|X:X::X:X|WORD> prefix-counts [json]",
+      SHOW_STR IP_STR BGP_STR BGP_INSTANCE_HELP_STR BGP_AFI_HELP_STR BGP_SAFI_WITH_LABEL_HELP_STR
+      "Detailed information on TCP and BGP neighbor connections\n"
+      "Neighbor to display information about\n"
+      "Neighbor to display information about\n"
+      "Neighbor on BGP configured interface\n"
+      "Display detailed prefix count information\n" JSON_STR)
 {
 	afi_t afi = AFI_IP6;
 	safi_t safi = SAFI_UNICAST;
@@ -16384,13 +16391,18 @@ static int peer_adj_routes_brief(struct vty *vty, struct peer *peer, afi_t afi, 
     struct bgp_dest *dest;
     unsigned long output_count = 0;
 
-    if (!peer || !peer->afc[afi][safi]) {
-        json = json_object_new_object();
-        json_object_string_add(json, "warning",
-                       "No such neighbor or address family");
-        vty_out(vty, "%s\n", json_object_to_json_string(json));
-        json_object_free(json);
-        return CMD_WARNING;
+    /* Check if AFI/SAFI is activated. For SAFI_UNREACH, also allow if
+     * capability was negotiated (afc_nego) since routes may exist even if
+     * afc is not properly set in some edge cases.
+     */
+    bool afi_safi_active = peer && (peer->afc[afi][safi] ||
+				    (safi == SAFI_UNREACH && peer->afc_nego[afi][safi]));
+    if (!peer || !afi_safi_active) {
+	    json = json_object_new_object();
+	    json_object_string_add(json, "warning", "No such neighbor or address family");
+	    vty_out(vty, "%s\n", json_object_to_json_string(json));
+	    json_object_free(json);
+	    return CMD_WARNING;
     }
     if ((type == bgp_show_adj_route_received ||
          type == bgp_show_adj_route_filtered) &&
@@ -16555,7 +16567,13 @@ static int peer_adj_routes(struct vty *vty, struct peer *peer, afi_t afi,
 		json_ar = json_object_new_object();
 	}
 
-	if (!peer || !peer->afc[afi][safi]) {
+	/* Check if AFI/SAFI is activated. For SAFI_UNREACH, also allow if
+	 * capability was negotiated (afc_nego) since routes may exist even if
+	 * afc is not properly set in some edge cases.
+	 */
+	bool afi_safi_active = peer && (peer->afc[afi][safi] ||
+					(safi == SAFI_UNREACH && peer->afc_nego[afi][safi]));
+	if (!peer || !afi_safi_active) {
 		if (use_json) {
 			json_object_string_add(
 				json, "warning",
@@ -17007,7 +17025,13 @@ static int bgp_show_neighbor_route(struct vty *vty, struct peer *peer, afi_t afi
 	if (use_json)
 		SET_FLAG(show_flags, BGP_SHOW_OPT_JSON);
 
-	if (!peer || !peer->afc[afi][safi]) {
+	/* Check if AFI/SAFI is activated. For SAFI_UNREACH, also allow if
+	 * capability was negotiated (afc_nego) since routes may exist even if
+	 * afc is not properly set in some edge cases.
+	 */
+	bool afi_safi_active = peer && (peer->afc[afi][safi] ||
+					(safi == SAFI_UNREACH && peer->afc_nego[afi][safi]));
+	if (!peer || !afi_safi_active) {
 		if (use_json) {
 			json_object *json_no = NULL;
 			json_no = json_object_new_object();
