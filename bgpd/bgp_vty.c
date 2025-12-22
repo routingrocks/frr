@@ -4102,6 +4102,7 @@ DEFUN(bgp_soo_source, bgp_soo_source_cmd, "bgp soo-source A.B.C.D",
 	 * set */
 	FOREACH_AFI_SAFI (afi, safi) {
 		if (CHECK_FLAG(bgp->per_src_nhg_flags[afi][safi], BGP_FLAG_ADVERTISE_ORIGIN)) {
+			// coverity[PW.NON_CONST_PRINTF_FORMAT_STRING]
 			for (ALL_LIST_ELEMENTS(bgp->peer, node, nnode, tmp_peer))
 				bgp_announce_route(tmp_peer, afi, safi, true);
 		}
@@ -4140,6 +4141,7 @@ DEFUN(no_bgp_soo_source, no_bgp_soo_source_cmd, "no bgp soo-source [A.B.C.D]",
 	 * set */
 	FOREACH_AFI_SAFI (afi, safi) {
 		if (CHECK_FLAG(bgp->per_src_nhg_flags[afi][safi], BGP_FLAG_ADVERTISE_ORIGIN)) {
+			// coverity[PW.NON_CONST_PRINTF_FORMAT_STRING]
 			for (ALL_LIST_ELEMENTS(bgp->peer, node, nnode, tmp_peer))
 				bgp_announce_route(tmp_peer, afi, safi, true);
 		}
