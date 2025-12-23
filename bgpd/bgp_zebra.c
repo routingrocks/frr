@@ -55,6 +55,7 @@
 #include "bgpd/bgp_community.h"
 #include "bgpd/bgp_lcommunity.h"
 #include "bgpd/bgp_per_src_nhg.h"
+#include "bgpd/bgp_unreach.h"
 
 /* All information about zebra. */
 struct zclient *zclient = NULL;
@@ -228,8 +229,11 @@ static int bgp_ifp_up(struct interface *ifp)
 	if (!bgp)
 		return 0;
 
-	frr_each (if_connected, ifp->connected, c)
+	frr_each (if_connected, ifp->connected, c) {
 		bgp_connected_add(bgp, c);
+		if (c->address)
+			bgp_unreach_zebra_announce(bgp, ifp, c->address, true);
+	}
 
 	for (ALL_LIST_ELEMENTS(ifp->nbr_connected, node, nnode, nc))
 		bgp_nbr_connected_add(bgp, nc);
@@ -260,8 +264,11 @@ static int bgp_ifp_down(struct interface *ifp)
 	if (!bgp)
 		return 0;
 
-	frr_each (if_connected, ifp->connected, c)
+	frr_each (if_connected, ifp->connected, c) {
+		if (c->address)
+			bgp_unreach_zebra_announce(bgp, ifp, c->address, false);
 		bgp_connected_delete(bgp, c);
+	}
 
 	for (ALL_LIST_ELEMENTS(ifp->nbr_connected, node, nnode, nc))
 		bgp_nbr_connected_delete(bgp, nc, 1);
@@ -316,6 +323,10 @@ static int bgp_interface_address_add(ZAPI_CALLBACK_ARGS)
 
 	if (if_is_operative(ifc->ifp)) {
 		bgp_connected_add(bgp, ifc);
+
+		/* Withdraw unreachability for this address if it was previously injected */
+		if (ifc->address)
+			bgp_unreach_zebra_announce(bgp, ifc->ifp, ifc->address, true);
 
 		/* If we have learnt of any neighbors on this interface,
 		 * check to kick off any BGP interface-based neighbors,
@@ -396,8 +407,13 @@ static int bgp_interface_address_delete(ZAPI_CALLBACK_ARGS)
 
 	frrtrace(4, frr_bgp, interface_address_oper_zrecv, vrf_id, ifc->ifp->name, ifc->address, 2);
 
-	if (bgp && if_is_operative(ifc->ifp)) {
-		bgp_connected_delete(bgp, ifc);
+	if (bgp) {
+		/* Inject unreachability when address is deleted from interface */
+		if (ifc->address && if_is_operative(ifc->ifp))
+			bgp_unreach_zebra_announce(bgp, ifc->ifp, ifc->address, false);
+
+		if (if_is_operative(ifc->ifp))
+			bgp_connected_delete(bgp, ifc);
 	}
 
 	addr = ifc->address;
@@ -3453,11 +3469,11 @@ extern struct zebra_privs_t bgpd_privs;
 static int bgp_ifp_create(struct interface *ifp)
 {
 	struct bgp *bgp;
+	struct connected *c;
 
 	if (BGP_DEBUG(zebra, ZEBRA))
 		zlog_debug("Rx Intf add VRF %s IF %s", ifp->vrf->name,
 			   ifp->name);
-
 	/* We don't need to check for vrf->bgp link to add this local MAC
 	 * to the hash table as the tenant VRF might not have the BGP instance.
 	 */
@@ -3466,6 +3482,14 @@ static int bgp_ifp_create(struct interface *ifp)
 	bgp = ifp->vrf->info;
 	if (!bgp)
 		return 0;
+
+	if (!if_is_operative(ifp)) {
+		frr_each (if_connected, ifp->connected, c) {
+			if (c->address)
+				bgp_unreach_zebra_announce(bgp, ifp, c->address,
+							   false);
+		}
+	}
 
 	bgp_update_interface_nbrs(bgp, ifp, ifp);
 	hook_call(bgp_vrf_status_changed, bgp, ifp);

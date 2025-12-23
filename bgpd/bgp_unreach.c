@@ -1367,3 +1367,52 @@ void bgp_unreach_show(struct vty *vty, struct bgp *bgp, afi_t afi, struct prefix
 		}
 	}
 }
+
+void bgp_unreach_zebra_announce(struct bgp *bgp, struct interface *ifp,
+				struct prefix *prefix, bool withdraw)
+{
+	struct bgp_unreach_nlri unreach;
+	afi_t afi;
+
+	if (!bgp || !ifp || !prefix)
+		return;
+
+	if (prefix->family == AF_INET)
+		afi = AFI_IP;
+	else if (prefix->family == AF_INET6)
+		afi = AFI_IP6;
+	else
+		return;
+
+	if (withdraw) {
+		bgp_unreach_info_delete(bgp, afi, prefix);
+
+		if (BGP_DEBUG(zebra, ZEBRA))
+			zlog_debug("Removed unreachability for %pFX on %s",
+				   prefix, ifp->name);
+	} else {
+		memset(&unreach, 0, sizeof(unreach));
+		prefix_copy(&unreach.prefix, prefix);
+
+		unreach.reporter = bgp->router_id;
+		unreach.has_reporter = true;
+		unreach.reporter_as = bgp->as;
+		unreach.has_reporter_as = true;
+
+		unreach.reason_code = BGP_UNREACH_REASON_LOCAL_LINK_DOWN;
+		unreach.has_reason_code = true;
+
+		unreach.timestamp = time(NULL);
+		unreach.has_timestamp = true;
+
+		if (bgp_unreach_info_add(bgp, afi, &unreach, NULL) < 0) {
+			zlog_warn("Failed to inject unreachability for %pFX on %s",
+				  prefix, ifp->name);
+			return;
+		}
+
+		if (BGP_DEBUG(zebra, ZEBRA))
+			zlog_debug("Injected unreachability for %pFX on %s",
+				   prefix, ifp->name);
+	}
+}
