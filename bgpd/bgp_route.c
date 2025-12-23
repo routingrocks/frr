@@ -60,6 +60,7 @@
 #include "bgpd/bgp_mac.h"
 #include "bgpd/bgp_network.h"
 #include "bgpd/bgp_trace.h"
+#include "bgpd/bgp_unreach.h"
 #include "bgpd/bgp_rpki.h"
 #include "bgpd/bgp_bfd.h"
 
@@ -5762,6 +5763,23 @@ void bgp_update(struct peer *peer, const struct prefix *p, uint32_t addpath_id,
 		pi->uptime = monotime(NULL);
 		same_attr = attrhash_cmp(pi->attr, attr_new);
 
+		/* For SAFI_UNREACH, also compare TLVs since they're not part of interned attrs */
+		if (same_attr && safi == SAFI_UNREACH && new_attr.unreach_nlri && pi->extra &&
+		    pi->extra->unreach) {
+			struct bgp_path_info_extra_unreach *old_tlv = pi->extra->unreach;
+			struct bgp_unreach_nlri *new_tlv = new_attr.unreach_nlri;
+
+			if (old_tlv->reason_code != new_tlv->reason_code ||
+			    old_tlv->has_reason_code != new_tlv->has_reason_code ||
+			    old_tlv->timestamp != new_tlv->timestamp ||
+			    old_tlv->has_timestamp != new_tlv->has_timestamp ||
+			    old_tlv->reporter.s_addr != new_tlv->reporter.s_addr ||
+			    old_tlv->has_reporter != new_tlv->has_reporter) {
+				/* TLVs changed - not a duplicate */
+				same_attr = 0;
+			}
+		}
+
 		hook_call(bgp_process, bgp, afi, safi, dest, peer, true);
 
 		/* Same attribute comes in. */
@@ -5983,6 +6001,26 @@ void bgp_update(struct peer *peer, const struct prefix *p, uint32_t addpath_id,
 				bgp_set_valid_label(&extra->label[0]);
 		}
 
+		/* Update SAFI_UNREACH TLV data.
+		 * Use new_attr (not attr_new) because attr_new is interned and doesn't have unreach_nlri.
+		 */
+		if (safi == SAFI_UNREACH && new_attr.unreach_nlri) {
+			extra = bgp_path_info_extra_get(pi);
+			if (!extra->unreach) {
+				extra->unreach = XCALLOC(MTYPE_BGP_ROUTE_EXTRA_UNREACH,
+							 sizeof(struct bgp_path_info_extra_unreach));
+			}
+			/* Update TLV data from NLRI */
+			extra->unreach->timestamp = new_attr.unreach_nlri->timestamp;
+			extra->unreach->has_timestamp = new_attr.unreach_nlri->has_timestamp;
+			extra->unreach->reason_code = new_attr.unreach_nlri->reason_code;
+			extra->unreach->has_reason_code = new_attr.unreach_nlri->has_reason_code;
+			extra->unreach->reporter = new_attr.unreach_nlri->reporter;
+			extra->unreach->has_reporter = new_attr.unreach_nlri->has_reporter;
+			extra->unreach->reporter_as = new_attr.unreach_nlri->reporter_as;
+			extra->unreach->has_reporter_as = new_attr.unreach_nlri->has_reporter_as;
+		}
+
 #ifdef ENABLE_BGP_VNC
 		if ((afi == AFI_IP || afi == AFI_IP6)
 		    && (safi == SAFI_UNICAST)) {
@@ -6181,6 +6219,35 @@ void bgp_update(struct peer *peer, const struct prefix *p, uint32_t addpath_id,
 		}
 		if (!(afi == AFI_L2VPN && safi == SAFI_EVPN))
 			bgp_set_valid_label(&extra->label[0]);
+	}
+
+	/* Store SAFI_UNREACH TLV data from NLRI into path extra.
+	 * NOTE: We must check the ORIGINAL attr passed to bgp_update(), not attr_new,
+	 * because attr_new is the interned attr which doesn't have unreach_nlri populated.
+	 */
+	if (safi == SAFI_UNREACH) {
+		/* Save unreach_nlri before interning */
+		struct bgp_unreach_nlri *unreach_data_copy = NULL;
+		if (new_attr.unreach_nlri) {
+			unreach_data_copy = new_attr.unreach_nlri;
+		}
+
+		if (unreach_data_copy) {
+			extra = bgp_path_info_extra_get(new);
+			if (!extra->unreach) {
+				extra->unreach = XCALLOC(MTYPE_BGP_ROUTE_EXTRA_UNREACH,
+							 sizeof(struct bgp_path_info_extra_unreach));
+			}
+			/* Copy TLV data from NLRI to path */
+			extra->unreach->timestamp = unreach_data_copy->timestamp;
+			extra->unreach->has_timestamp = unreach_data_copy->has_timestamp;
+			extra->unreach->reason_code = unreach_data_copy->reason_code;
+			extra->unreach->has_reason_code = unreach_data_copy->has_reason_code;
+			extra->unreach->reporter = unreach_data_copy->reporter;
+			extra->unreach->has_reporter = unreach_data_copy->has_reporter;
+			extra->unreach->reporter_as = unreach_data_copy->reporter_as;
+			extra->unreach->has_reporter_as = unreach_data_copy->has_reporter_as;
+		}
 	}
 
 	/* Nexthop reachability check. */
