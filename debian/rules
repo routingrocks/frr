@@ -117,6 +117,7 @@ override_dh_auto_configure:
 		--enable-sharpd=yes \
 		--enable-grpc=yes \
 		--enable-bgp-lttng=yes \
+		--enable-bfd-lttng=yes \
 		--enable-zebra-lttng=yes \
 		--with-log-timestamp-precision=6 \
 		# end
@@ -157,6 +158,9 @@ override_dh_installsystemd:
 
 override_dh_makeshlibs:
 	dh_makeshlibs -n
+
+override_dh_shlibdeps:
+	dh_shlibdeps -- -xsx-sdk-eth
 
 override_dh_missing:
 	dh_missing --fail-missing

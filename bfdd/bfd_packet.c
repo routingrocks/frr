@@ -24,12 +24,15 @@
 
 #include <netinet/if_ether.h>
 #include <netinet/udp.h>
+#include <netinet/ip.h>
+#include <netinet/ip6.h>
 
 #include "lib/sockopt.h"
 #include "lib/checksum.h"
 #include "lib/network.h"
 
 #include "bfd.h"
+#include "bfd_trace.h"
 
 /*
  * Prototypes
@@ -121,12 +124,14 @@ int _ptm_bfd_send(struct bfd_session *bs, uint16_t *port, const void *data,
 		if (bglobal.debug_network)
 			zlog_debug("packet-send: send failure: %s",
 				   strerror(errno));
+		frrtrace(6, frr_bfd, packet_send_error, 1, bs, sd, rv, datalen, errno);
 		return -1;
 	}
 	if (rv < (ssize_t)datalen) {
 		if (bglobal.debug_network)
 			zlog_debug("packet-send: send partial: %s",
 				   strerror(errno));
+		frrtrace(6, frr_bfd, packet_send_error, 2, bs, sd, rv, datalen, errno);
 	}
 
 	return 0;
@@ -463,9 +468,12 @@ ssize_t bfd_recv_ipv4_fp(int sd, uint8_t *msgbuf, size_t msgbuflen,
 
 	mlen = recvmsg(sd, &msghdr, MSG_DONTWAIT);
 	if (mlen == -1) {
-		if (errno != EAGAIN || errno != EWOULDBLOCK || errno != EINTR)
+		if (errno != EAGAIN || errno != EWOULDBLOCK || errno != EINTR) {
+			/* Trace recv failed error */
+			frrtrace(3, frr_bfd, socket_error, 4, 0, errno);
 			zlog_err("%s: recv failed: %s", __func__,
 				 strerror(errno));
+		}
 
 		return -1;
 	}
@@ -541,8 +549,11 @@ ssize_t bfd_recv_ipv4(int sd, uint8_t *msgbuf, size_t msgbuflen, uint8_t *ttl,
 
 	mlen = recvmsg(sd, &msghdr, MSG_DONTWAIT);
 	if (mlen == -1) {
-		if (errno != EAGAIN)
+		if (errno != EAGAIN) {
+			/* Trace IPv4 recv failed error */
+			frrtrace(3, frr_bfd, socket_error, 4, 2, errno);
 			zlog_err("ipv4-recv: recv failed: %s", strerror(errno));
+		}
 
 		return -1;
 	}
@@ -653,8 +664,11 @@ ssize_t bfd_recv_ipv6(int sd, uint8_t *msgbuf, size_t msgbuflen, uint8_t *ttl,
 
 	mlen = recvmsg(sd, &msghdr6, MSG_DONTWAIT);
 	if (mlen == -1) {
-		if (errno != EAGAIN)
+		if (errno != EAGAIN) {
+			/* Trace IPv6 recv failed error */
+			frrtrace(3, frr_bfd, socket_error, 4, 4, errno);
 			zlog_err("ipv6-recv: recv failed: %s", strerror(errno));
+		}
 
 		return -1;
 	}
@@ -705,7 +719,13 @@ ssize_t bfd_recv_ipv6(int sd, uint8_t *msgbuf, size_t msgbuflen, uint8_t *ttl,
 
 static void bfd_sd_reschedule(struct bfd_vrf_global *bvrf, int sd)
 {
-	if (sd == bvrf->bg_shop) {
+	if (sd == bglobal.bg_shop6_raw) {
+		/* RAW socket for link-local IPv6 BFD in distributed mode */
+		EVENT_OFF(bglobal.bg_shop6_raw_ev);
+		event_add_read(master, bfd_recv_cb, bvrf, bglobal.bg_shop6_raw,
+			       &bglobal.bg_shop6_raw_ev);
+	
+	} else if (sd == bvrf->bg_shop) {
 		EVENT_OFF(bvrf->bg_ev[0]);
 		event_add_read(master, bfd_recv_cb, bvrf, bvrf->bg_shop,
 			       &bvrf->bg_ev[0]);
@@ -779,7 +799,7 @@ static bool bfd_check_auth(const struct bfd_session *bfd,
 	if (CHECK_FLAG(cp->flags, BFD_ABIT)) {
 		/* RFC5880 4.1: Authentication Section is present. */
 		struct bfd_auth *auth = (struct bfd_auth *)(cp + 1);
-		uint16_t pkt_auth_type = ntohs(auth->type);
+		uint8_t pkt_auth_type = auth->type;
 
 		if (cp->len < BFD_PKT_LEN + sizeof(struct bfd_auth))
 			return false;
@@ -804,12 +824,144 @@ static bool bfd_check_auth(const struct bfd_session *bfd,
 	return true;
 }
 
+#ifdef BFD_LINUX
+/*
+ * Extract BFD packet from RAW socket (AF_PACKET) data.
+ * RAW socket receives: Ethernet header + IP header + UDP header + BFD payload
+ * We need to skip to the BFD payload.
+ *
+ * Returns: Length of BFD packet extracted, or -1 on error
+ */
+static ssize_t bfd_extract_from_raw_packet(uint8_t *raw_packet, size_t raw_len,
+					    uint8_t *bfd_buf, size_t bfd_buf_len,
+					    uint8_t *ttl, ifindex_t *ifindex,
+					    struct sockaddr_any *local,
+					    struct sockaddr_any *peer)
+{
+	struct ether_header *eth_hdr;
+	struct ip6_hdr *ip6_hdr;
+	struct ip *ip_hdr;
+	struct udphdr *udp_hdr;
+	uint16_t eth_type;
+	size_t offset = 0;
+	size_t ip_hdr_len = 0;
+	size_t udp_hdr_len = sizeof(struct udphdr);
+	size_t bfd_payload_len;
+
+	/* Need at least Ethernet + IP + UDP + minimal BFD */
+	if (raw_len < sizeof(struct ether_header) + 20 + 8 + BFD_PKT_LEN)
+		return -1;
+
+	/* Parse Ethernet header */
+	eth_hdr = (struct ether_header *)raw_packet;
+	eth_type = ntohs(eth_hdr->ether_type);
+	offset += sizeof(struct ether_header);
+
+	/* Handle VLAN tags (802.1Q) */
+	while (eth_type == 0x8100 || eth_type == 0x88a8) {
+		if (offset + 4 > raw_len)
+			return -1;
+		eth_type = ntohs(*(uint16_t *)(raw_packet + offset + 2));
+		offset += 4; /* Skip VLAN tag */
+	}
+
+	/* Parse IP header */
+	if (eth_type == 0x0800) {
+		/* IPv4 */
+		if (offset + sizeof(struct ip) > raw_len)
+			return -1;
+
+		ip_hdr = (struct ip *)(raw_packet + offset);
+		ip_hdr_len = ip_hdr->ip_hl * 4;
+
+		/* Extract TTL */
+		if (ttl)
+			*ttl = ip_hdr->ip_ttl;
+
+		/* Extract addresses */
+		if (local) {
+			local->sa_sin.sin_family = AF_INET;
+			local->sa_sin.sin_addr = ip_hdr->ip_dst;
+		}
+		if (peer) {
+			peer->sa_sin.sin_family = AF_INET;
+			peer->sa_sin.sin_addr = ip_hdr->ip_src;
+		}
+
+		/* Check if UDP */
+		if (ip_hdr->ip_p != IPPROTO_UDP)
+			return -1;
+
+		offset += ip_hdr_len;
+
+	} else if (eth_type == 0x86dd) {
+		/* IPv6 */
+		if (offset + sizeof(struct ip6_hdr) > raw_len)
+			return -1;
+
+		ip6_hdr = (struct ip6_hdr *)(raw_packet + offset);
+		ip_hdr_len = sizeof(struct ip6_hdr);
+
+		/* Extract hop limit (TTL equivalent) */
+		if (ttl)
+			*ttl = ip6_hdr->ip6_hlim;
+
+		/* Extract addresses */
+		if (local) {
+			local->sa_sin6.sin6_family = AF_INET6;
+			local->sa_sin6.sin6_addr = ip6_hdr->ip6_dst;
+		}
+		if (peer) {
+			peer->sa_sin6.sin6_family = AF_INET6;
+			peer->sa_sin6.sin6_addr = ip6_hdr->ip6_src;
+		}
+
+		/* Check if UDP (next header) */
+		if (ip6_hdr->ip6_nxt != IPPROTO_UDP)
+			return -1;
+
+		offset += ip_hdr_len;
+	} else {
+		/* Unknown/unsupported protocol */
+		return -1;
+	}
+
+	/* Parse UDP header */
+	if (offset + sizeof(struct udphdr) > raw_len)
+		return -1;
+
+	udp_hdr = (struct udphdr *)(raw_packet + offset);
+
+	/* Verify destination port is 3784 (BFD) */
+	if (ntohs(udp_hdr->uh_dport) != BFD_DEFDESTPORT)
+		return -1;
+
+	offset += udp_hdr_len;
+
+	/* Extract BFD payload */
+	if (offset >= raw_len)
+		return -1;
+
+	bfd_payload_len = raw_len - offset;
+	if (bfd_payload_len > bfd_buf_len)
+		bfd_payload_len = bfd_buf_len;
+
+	memcpy(bfd_buf, raw_packet + offset, bfd_payload_len);
+
+	/* ifindex is not available from raw packet, caller should set */
+	if (ifindex)
+		*ifindex = IFINDEX_INTERNAL;
+
+	return bfd_payload_len;
+}
+#endif /* BFD_LINUX */
+
 void bfd_recv_cb(struct event *t)
 {
 	int sd = EVENT_FD(t);
 	struct bfd_session *bfd;
 	struct bfd_pkt *cp;
-	bool is_mhop;
+	bool is_mhop = false;
 	ssize_t mlen = 0;
 	uint8_t ttl = 0;
 	vrf_id_t vrfid;
@@ -821,6 +973,9 @@ void bfd_recv_cb(struct event *t)
 
 	/* Schedule next read. */
 	bfd_sd_reschedule(bvrf, sd);
+
+	if (sd == bglobal.bg_shop6_raw)
+		goto GLOBAL_SOCKET;
 
 	/* Handle echo packets. */
 	if (sd == bvrf->bg_echo || sd == bvrf->bg_echov6) {
@@ -842,6 +997,95 @@ void bfd_recv_cb(struct event *t)
 		is_mhop = sd == bvrf->bg_mhop6;
 		mlen = bfd_recv_ipv6(sd, msgbuf, sizeof(msgbuf), &ttl, &ifindex,
 				     &local, &peer);
+	} else if (sd == bglobal.bg_shop6_raw) {
+		/*
+		 * Global RAW socket in distributed mode - receives full Ethernet frames.
+		 * Need to identify which VRF this packet belongs to from the interface.
+		 */
+GLOBAL_SOCKET:
+		uint8_t raw_buf[2048];
+		struct sockaddr_ll sll;
+		socklen_t sll_len = sizeof(sll);
+		ssize_t raw_len;
+		int pkt_ifindex;
+		int i;
+		char hex_buf[512];
+		int hex_len;
+
+		/* Use recvfrom to get interface index via sockaddr_ll */
+		raw_len = recvfrom(sd, raw_buf, sizeof(raw_buf), MSG_DONTWAIT,
+				   (struct sockaddr *)&sll, &sll_len);
+		if (raw_len < 0) {
+			if (errno != EAGAIN && errno != EWOULDBLOCK)
+				zlog_err("%s: RAW socket (fd=%d) read failed: %s",
+					 __func__, sd, strerror(errno));
+			return;
+		}
+
+		pkt_ifindex = sll.sll_ifindex;
+
+		/* Find which VRF this interface belongs to */
+		ifp = if_lookup_by_index(pkt_ifindex, VRF_UNKNOWN);
+		if (!ifp || !ifp->vrf) {
+			if (bglobal.debug_network)
+				zlog_debug("%s: Unknown ifindex %d, dropping packet",
+					 __func__, pkt_ifindex);
+			return;
+		}
+
+		/* Get the correct bvrf for this packet's VRF */
+		bvrf = (struct bfd_vrf_global *)ifp->vrf->info;
+		if (!bvrf) {
+			if (bglobal.debug_network)
+				zlog_debug("%s: No BFD context for ifindex %d (VRF %s), dropping",
+					 __func__, pkt_ifindex, ifp->vrf->name);
+			return;
+		}
+
+
+		/* Dump hex of entire raw packet for debugging */
+		if (bglobal.debug_network) {
+			zlog_debug("%s: RAW socket (fd=%d) received %zd bytes from ifindex %d (VRF %s, vrf_id=%u)",
+				  __func__, sd, raw_len, pkt_ifindex, ifp->vrf->name, ifp->vrf->vrf_id);
+			if (raw_len > 0) {
+				int dump_len = (raw_len > 128) ? 128 : raw_len;
+				hex_len = 0;
+				for (i = 0; i < dump_len && hex_len < sizeof(hex_buf) - 4; i++) {
+					hex_len += sprintf(hex_buf + hex_len, "%02x ", raw_buf[i]);
+					/* Add newline every 16 bytes for readability */
+					if ((i + 1) % 16 == 0 && i < dump_len - 1)
+						hex_len += sprintf(hex_buf + hex_len, "\n                ");
+				}
+				zlog_debug("%s: RAW packet hex dump (%d bytes):\n                %s",
+				  	__func__, dump_len, hex_buf);
+			}
+		}
+
+		/* Extract BFD packet from raw Ethernet frame */
+		mlen = bfd_extract_from_raw_packet(raw_buf, raw_len,
+						   msgbuf, sizeof(msgbuf),
+						   &ttl, &ifindex,
+						   &local, &peer);
+		if (mlen < 0) {
+			if (bglobal.debug_network)
+				zlog_debug("%s: Failed to extract BFD from RAW packet (len=%zd)",
+				  	__func__, raw_len);
+			return;
+		}
+
+		/* Update ifindex from the actual receiving interface */
+		ifindex = pkt_ifindex;
+
+		/* RAW socket is for single-hop IPv6 link-local */
+		is_mhop = false;
+
+		/* Dump extracted BFD packet hex */
+		//if (mlen > 0) {
+		//	hex_len = 0;
+		//	for (i = 0; i < mlen && hex_len < sizeof(hex_buf) - 4; i++)
+		//		hex_len += sprintf(hex_buf + hex_len, "%02x ", msgbuf[i]);
+		//	zlog_info("%s: Extracted BFD packet hex: %s", __func__, hex_buf);
+		//}
 	}
 
 	/*
@@ -861,6 +1105,9 @@ void bfd_recv_cb(struct event *t)
 
 	/* Implement RFC 5880 6.8.6 */
 	if (mlen < BFD_PKT_LEN) {
+		frrtrace(8, frr_bfd, packet_validation_error,
+			 1, is_mhop, &peer, &local, ifindex, vrfid,
+			 (uint32_t)mlen, BFD_PKT_LEN);
 		cp_debug(is_mhop, &peer, &local, ifindex, vrfid,
 			 "too small (%zd bytes)", mlen);
 		return;
@@ -868,6 +1115,9 @@ void bfd_recv_cb(struct event *t)
 
 	/* Validate single hop packet TTL. */
 	if ((!is_mhop) && (ttl != BFD_TTL_VAL)) {
+		frrtrace(8, frr_bfd, packet_validation_error,
+			 2, is_mhop, &peer, &local, ifindex, vrfid,
+			 ttl, BFD_TTL_VAL);
 		cp_debug(is_mhop, &peer, &local, ifindex, vrfid,
 			 "invalid TTL: %d expected %d", ttl, BFD_TTL_VAL);
 		return;
@@ -882,29 +1132,44 @@ void bfd_recv_cb(struct event *t)
 	 */
 	cp = (struct bfd_pkt *)(msgbuf);
 	if (BFD_GETVER(cp->diag) != BFD_VERSION) {
+		frrtrace(8, frr_bfd, packet_validation_error,
+			 3, is_mhop, &peer, &local, ifindex, vrfid,
+			 BFD_GETVER(cp->diag), BFD_VERSION);
 		cp_debug(is_mhop, &peer, &local, ifindex, vrfid,
 			 "bad version %d", BFD_GETVER(cp->diag));
 		return;
 	}
 
 	if (cp->detect_mult == 0) {
+		frrtrace(8, frr_bfd, packet_validation_error,
+			 4, is_mhop, &peer, &local, ifindex, vrfid,
+			 0, 1);  /* actual=0, expected>=1 */
 		cp_debug(is_mhop, &peer, &local, ifindex, vrfid,
 			 "detect multiplier set to zero");
 		return;
 	}
 
 	if ((cp->len < BFD_PKT_LEN) || (cp->len > mlen)) {
+		frrtrace(8, frr_bfd, packet_validation_error,
+			 5, is_mhop, &peer, &local, ifindex, vrfid,
+			 cp->len, (uint32_t)mlen);
 		cp_debug(is_mhop, &peer, &local, ifindex, vrfid, "too small");
 		return;
 	}
 
 	if (BFD_GETMBIT(cp->flags)) {
+		frrtrace(8, frr_bfd, packet_validation_error,
+			 6, is_mhop, &peer, &local, ifindex, vrfid,
+			 1, 0);  /* actual=1 (M bit set), expected=0 */
 		cp_debug(is_mhop, &peer, &local, ifindex, vrfid,
 			 "detect non-zero Multipoint (M) flag");
 		return;
 	}
 
 	if (cp->discrs.my_discr == 0) {
+		frrtrace(8, frr_bfd, packet_validation_error,
+			 7, is_mhop, &peer, &local, ifindex, vrfid,
+			 ntohl(cp->discrs.my_discr), 1);  /* actual discriminator from packet, expected!=0 */
 		cp_debug(is_mhop, &peer, &local, ifindex, vrfid,
 			 "'my discriminator' is zero");
 		return;
@@ -913,6 +1178,9 @@ void bfd_recv_cb(struct event *t)
 	/* Find the session that this packet belongs. */
 	bfd = ptm_bfd_sess_find(cp, &peer, &local, ifp, vrfid, is_mhop);
 	if (bfd == NULL) {
+		frrtrace(6, frr_bfd, packet_session_not_found,
+			 is_mhop, &peer, &local, ifindex, vrfid,
+			 ntohl(cp->discrs.my_discr));
 		cp_debug(is_mhop, &peer, &local, ifindex, vrfid,
 			 "no session found");
 		return;
@@ -921,6 +1189,9 @@ void bfd_recv_cb(struct event *t)
 	 * We may have a situation where received packet is on wrong vrf
 	 */
 	if (bfd && bfd->vrf && bfd->vrf->vrf_id != vrfid) {
+		frrtrace(8, frr_bfd, packet_validation_error,
+			 8, is_mhop, &peer, &local, ifindex, vrfid,
+			 vrfid, bfd->vrf->vrf_id);  /* actual pkt vrf, expected session vrf */
 		cp_debug(is_mhop, &peer, &local, ifindex, vrfid,
 			 "wrong vrfid.");
 		return;
@@ -929,6 +1200,8 @@ void bfd_recv_cb(struct event *t)
 	/* Ensure that existing good sessions are not overridden. */
 	if (!cp->discrs.remote_discr && bfd->ses_state != PTM_BFD_DOWN &&
 	    bfd->ses_state != PTM_BFD_ADM_DOWN) {
+		frrtrace(6, frr_bfd, packet_remote_discr_zero,
+			 is_mhop, &peer, &local, ifindex, vrfid, bfd->ses_state);
 		cp_debug(is_mhop, &peer, &local, ifindex, vrfid,
 			 "'remote discriminator' is zero, not overridden");
 		return;
@@ -941,6 +1214,9 @@ void bfd_recv_cb(struct event *t)
 	 */
 	if (is_mhop) {
 		if (ttl < bfd->mh_ttl) {
+			frrtrace(7, frr_bfd, packet_ttl_exceeded,
+				 is_mhop, &peer, &local, ifindex, vrfid,
+				 ttl, bfd->mh_ttl);
 			cp_debug(is_mhop, &peer, &local, ifindex, vrfid,
 				 "exceeded max hop count (expected %d, got %d)",
 				 bfd->mh_ttl, ttl);
@@ -967,18 +1243,41 @@ void bfd_recv_cb(struct event *t)
 
 	/* Log remote discriminator changes. */
 	if ((bfd->discrs.remote_discr != 0)
-	    && (bfd->discrs.remote_discr != ntohl(cp->discrs.my_discr)))
+	    && (bfd->discrs.remote_discr != ntohl(cp->discrs.my_discr))) {
+		frrtrace(8, frr_bfd, remote_discriminator_change,
+			 bfd, bfd->discrs.remote_discr, ntohl(cp->discrs.my_discr),
+			 is_mhop, &peer, &local, ifindex, vrfid);
 		cp_debug(is_mhop, &peer, &local, ifindex, vrfid,
 			 "remote discriminator mismatch (expected %u, got %u)",
 			 bfd->discrs.remote_discr, ntohl(cp->discrs.my_discr));
+	}
 
 	bfd->discrs.remote_discr = ntohl(cp->discrs.my_discr);
 
 	/* Check authentication. */
 	if (!bfd_check_auth(bfd, cp)) {
+		/* Extract auth type from packet for tracing */
+		uint8_t auth_type = BFD_AUTH_NULL;
+		if (CHECK_FLAG(cp->flags, BFD_ABIT)) {
+			if (cp->len >= BFD_PKT_LEN + sizeof(struct bfd_auth)) {
+				struct bfd_auth *auth = (struct bfd_auth *)(cp + 1);
+				auth_type = auth->type;
+			}
+		}
+		
+		/* Trace authentication failure */
+		frrtrace(8, frr_bfd, auth_event, false, bfd, auth_type,
+			 is_mhop, &peer, &local, ifindex, vrfid);
 		cp_debug(is_mhop, &peer, &local, ifindex, vrfid,
 			 "Authentication failed");
 		return;
+	}
+
+	/* Trace authentication success - only when auth is actually in use */
+	if (CHECK_FLAG(cp->flags, BFD_ABIT)) {
+		struct bfd_auth *auth = (struct bfd_auth *)(cp + 1);
+		frrtrace(8, frr_bfd, auth_event, true, bfd, auth->type,
+			 is_mhop, &peer, &local, ifindex, vrfid);
 	}
 
 	/* Save remote diagnostics before state switch. */
@@ -1087,6 +1386,8 @@ int bp_bfd_echo_in(struct bfd_vrf_global *bvrf, int sd, uint8_t *ttl,
 
 	/* Short packet, better not risk reading it. */
 	if (rlen < (ssize_t)sizeof(*bep)) {
+		frrtrace(6, frr_bfd, echo_packet_error,
+			 1, &peer, &local, ifindex, vrfid, rlen);
 		cp_debug(false, &peer, &local, ifindex, vrfid,
 			 "small echo packet");
 		return -1;
@@ -1105,6 +1406,8 @@ int bp_bfd_echo_in(struct bfd_vrf_global *bvrf, int sd, uint8_t *ttl,
 	bep = (struct bfd_echo_pkt *)(msgbuf + bfd_offset);
 	*my_discr = ntohl(bep->my_discr);
 	if (*my_discr == 0) {
+		frrtrace(6, frr_bfd, echo_packet_error,
+			 2, &peer, &local, ifindex, vrfid, rlen);
 		cp_debug(false, &peer, &local, ifindex, vrfid,
 			 "invalid echo packet discriminator (zero)");
 		return -1;
@@ -1404,6 +1707,8 @@ int bp_peer_socket(const struct bfd_session *bs)
 				bs->vrf->vrf_id, device_to_bind);
 	}
 	if (sd == -1) {
+		/* Trace IPv4 socket creation failed */
+		frrtrace(3, frr_bfd, socket_error, 1, 2, errno);
 		zlog_err("ipv4-new: failed to create socket: %s",
 			 strerror(errno));
 		return -1;
@@ -1433,6 +1738,8 @@ int bp_peer_socket(const struct bfd_session *bs)
 	do {
 		if ((++pcount) > (BFD_SRCPORTMAX - BFD_SRCPORTINIT)) {
 			/* Searched all ports, none available */
+			/* Trace IPv4 bind failed */
+			frrtrace(3, frr_bfd, socket_error, 2, 2, errno);
 			zlog_err("ipv4-new: failed to bind port: %s",
 				 strerror(errno));
 			close(sd);
@@ -1470,6 +1777,8 @@ int bp_peer_socketv6(const struct bfd_session *bs)
 				bs->vrf->vrf_id, device_to_bind);
 	}
 	if (sd == -1) {
+		/* Trace IPv6 socket creation failed */
+		frrtrace(3, frr_bfd, socket_error, 1, 4, errno);
 		zlog_err("ipv6-new: failed to create socket: %s",
 			 strerror(errno));
 		return -1;
@@ -1501,6 +1810,8 @@ int bp_peer_socketv6(const struct bfd_session *bs)
 	do {
 		if ((++pcount) > (BFD_SRCPORTMAX - BFD_SRCPORTINIT)) {
 			/* Searched all ports, none available */
+			/* Trace IPv6 bind failed */
+			frrtrace(3, frr_bfd, socket_error, 2, 4, errno);
 			zlog_err("ipv6-new: failed to bind port: %s",
 				 strerror(errno));
 			close(sd);
@@ -1633,6 +1944,113 @@ int bp_udp6_mhop(const struct vrf *vrf)
 
 	return sd;
 }
+
+#ifdef BFD_LINUX
+/* 
+ * tcpdump -dd 'udp dst port 3784 and ip6[24:2] & 0xffc0 = 0xfe80'
+ * Filter for IPv6 UDP packets destined to port 3784 with link-local destination (fe80::/10)
+ * This ensures we only capture link-local BFD packets, not global unicast.
+ */
+static struct sock_filter bfd_shop6_filter[] = {
+	{ 0x28, 0, 0, 0x0000000c },  /* Load ethernet type */
+	{ 0x15, 0, 8, 0x000086dd },  /* Jump if not IPv6 (0x86dd) */
+	{ 0x30, 0, 0, 0x00000014 },  /* Load IPv6 next header */
+	{ 0x15, 0, 6, 0x00000011 },  /* Jump if not UDP (17) */
+	{ 0x28, 0, 0, 0x00000038 },  /* Load UDP destination port */
+	{ 0x15, 0, 4, 0x00000ec8 },  /* Jump if not port 3784 */
+	{ 0x28, 0, 0, 0x00000026 },  /* Load IPv6 dst addr [24:2] (first 2 bytes of dst) */
+	{ 0x54, 0, 0, 0x0000ffc0 },  /* AND with 0xffc0 to check fe80::/10 */
+	{ 0x15, 0, 1, 0x0000fe80 },  /* Jump if not fe80 (link-local) */
+	{ 0x6, 0, 0, 0x00040000 },   /* Accept packet */
+	{ 0x6, 0, 0, 0x00000000 },   /* Reject packet */
+};
+
+#define BFD_SHOP6_FILTER_LENGTH 11
+
+/*
+ * Create RAW socket for IPv6 BFD packets in distributed mode.
+ * This socket uses BPF filter to receive only UDP packets destined to port 3784.
+ * Used when SDK owns the port and we need to receive link-local BFD packets.
+ */
+int bp_shop6_raw_socket(const struct vrf *vrf)
+{
+	int s;
+	struct ifreq ifr;
+
+	frr_with_privs(&bglobal.bfdd_privs) {
+		/* Use ETH_P_ALL to capture all packets, then BPF filters */
+		s = vrf_socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL),
+			       vrf->vrf_id, vrf->name);
+	}
+
+	if (s == -1) {
+		zlog_err("%s: Failed to create RAW socket: %s", __func__,
+			 strerror(errno));
+		return -1;
+	}
+
+	struct sock_fprog pf;
+	struct sockaddr_ll sll = {0};
+
+	/* Set socket to non-blocking */
+	if (set_nonblocking(s) < 0) {
+		zlog_warn("%s: set_nonblocking failed: %s", __func__,
+			  strerror(errno));
+	}
+
+	/* Bind socket to VRF device if not default VRF */
+	if (vrf->vrf_id != VRF_DEFAULT && vrf->name[0] != '\0') {
+		memset(&ifr, 0, sizeof(ifr));
+		strlcpy(ifr.ifr_name, vrf->name, sizeof(ifr.ifr_name));
+		
+		if (setsockopt(s, SOL_SOCKET, SO_BINDTODEVICE, &ifr, sizeof(ifr)) < 0) {
+			zlog_warn("%s: Could not bind to VRF device %s: %s",
+				  __func__, vrf->name, strerror(errno));
+			/* Continue anyway - might still work */
+		} else {
+			zlog_info("%s: Bound RAW socket to VRF device: %s",
+				  __func__, vrf->name);
+		}
+	}
+
+	/* Attach BPF filter to only receive link-local BFD packets */
+	pf.filter = bfd_shop6_filter;
+	pf.len = BFD_SHOP6_FILTER_LENGTH;
+	if (setsockopt(s, SOL_SOCKET, SO_ATTACH_FILTER, &pf, sizeof(pf)) == -1) {
+		zlog_err("%s: setsockopt(SO_ATTACH_FILTER): %s", __func__,
+			 strerror(errno));
+		close(s);
+		return -1;
+	}
+
+	zlog_info("%s: BPF filter attached with %d instructions", __func__,
+		  BFD_SHOP6_FILTER_LENGTH);
+
+	/* Bind to all interfaces within this VRF */
+	memset(&sll, 0, sizeof(sll));
+	sll.sll_family = AF_PACKET;
+	sll.sll_protocol = htons(ETH_P_IPV6);
+	sll.sll_ifindex = 0; /* All interfaces in this VRF */
+	if (bind(s, (struct sockaddr *)&sll, sizeof(sll)) < 0) {
+		zlog_err("%s: Failed to bind RAW socket: %s", __func__,
+			 safe_strerror(errno));
+		close(s);
+		return -1;
+	}
+
+	zlog_info("%s: Created RAW socket for VRF %s (fd=%d, vrf_id=%u, proto=IPv6)", 
+		  __func__, vrf->name, s, vrf->vrf_id);
+
+	return s;
+}
+#else
+int bp_shop6_raw_socket(const struct vrf *vrf)
+{
+	/* RAW sockets with BPF are only supported on Linux */
+	zlog_err("%s: RAW sockets not supported on this platform", __func__);
+	return -1;
+}
+#endif
 
 #ifdef BFD_LINUX
 /* tcpdump -dd udp dst port 3785 */

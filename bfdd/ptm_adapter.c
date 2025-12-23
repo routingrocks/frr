@@ -15,6 +15,7 @@
 #include "lib/bfd.h"
 
 #include "bfd.h"
+#include "bfd_trace.h"
 
 /*
  * Data structures
@@ -131,10 +132,20 @@ static void _ptm_bfd_session_del(struct bfd_session *bs, uint8_t diag)
 	if (bglobal.debug_peer_event)
 		zlog_debug("session-delete: %s", bs_to_string(bs));
 
+	frrtrace(7, frr_bfd, ptm_session_event, 2, bs->discrs.my_discr, diag,
+		 bs->key.family, (uint8_t *)&bs->key.local,
+		 (uint8_t *)&bs->key.peer, bs->refcount);
+
 	/* Change state and notify peer. */
 	bs->ses_state = PTM_BFD_DOWN;
 	bs->local_diag = diag;
-	ptm_bfd_snd(bs, 0);
+	if (bs->offloaded) {
+		/* Update data plane with DOWN state before deletion */
+		if (bfd_dplane_update_session(bs) != 0)
+			zlog_err("%s: failed to update data plane session", __func__);
+	} else {
+		ptm_bfd_snd(bs, 0);
+	}
 
 	/* Session reached refcount == 0, lets delete it. */
 	if (bs->refcount == 0) {
@@ -144,6 +155,11 @@ static void _ptm_bfd_session_del(struct bfd_session *bs, uint8_t diag)
 		 * message here so we can catch the bug if it exists.
 		 */
 		if (CHECK_FLAG(bs->flags, BFD_SESS_FLAG_CONFIG)) {
+			/* Trace config refcount zero error with session addresses */
+			frrtrace(4, frr_bfd, ptm_config_refcount_error,
+				 bs->discrs.my_discr, bs->key.family,
+				 (uint8_t *)&bs->key.local,
+				 (uint8_t *)&bs->key.peer);
 			zlog_err(
 				"ptm-del-session: [%s] session refcount is zero but it was configured by CLI",
 				bs_to_string(bs));
@@ -405,6 +421,8 @@ static int _ptm_msg_read(struct stream *msg, int command, vrf_id_t vrf_id,
 	 */
 	STREAM_GETC(msg, ifnamelen);
 	if (ifnamelen >= sizeof(bpc->bpc_localif)) {
+		/* Trace interface name too big error */
+		frrtrace(2, frr_bfd, ptm_error, 1, ifnamelen);
 		zlog_err("ptm-read: interface name is too big");
 		return -1;
 	}
@@ -423,6 +441,8 @@ static int _ptm_msg_read(struct stream *msg, int command, vrf_id_t vrf_id,
 			bpc->bpc_has_vrfname = true;
 			strlcpy(bpc->bpc_vrfname, vrf->name, sizeof(bpc->bpc_vrfname));
 		} else {
+			/* Trace VRF ID not found error */
+			frrtrace(2, frr_bfd, ptm_error, 2, vrf_id);
 			zlog_err("ptm-read: vrf id %u could not be identified",
 				 vrf_id);
 			return -1;
@@ -477,6 +497,7 @@ static void bfdd_dest_register(struct stream *msg, vrf_id_t vrf_id)
 			if (bglobal.debug_zebra)
 				zlog_debug(
 					"ptm-add-dest: failed to create BFD session");
+			frrtrace(2, frr_bfd, ptm_error, 6, 0);
 			return;
 		}
 	} else {
@@ -518,6 +539,7 @@ static void bfdd_dest_deregister(struct stream *msg, vrf_id_t vrf_id)
 	if (bs == NULL) {
 		if (bglobal.debug_zebra)
 			zlog_debug("ptm-del-dest: failed to find BFD session");
+		frrtrace(2, frr_bfd, ptm_error, 7, 0);
 		return;
 	}
 
@@ -530,6 +552,7 @@ static void bfdd_dest_deregister(struct stream *msg, vrf_id_t vrf_id)
 
 	if (bglobal.debug_zebra)
 		zlog_debug("ptm-del-dest: failed to find BFD session");
+	frrtrace(2, frr_bfd, ptm_error, 7, bs->discrs.my_discr);
 
 	/*
 	 * XXX: We either got a double deregistration or the daemon who
@@ -555,6 +578,8 @@ static void bfdd_client_register(struct stream *msg)
 	return;
 
 stream_failure:
+	/* Trace client register failed error */
+	frrtrace(2, frr_bfd, ptm_error, 3, 0);
 	zlog_err("ptm-add-client: failed to register client");
 }
 
@@ -575,17 +600,22 @@ static void bfdd_client_deregister(struct stream *msg)
 		if (bglobal.debug_zebra)
 			zlog_debug("ptm-del-client: failed to find client: %u",
 				   pid);
+		frrtrace(2, frr_bfd, ptm_error, 8, pid);
 		return;
 	}
 
 	if (bglobal.debug_zebra)
 		zlog_debug("ptm-del-client: client pid %u", pid);
 
+	frrtrace(2, frr_bfd, ptm_client_event, 2, pid);
+
 	pc_free(pc);
 
 	return;
 
 stream_failure:
+	/* Trace client deregister failed error */
+	frrtrace(2, frr_bfd, ptm_error, 4, 0);
 	zlog_err("ptm-del-client: failed to deregister client");
 }
 
@@ -614,12 +644,15 @@ static int bfdd_replay(ZAPI_CALLBACK_ARGS)
 	default:
 		if (bglobal.debug_zebra)
 			zlog_debug("ptm-replay: invalid message type %u", rcmd);
+		frrtrace(2, frr_bfd, ptm_error, 9, rcmd);
 		return -1;
 	}
 
 	return 0;
 
 stream_failure:
+	/* Trace replay command not found error */
+	frrtrace(2, frr_bfd, ptm_error, 5, 0);
 	zlog_err("ptm-replay: failed to find command");
 	return -1;
 }
@@ -751,6 +784,9 @@ static int bfd_ifp_destroy(struct interface *ifp)
 		zlog_debug("zclient: delete interface %s (VRF %s(%u))",
 			   ifp->name, ifp->vrf->name, ifp->vrf->vrf_id);
 
+	frrtrace(5, frr_bfd, zebra_interface_event, 2, ifp->ifindex, ifp->vrf->vrf_id,
+		 ifp->name, ifp->vrf->name);
+
 	bfdd_sessions_disable_interface(ifp);
 
 	return 0;
@@ -793,6 +829,11 @@ static int bfdd_interface_address_update(ZAPI_CALLBACK_ARGS)
 							      : "delete",
 			   ifc->address, vrf_id);
 
+	frrtrace(6, frr_bfd, zebra_address_event,
+		 cmd == ZEBRA_INTERFACE_ADDRESS_ADD ? 1 : 2,
+		 ifc->address->family, ifc->ifp->ifindex, vrf_id,
+		 (uint8_t *)&ifc->address->u.prefix, ifc->address->prefixlen);
+
 	if (cmd == ZEBRA_INTERFACE_ADDRESS_ADD)
 		bfdd_sessions_enable_address(ifc);
 	else
@@ -806,6 +847,10 @@ static int bfd_ifp_create(struct interface *ifp)
 	if (bglobal.debug_zebra)
 		zlog_debug("zclient: add interface %s (VRF %s(%u))", ifp->name,
 			   ifp->vrf->name, ifp->vrf->vrf_id);
+
+	frrtrace(5, frr_bfd, zebra_interface_event, 1, ifp->ifindex, ifp->vrf->vrf_id,
+		 ifp->name, ifp->vrf->name);
+
 	bfdd_sessions_enable_interface(ifp);
 
 	return 0;
@@ -966,6 +1011,8 @@ static void pcn_free(struct ptm_client_notification *pcn)
 
 	/* Handle session de-registration. */
 	bs = pcn->pcn_bs;
+	pc = pcn->pcn_pc;
+	
 	pcn->pcn_bs = NULL;
 	bs->refcount--;
 
@@ -974,11 +1021,14 @@ static void pcn_free(struct ptm_client_notification *pcn)
 		zlog_debug("ptm-del-session: [%s] refcount=%" PRIu64,
 			   bs_to_string(bs), bs->refcount);
 
+	frrtrace(7, frr_bfd, ptm_session_event, 2, bs->discrs.my_discr, BD_NEIGHBOR_DOWN,
+		 bs->key.family, (uint8_t *)&bs->key.local,
+		 (uint8_t *)&bs->key.peer, bs->refcount);
+
 	/* Set session down. */
 	_ptm_bfd_session_del(bs, BD_NEIGHBOR_DOWN);
 
 	/* Handle ptm_client deregistration. */
-	pc = pcn->pcn_pc;
 	pcn->pcn_pc = NULL;
 	TAILQ_REMOVE(&pc->pc_pcnqueue, pcn, pcn_entry);
 

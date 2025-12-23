@@ -579,6 +579,7 @@ AC_CHECK_HEADERS([pthread_np.h],,, [
 #include <pthread.h>
 ])
 AC_CHECK_FUNCS([pthread_setname_np pthread_set_name_np pthread_getthreadid_np])
+AC_CHECK_HEADERS([sx/sdk/sx_api.h], [], -)
 
 CFLAGS="$orig_cflags"
 
@@ -617,6 +618,7 @@ fi
 AC_SUBST([AC_LDFLAGS])
 AC_SUBST([AC_LDFLAGS_EXEC])
 AM_CONDITIONAL([STATIC_BIN], [test "$enable_static_bin" = "yes"])
+AM_CONDITIONAL([MLXSDK_LIBS_BUILT_INSTALLED], [test x"$ac_cv_header_sx_sdk_sx_api_h" = x"yes"])
 
 dnl libtool, the repository of all knowledge related linkers, is too stupid to
 dnl correctly tell the linker how to build modules.
@@ -747,6 +749,8 @@ AC_ARG_ENABLE([bgp-vnc],
   AS_HELP_STRING([--disable-bgp-vnc],[turn off BGP VNC support]))
 AC_ARG_ENABLE([bgp-bmp],
   AS_HELP_STRING([--disable-bgp-bmp],[turn off BGP BMP support]))
+AC_ARG_ENABLE([bfd-dplane-server],
+  AS_HELP_STRING([--enable-bfd-dplane-server],[enable BFD data plane server plugin]))
 AC_ARG_ENABLE([snmp],
   AS_HELP_STRING([--enable-snmp], [enable SNMP support for agentx]))
 AC_ARG_ENABLE([config_rollbacks],
@@ -765,6 +769,8 @@ AC_ARG_ENABLE([bgp-lttng],
   AS_HELP_STRING([--enable-bgp-lttng], [enable BGP LTTng tracing]))
 AC_ARG_ENABLE([zebra-lttng],
   AS_HELP_STRING([--enable-zebra-lttng], [enable Zebra LTTng tracing]))
+AC_ARG_ENABLE([bfd-lttng],
+  AS_HELP_STRING([--enable-bfd-lttng], [enable BFD LTTng tracing]))
 AC_ARG_ENABLE([usdt],
   AS_HELP_STRING([--enable-usdt], [enable USDT probes]))
 AC_ARG_WITH([libpam],
@@ -2017,6 +2023,18 @@ case "${enable_bgp_bmp}" in
     ;;
 esac
 
+bfdd_dplane_server=true
+
+#case "${enable_bfd_dplane_server}" in
+#  yes)
+#    bfdd_dplane_server=true
+#    ;;
+#  *)
+#    bfdd_dplane_server=false
+#    ;;
+#esac
+
+
 if test "$enable_version_build_config" != "no";then
   AC_DEFINE([ENABLE_VERSION_BUILD_CONFIG], [1], [Report build configs in show version])
 fi
@@ -2200,6 +2218,18 @@ if test "$enable_zebra_lttng" = "yes"; then
     ZEBRA_LTTNG=true
   ], [
     AC_MSG_ERROR([configuration specifies --enable-zebra-lttng but lttng-ust was not found])
+  ])
+fi
+
+dnl ---------
+dnl BFD LTTng
+dnl ---------
+if test "$enable_bfd_lttng" = "yes"; then
+  PKG_CHECK_MODULES([BFDUST], [lttng-ust >= 2.10.0], [
+    AC_DEFINE([HAVE_BFD_LTTNG], [1], [Enable BFD LTTng support])
+    BFD_LTTNG=true
+  ], [
+    AC_MSG_ERROR([configuration specifies --enable-bfd-lttng but lttng-ust was not found])
   ])
 fi
 
@@ -2813,6 +2843,7 @@ dnl various features
 AM_CONDITIONAL([SUPPORT_REALMS], [test "$enable_realms" = "yes"])
 AM_CONDITIONAL([ENABLE_BGP_VNC], [test "$enable_bgp_vnc" != "no"])
 AM_CONDITIONAL([BGP_BMP], [$bgpd_bmp])
+AM_CONDITIONAL([BFDD_DPLANE_SERVER], [test "$bfdd_dplane_server" = "true"])
 AM_CONDITIONAL([ENABLE_ASIC_SUPPORT_VRF_LEAK], [test "$enable_asic_support_vrf_leak" != "no"])
 dnl northbound
 AM_CONDITIONAL([SQLITE3], [$SQLITE3])
@@ -2849,6 +2880,7 @@ AM_CONDITIONAL([RIPD], [test "$enable_ripd" != "no"])
 AM_CONDITIONAL([OSPFD], [test "$enable_ospfd" != "no"])
 AM_CONDITIONAL([LDPD], [test "$enable_ldpd" != "no"])
 AM_CONDITIONAL([BFDD], [test "$BFDD" = "bfdd"])
+AM_CONDITIONAL([BFD_LTTNG], [test "$BFD_LTTNG" = "true"])
 AM_CONDITIONAL([NHRPD], [test "$NHRPD" = "nhrpd"])
 AM_CONDITIONAL([EIGRPD], [test "$enable_eigrpd" != "no"])
 AM_CONDITIONAL([WATCHFRR], [test "$WATCHFRR" = "watchfrr"])

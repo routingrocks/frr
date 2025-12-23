@@ -9,6 +9,17 @@ vtysh_daemons += bfdd
 man8 += $(MANBUILD)/frr-bfdd.8
 endif
 
+if BFDD_DPLANE_SERVER
+if MLXSDK_LIBS_BUILT_INSTALLED
+module_LTLIBRARIES += bfdd/bfd_dplane_server_plugin.la
+endif
+endif
+
+MLX_LIBS_TXT    = $(wildcard $(TOPDIR)/usr/lib/libsx*.so \
+                             $(TOPDIR)/usr/lib/libsw_rm*.so \
+                             $(TOPDIR)/usr/lib/libscew*.so)
+MLX_LIBS_LD     = $(patsubst lib%,-l%,$(basename $(notdir $(MLX_LIBS_TXT))))
+
 bfdd_libbfd_a_SOURCES = \
 	bfdd/bfd.c \
 	bfdd/bfdd_nb.c \
@@ -22,6 +33,7 @@ bfdd_libbfd_a_SOURCES = \
 	bfdd/dplane.c \
 	bfdd/event.c \
 	bfdd/ptm_adapter.c \
+	bfdd/bfd_trace.c \
 	# end
 
 # Install headers so it can be used by external data plane
@@ -40,6 +52,7 @@ noinst_HEADERS += \
 	bfdd/bfdctl.h \
 	bfdd/bfdd_nb.h \
 	bfdd/bfd.h \
+	bfdd/bfd_trace.h \
 	# end
 
 nodist_bfdd_bfdd_SOURCES = \
@@ -47,4 +60,7 @@ nodist_bfdd_bfdd_SOURCES = \
 	# end
 
 bfdd_bfdd_SOURCES = bfdd/bfdd.c
-bfdd_bfdd_LDADD = bfdd/libbfd.a lib/libfrr.la
+bfdd_bfdd_LDADD = bfdd/libbfd.a lib/libfrr.la $(BFDUST_LIBS) $(UST_LIBS)
+bfdd_bfd_dplane_server_plugin_la_SOURCES = bfdd/bfd_dplane_server_plugin.c
+bfdd_bfd_dplane_server_plugin_la_LDFLAGS = $(MODULE_LDFLAGS)
+bfdd_bfd_dplane_server_plugin_la_LIBADD = $(MLX_LIBS_LD)

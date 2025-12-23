@@ -2959,8 +2959,10 @@ static void evpn_show_route_rd(struct vty *vty, struct bgp *bgp, struct prefix_r
 		prefix_path_count = 0;
 		best_path_selected = 0;
 		multi_path_count = 0;
-		if (json)
+		if (json) {
+                        if(!brief)
 			json_paths = json_object_new_array();
+                }
 
 		/* Display each path for this prefix. */
 		for (; pi; pi = pi->next) {
