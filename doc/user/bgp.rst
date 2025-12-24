@@ -4033,6 +4033,41 @@ Convergence
    This command sets the time in secs to wait before starting to advertise routes to
    neighbors for per source nexthop group
 
+.. clicmd:: bgp conditional-disaggregation
+
+   Enable conditional disaggregation for the address family. When enabled, routes
+   received in the Unreachability SAFI can trigger automatic disaggregation of
+   suppressed SAFI_UNICAST routes, subject to Site of Origin (SoO) matching and
+   route existence validation.
+
+   This feature allows BGP to selectively advertise more-specific routes when
+   unreachability information is received, enabling fine-grained traffic steering
+   and failover in multi-homed environments.
+
+   When this command is configured:
+
+   - BGP walks the SAFI_UNREACH table and evaluates each route for potential
+     disaggregation
+   - Routes are disaggregated only if they match the SoO community and exist in
+     the SAFI_UNICAST table
+   - Disaggregated routes are marked with the ``conditional-disaggregated`` flag
+
+   When this command is removed with ``no bgp conditional-disaggregation``:
+
+   - Previously disaggregated routes are re-suppressed
+   - Withdrawals are sent to BGP neighbors for the disaggregated routes
+
+   This command is only supported for IPv4 and IPv6 unicast address families.
+   The feature remains disabled by default and must be explicitly configured.
+
+   .. code-block:: frr
+
+      router bgp 65201
+       address-family ipv4 unicast
+        bgp conditional-disaggregation
+       exit-address-family
+      !
+
 .. _bgp-debugging:
 
 Debugging

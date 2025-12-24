@@ -1010,6 +1010,7 @@ struct bgp {
 #define BGP_FLAG_ADVERTISE_ORIGIN   (1ULL << 0)
 #define BGP_FLAG_NHG_PER_ORIGIN	    (1ULL << 1)
 #define BGP_FLAG_CONFIG_DEL_PENDING (1ULL << 2)
+#define BGP_FLAG_CONDITIONAL_DISAGG (1ULL << 3)
 	/* BGP per source NHG flags */
 	uint8_t per_src_nhg_flags[AFI_MAX][SAFI_MAX];
 	/* local administrator value used for soo creation used for per source

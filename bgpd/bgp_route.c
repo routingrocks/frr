@@ -78,6 +78,7 @@
 #include "bgpd/bgp_flowspec_util.h"
 #include "bgpd/bgp_pbr.h"
 #include "bgpd/bgp_per_src_nhg.h"
+#include "bgpd/bgp_conditional_disagg.h"
 
 #include "bgpd/bgp_route_clippy.c"
 
@@ -134,17 +135,15 @@ static inline char *bgp_route_dump_path_info_flags(struct bgp_path_info *pi,
 		return buf;
 	}
 
-	snprintfrr(buf, len, "%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s",
+	snprintfrr(buf, len, "%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s",
 		   CHECK_FLAG(flags, BGP_PATH_IGP_CHANGED) ? "IGP Changed " : "",
 		   CHECK_FLAG(flags, BGP_PATH_DAMPED) ? "Damped" : "",
 		   CHECK_FLAG(flags, BGP_PATH_HISTORY) ? "History " : "",
 		   CHECK_FLAG(flags, BGP_PATH_SELECTED) ? "Selected " : "",
 		   CHECK_FLAG(flags, BGP_PATH_VALID) ? "Valid " : "",
-		   CHECK_FLAG(flags, BGP_PATH_ATTR_CHANGED) ? "Attr Changed "
-							    : "",
+		   CHECK_FLAG(flags, BGP_PATH_ATTR_CHANGED) ? "Attr Changed " : "",
 		   CHECK_FLAG(flags, BGP_PATH_DMED_CHECK) ? "Dmed Check " : "",
-		   CHECK_FLAG(flags, BGP_PATH_DMED_SELECTED) ? "Dmed Selected "
-							     : "",
+		   CHECK_FLAG(flags, BGP_PATH_DMED_SELECTED) ? "Dmed Selected " : "",
 		   CHECK_FLAG(flags, BGP_PATH_STALE) ? "Stale " : "",
 		   CHECK_FLAG(flags, BGP_PATH_REMOVED) ? "Removed " : "",
 		   CHECK_FLAG(flags, BGP_PATH_COUNTED) ? "Counted " : "",
@@ -154,11 +153,9 @@ static inline char *bgp_route_dump_path_info_flags(struct bgp_path_info *pi,
 		   CHECK_FLAG(flags, BGP_PATH_ANNC_NH_SELF) ? "NH Self " : "",
 		   CHECK_FLAG(flags, BGP_PATH_LINK_BW_CHG) ? "LinkBW Chg " : "",
 		   CHECK_FLAG(flags, BGP_PATH_ACCEPT_OWN) ? "Accept Own " : "",
-		   CHECK_FLAG(flags, BGP_PATH_MPLSVPN_LABEL_NH) ? "MPLS Label "
-								: "",
-		   CHECK_FLAG(flags, BGP_PATH_MPLSVPN_NH_LABEL_BIND)
-			   ? "MPLS Label Bind "
-			   : "",
+		   CHECK_FLAG(flags, BGP_PATH_MPLSVPN_LABEL_NH) ? "MPLS Label " : "",
+		   CHECK_FLAG(flags, BGP_PATH_MPLSVPN_NH_LABEL_BIND) ? "MPLS Label Bind " : "",
+		   CHECK_FLAG(flags, BGP_PATH_CONDITIONAL_DISAGG) ? "Cond-Disagg " : "",
 		   CHECK_FLAG(flags, BGP_PATH_UNSORTED) ? "Unsorted " : "");
 
 	return buf;
@@ -172,6 +169,10 @@ DEFINE_HOOK(bgp_process,
 /** Test if path is suppressed. */
 bool bgp_path_suppressed(struct bgp_path_info *pi)
 {
+	/* Conditional disaggregation routes bypass suppression */
+	if (CHECK_FLAG(pi->flags, BGP_PATH_CONDITIONAL_DISAGG))
+		return false;
+
 	if (pi->extra == NULL || pi->extra->aggr_suppressors == NULL)
 		return false;
 
@@ -3052,7 +3053,10 @@ bool subgroup_announce_check(struct bgp_dest *dest, struct bgp_path_info *pi,
 								attr)));
 	}
 
-	if (CHECK_FLAG(bgp->per_src_nhg_flags[afi][safi], BGP_FLAG_ADVERTISE_ORIGIN))
+	/* Add SoO extended community for per-source NHG, but skip for conditional
+	 * disaggregation routes*/
+	if (CHECK_FLAG(bgp->per_src_nhg_flags[afi][safi], BGP_FLAG_ADVERTISE_ORIGIN) &&
+	    !CHECK_FLAG(pi->flags, BGP_PATH_CONDITIONAL_DISAGG))
 		bgp_attr_add_soo_community(bgp->per_source_nhg_soo, attr);
 
 	/*
@@ -5246,6 +5250,11 @@ static void bgp_rib_withdraw(struct bgp_dest *dest, struct bgp_path_info *pi,
 	if (safi == SAFI_EVPN)
 		bgp_evpn_unimport_route(peer->bgp, afi, safi, p, pi);
 
+	/* Conditional Disaggregation: Withdraw generated SAFI_UNICAST route if needed */
+	if (safi == SAFI_UNREACH && CHECK_FLAG(peer->bgp->per_src_nhg_flags[afi][SAFI_UNICAST],
+					       BGP_FLAG_CONDITIONAL_DISAGG))
+		bgp_conditional_disagg_withdraw(peer->bgp, p, pi, afi, peer);
+
 	bgp_rib_remove(dest, pi, peer, afi, safi);
 }
 
@@ -6085,6 +6094,14 @@ void bgp_update(struct peer *peer, const struct prefix *p, uint32_t addpath_id,
 			extra->unreach->has_reporter_as = new_attr.unreach_nlri->has_reporter_as;
 		}
 
+		/* Conditional Disaggregation: Generate SAFI_UNICAST route if needed
+		 * This must be AFTER the unreach TLV data is populated and OUTSIDE the
+		 * new_attr.unreach_nlri check since that pointer is cleared after parsing. */
+		if (safi == SAFI_UNREACH && CHECK_FLAG(bgp->per_src_nhg_flags[afi][SAFI_UNICAST],
+						       BGP_FLAG_CONDITIONAL_DISAGG)) {
+			bgp_conditional_disagg_add(bgp, p, pi, afi, peer);
+		}
+
 #ifdef ENABLE_BGP_VNC
 		if ((afi == AFI_IP || afi == AFI_IP6)
 		    && (safi == SAFI_UNICAST)) {
@@ -6312,6 +6329,12 @@ void bgp_update(struct peer *peer, const struct prefix *p, uint32_t addpath_id,
 			extra->unreach->reporter_as = unreach_data_copy->reporter_as;
 			extra->unreach->has_reporter_as = unreach_data_copy->has_reporter_as;
 		}
+	}
+
+	/* Conditional Disaggregation: Generate SAFI_UNICAST route if needed (NEW route path) */
+	if (safi == SAFI_UNREACH &&
+	    CHECK_FLAG(bgp->per_src_nhg_flags[afi][SAFI_UNICAST], BGP_FLAG_CONDITIONAL_DISAGG)) {
+		bgp_conditional_disagg_add(bgp, p, new, afi, peer);
 	}
 
 	/* Nexthop reachability check. */
@@ -9180,6 +9203,11 @@ static bool aggr_suppress_path(struct bgp_aggregate *aggregate,
 			       struct bgp_path_info *pi)
 {
 	struct bgp_path_info_extra *pie;
+
+	/* Don't suppress conditional disaggregation routes - they need to be advertised
+	 * to override the aggregate during failure scenarios */
+	if (CHECK_FLAG(pi->flags, BGP_PATH_CONDITIONAL_DISAGG))
+		return false;
 
 	/* Path is already suppressed by this aggregation. */
 	if (aggr_suppress_exists(aggregate, pi))
@@ -12610,6 +12638,13 @@ void route_vty_out_detail(struct vty *vty, struct bgp *bgp, struct bgp_dest *bn,
 			json_object_boolean_true_add(json_path, "valid");
 		else
 			vty_out(vty, ", valid");
+	}
+
+	if (CHECK_FLAG(path->flags, BGP_PATH_CONDITIONAL_DISAGG)) {
+		if (json_paths)
+			json_object_boolean_true_add(json_path, "conditionalDisaggregated");
+		else
+			vty_out(vty, ", conditional-disaggregated");
 	}
 
 	if (json_paths)

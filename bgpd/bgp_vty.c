@@ -4194,6 +4194,69 @@ DEFUN(no_bgp_soo_source, no_bgp_soo_source_cmd, "no bgp soo-source [A.B.C.D]",
 	return CMD_SUCCESS;
 }
 
+DEFPY(bgp_conditional_disaggregation, bgp_conditional_disaggregation_cmd,
+      "[no$no] bgp conditional-disaggregation",
+      NO_STR BGP_STR "Enable conditional disaggregation from SAFI_UNREACH to SAFI_UNICAST\n")
+{
+	VTY_DECLVAR_CONTEXT(bgp, bgp);
+	afi_t afi = bgp_node_afi(vty);
+	safi_t safi = bgp_node_safi(vty);
+	struct bgp_dest *dest;
+	struct bgp_path_info *pi;
+
+	/* Only allow for IPv4/IPv6 unicast */
+	if (safi != SAFI_UNICAST) {
+		vty_out(vty, "%% Conditional disaggregation only supported for unicast\n");
+		return CMD_WARNING;
+	}
+
+	if (no) {
+		/*
+		 * Walk SAFI_UNREACH table and evaluate if previously
+		 * conditionally disaggregated UNICAST routes should be
+		 * re-suppressed and withdrawn to BGP neighbors.
+		 */
+		if (CHECK_FLAG(bgp->per_src_nhg_flags[afi][safi], BGP_FLAG_CONDITIONAL_DISAGG)) {
+			UNSET_FLAG(bgp->per_src_nhg_flags[afi][safi], BGP_FLAG_CONDITIONAL_DISAGG);
+
+			if (bgp->rib[afi][SAFI_UNREACH]) {
+				for (dest = bgp_table_top(bgp->rib[afi][SAFI_UNREACH]); dest;
+				     dest = bgp_route_next(dest)) {
+					const struct prefix *p = bgp_dest_get_prefix(dest);
+					for (pi = bgp_dest_get_bgp_path_info(dest); pi;
+					     pi = pi->next) {
+						bgp_conditional_disagg_withdraw(bgp, p, pi, afi,
+										pi->peer);
+					}
+				}
+			}
+		}
+	} else {
+		/*
+		 * Walk SAFI_UNREACH table and evaluate if conditional
+		 * disaggregation should be applied (subject to SoO matching
+		 * and route existence in SAFI_UNICAST table).
+		 */
+		if (!CHECK_FLAG(bgp->per_src_nhg_flags[afi][safi], BGP_FLAG_CONDITIONAL_DISAGG)) {
+			SET_FLAG(bgp->per_src_nhg_flags[afi][safi], BGP_FLAG_CONDITIONAL_DISAGG);
+
+			if (bgp->rib[afi][SAFI_UNREACH]) {
+				for (dest = bgp_table_top(bgp->rib[afi][SAFI_UNREACH]); dest;
+				     dest = bgp_route_next(dest)) {
+					const struct prefix *p = bgp_dest_get_prefix(dest);
+					for (pi = bgp_dest_get_bgp_path_info(dest); pi;
+					     pi = pi->next) {
+						bgp_conditional_disagg_add(bgp, p, pi, afi,
+									   pi->peer);
+					}
+				}
+			}
+		}
+	}
+
+	return CMD_SUCCESS;
+}
+
 DEFPY(bgp_per_src_nhg_convergence_timer, bgp_per_src_nhg_convergence_timer_cmd,
       "bgp per-source-nhg convergence-timer (5-30000)$period",
       BGP_STR "Per Source NHG settings\n"
@@ -12074,6 +12137,9 @@ static void print_bgp_vrfs(struct bgp *bgp, struct vty *vty, json_object *json,
 			json_object_boolean_add(json_addr, "nhgPerOrigin",
 						CHECK_FLAG(bgp->per_src_nhg_flags[afi][safi],
 							   BGP_FLAG_NHG_PER_ORIGIN));
+			json_object_boolean_add(json_addr, "conditionalDisaggregation",
+						CHECK_FLAG(bgp->per_src_nhg_flags[afi][safi],
+							   BGP_FLAG_CONDITIONAL_DISAGG));
 			if (bgp->table_map[afi][safi].name)
 				json_object_string_add(json_addr, "tableMap",
 						       bgp->table_map[afi][safi].name);
@@ -20711,6 +20777,9 @@ static void bgp_config_write_family(struct vty *vty, struct bgp *bgp, afi_t afi,
 	if (CHECK_FLAG(bgp->per_src_nhg_flags[afi][safi], BGP_FLAG_NHG_PER_ORIGIN))
 		vty_out(vty, "  bgp nhg-per-origin\n");
 
+	if (CHECK_FLAG(bgp->per_src_nhg_flags[afi][safi], BGP_FLAG_CONDITIONAL_DISAGG))
+		vty_out(vty, "  bgp conditional-disaggregation\n");
+
 
 	/* BGP flag dampening. */
 	if (CHECK_FLAG(bgp->af_flags[afi][safi], BGP_CONFIG_DAMPENING))
@@ -23768,6 +23837,10 @@ void bgp_vty_init(void)
 	/* Process SOO for nexthop-group*/
 	install_element(BGP_IPV4_NODE, &bgp_nhg_per_origin_cmd);
 	install_element(BGP_IPV6_NODE, &bgp_nhg_per_origin_cmd);
+
+	/* Conditional disaggregation */
+	install_element(BGP_IPV4_NODE, &bgp_conditional_disaggregation_cmd);
+	install_element(BGP_IPV6_NODE, &bgp_conditional_disaggregation_cmd);
 
 	/* address-family commands. */
 	install_element(BGP_NODE, &address_family_ipv4_safi_cmd);

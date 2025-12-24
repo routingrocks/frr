@@ -566,6 +566,12 @@ void bgp_unreach_info_delete(struct bgp *bgp, afi_t afi, struct prefix *prefix)
 
 	for (bpi = bgp_dest_get_bgp_path_info(dest); bpi; bpi = bpi->next) {
 		if (bpi->peer == bgp->peer_self) {
+			/* Conditional Disaggregation: Withdraw generated SAFI_UNICAST route if needed */
+			if (CHECK_FLAG(bgp->per_src_nhg_flags[afi][SAFI_UNICAST],
+				       BGP_FLAG_CONDITIONAL_DISAGG))
+				bgp_conditional_disagg_withdraw(bgp, prefix, bpi, afi,
+								bgp->peer_self);
+
 			bgp_rib_remove(dest, bpi, bgp->peer_self, afi, SAFI_UNREACH);
 			break;
 		}
