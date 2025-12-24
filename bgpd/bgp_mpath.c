@@ -571,7 +571,7 @@ void bgp_path_info_mpath_update(struct bgp *bgp, struct bgp_dest *dest,
 						     BGP_PATH_MULTIPATH, false);
 			if (eval_soo_per_nhg)
 				bgp_process_route_soo_attr(table->bgp, table->afi, table->safi,
-							   dest, cur_iterator, false);
+							   dest, cur_iterator, false, __func__);
 		}
 
 		cur_iterator = cur_iterator->next;
@@ -603,17 +603,17 @@ void bgp_path_info_mpath_update(struct bgp *bgp, struct bgp_dest *dest,
 		if (eval_soo_per_nhg) {
 			if (route_has_soo_attr(new_best)) {
 				bgp_process_mpath_route_soo_attr(bgp, table->afi, table->safi, dest,
-								 new_best, true);
+								 new_best, true, __func__);
 			} else if (old_best && (old_best != new_best) &&
 				   route_has_soo_attr(old_best)) {
 				/*old best had soo, and new best doesn't have
-				it, so we need to remove from nhes use-nhid list
-				now and not wait for route install to complete
-				for removing form nhe-list.
-				*/
+			it, so we need to remove from nhes use-nhid list
+			now and not wait for route install to complete
+			for removing form nhe-list.
+			*/
 				bgp_process_route_soo_attr_change(table->bgp, table->afi,
 								  table->safi, dest, old_best,
-								  new_best->attr);
+								  new_best->attr, __func__);
 			}
 		}
 	}

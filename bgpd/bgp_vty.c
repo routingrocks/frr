@@ -3995,18 +3995,26 @@ DEFPY(bgp_advertise_origin, bgp_advertise_origin_cmd, "[no$no] bgp advertise-ori
 
 	bool negate = (no == NULL) ? false : true;
 
-	/* Originate IPv6 mapped IPv4 SoO route based on bgp router-id */
+	/* Use custom SOO source IP if set, otherwise use router-id */
+	struct in_addr source_ip;
+	if (bgp->soo_source_ip_set) {
+		source_ip = bgp->soo_source_ip;
+	} else {
+		source_ip = bgp->router_id;
+	}
+
+	/* Originate IPv6 mapped IPv4 SoO route based on source IP */
 	if (afi == AFI_IP6 && safi == SAFI_UNICAST) {
 		struct in6_addr v6addr;
-		ipv4_to_ipv4_mapped_ipv6(&v6addr, bgp->router_id);
+		ipv4_to_ipv4_mapped_ipv6(&v6addr, source_ip);
 		in6addr2hostprefix(&v6addr, &p);
 		prefix2str(&p, prefix_str, sizeof(prefix_str));
 		bgp_static_set(vty, bgp, negate, prefix_str, NULL, NULL, afi, safi, NULL, 0,
 			       BGP_INVALID_LABEL_INDEX, 0, NULL, NULL, NULL, NULL, true, false);
 	} else if (afi == AFI_IP && safi == SAFI_UNICAST) {
-		/* Originate IPv4 SoO route based on bgp router-id */
+		/* Originate IPv4 SoO route based on source IP */
 		char addr_buf[INET_ADDRSTRLEN];
-		inet_ntop(AF_INET, &bgp->router_id, addr_buf, INET_ADDRSTRLEN);
+		inet_ntop(AF_INET, &source_ip, addr_buf, INET_ADDRSTRLEN);
 		bgp_static_set(vty, bgp, negate, addr_buf, NULL, NULL, afi, safi, NULL, 0,
 			       BGP_INVALID_LABEL_INDEX, 0, NULL, NULL, NULL, NULL, true, false);
 	}
@@ -4058,6 +4066,87 @@ DEFPY(bgp_nhg_per_origin, bgp_nhg_per_origin_cmd, "[no$no] bgp nhg-per-origin",
 		SET_FLAG(bgp->per_src_nhg_flags[afi][safi], BGP_FLAG_NHG_PER_ORIGIN);
 		bgp_clear_vty(vty, bgp->name, afi, safi, clear_all, BGP_CLEAR_SOFT_IN, NULL);
 	}
+	return CMD_SUCCESS;
+}
+
+DEFUN(bgp_soo_source, bgp_soo_source_cmd, "bgp soo-source A.B.C.D",
+      BGP_STR "Set custom SOO source IP for per-source NHG\n"
+	      "IPv4 address\n")
+{
+	struct bgp *bgp;
+	struct in_addr soo_ip;
+	int ret;
+	struct listnode *node, *nnode;
+	struct peer *tmp_peer;
+	afi_t afi;
+	safi_t safi;
+
+	bgp = bgp_get_default();
+	if (!bgp) {
+		vty_out(vty, "No BGP instance exists\n");
+		return CMD_WARNING;
+	}
+
+	ret = inet_pton(AF_INET, argv[2]->arg, &soo_ip);
+	if (ret <= 0) {
+		vty_out(vty, "Invalid IPv4 address: %s\n", argv[2]->arg);
+		return CMD_WARNING;
+	}
+
+	bgp->soo_source_ip_set = true;
+
+	/* Update the SOO value with the new source IP */
+	bgp_per_src_nhg_handle_soo_addr_update(bgp, &soo_ip, false);
+
+	/* Trigger route advertisements to all peers only if advertise-origin is
+	 * set */
+	FOREACH_AFI_SAFI (afi, safi) {
+		if (CHECK_FLAG(bgp->per_src_nhg_flags[afi][safi], BGP_FLAG_ADVERTISE_ORIGIN)) {
+			// coverity[PW.NON_CONST_PRINTF_FORMAT_STRING]
+			for (ALL_LIST_ELEMENTS(bgp->peer, node, nnode, tmp_peer))
+				bgp_announce_route(tmp_peer, afi, safi, true);
+		}
+	}
+
+	return CMD_SUCCESS;
+}
+
+DEFUN(no_bgp_soo_source, no_bgp_soo_source_cmd, "no bgp soo-source [A.B.C.D]",
+      NO_STR BGP_STR "Unset custom SOO source IP for per-source NHG\n"
+		     "IPv4 address\n")
+{
+	struct bgp *bgp;
+	struct listnode *node, *nnode;
+	struct peer *tmp_peer;
+	afi_t afi;
+	safi_t safi;
+
+	bgp = bgp_get_default();
+	if (!bgp) {
+		vty_out(vty, "No BGP instance exists\n");
+		return CMD_WARNING;
+	}
+
+	if (!bgp->soo_source_ip_set) {
+		vty_out(vty, "Custom SOO source IP is not set\n");
+		return CMD_WARNING;
+	}
+
+	bgp->soo_source_ip_set = false;
+
+	/* Update the SOO value with the router ID */
+	bgp_per_src_nhg_handle_soo_addr_update(bgp, &bgp->router_id, false);
+
+	/* Trigger route advertisements to all peers only if advertise-origin is
+	 * set */
+	FOREACH_AFI_SAFI (afi, safi) {
+		if (CHECK_FLAG(bgp->per_src_nhg_flags[afi][safi], BGP_FLAG_ADVERTISE_ORIGIN)) {
+			// coverity[PW.NON_CONST_PRINTF_FORMAT_STRING]
+			for (ALL_LIST_ELEMENTS(bgp->peer, node, nnode, tmp_peer))
+				bgp_announce_route(tmp_peer, afi, safi, true);
+		}
+	}
+
 	return CMD_SUCCESS;
 }
 
@@ -20510,6 +20599,10 @@ int bgp_config_write(struct vty *vty)
 			vty_out(vty, " bgp router-id %pI4\n",
 				&bgp->router_id_static);
 
+		/* BGP SOO source IP. */
+		if (bgp->soo_source_ip_set && bgp->soo_source_ip.s_addr != INADDR_ANY)
+			vty_out(vty, " bgp soo-source %pI4\n", &bgp->soo_source_ip);
+
 		/* BGP Per Source NHG Convergence time setting */
 		if (is_nhg_per_origin_configured(bgp) &&
 		    bgp->per_src_nhg_convergence_timer != BGP_PER_SRC_NHG_SOO_TIMER_WHEEL_PERIOD)
@@ -22036,6 +22129,10 @@ void bgp_vty_init(void)
 	install_element(BGP_NODE, &bgp_maxmed_admin_medv_cmd);
 	install_element(BGP_NODE, &bgp_maxmed_onstartup_cmd);
 	install_element(BGP_NODE, &no_bgp_maxmed_onstartup_cmd);
+
+	/*bgp per source nhg soo source commands. */
+	install_element(BGP_NODE, &bgp_soo_source_cmd);
+	install_element(BGP_NODE, &no_bgp_soo_source_cmd);
 
 	/*bgp per source nhg convergence timer commands. */
 	install_element(BGP_NODE, &bgp_per_src_nhg_convergence_timer_cmd);
