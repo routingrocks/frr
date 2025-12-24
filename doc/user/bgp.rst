@@ -4327,7 +4327,7 @@ incoming/outgoing directions.
 
       Total number of VRFs (including default): 3
 
-.. clicmd:: show bgp [<ipv4|ipv6> <unicast|multicast|vpn|labeled-unicast|flowspec> | l2vpn evpn]
+.. clicmd:: show bgp [<ipv4|ipv6> <unicast|multicast|vpn|labeled-unicast|flowspec|unreachability> | l2vpn evpn]
 
    These commands display BGP routes for the specific routing table indicated by
    the selected afi and the selected safi. If no afi and no safi value is given,
@@ -5479,6 +5479,8 @@ Show command json output:
 .. include:: wecmp_linkbw.rst
 
 .. include:: flowspec.rst
+
+.. include:: unreachability.rst
 
 .. [#med-transitivity-rant] For some set of objects to have an order, there *must* be some binary ordering relation that is defined for *every* combination of those objects, and that relation *must* be transitive. I.e.:, if the relation operator is <, and if a < b and b < c then that relation must carry over and it *must* be that a < c for the objects to have an order. The ordering relation may allow for equality, i.e. a < b and b < a may both be true and imply that a and b are equal in the order and not distinguished by it, in which case the set has a partial order. Otherwise, if there is an order, all the objects have a distinct place in the order and the set has a total order)
 .. [bgp-route-osci-cond] McPherson, D. and Gill, V. and Walton, D., "Border Gateway Protocol (BGP) Persistent Route Oscillation Condition", IETF RFC3345
