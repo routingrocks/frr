@@ -180,10 +180,24 @@ const struct frr_yang_module_info frr_bgp_route_map_info = {
 			}
 		},
 		{
+			.xpath = "/frr-route-map:lib/route-map/entry/match-condition/rmap-match-condition/frr-bgp-route-map:ipv4-prefix-length",
+			.cbs = {
+				.modify = lib_route_map_entry_match_condition_rmap_match_condition_ipv4_prefix_length_modify,
+				.destroy = lib_route_map_entry_match_condition_rmap_match_condition_ipv4_prefix_length_destroy,
+			}
+		},
+		{
 			.xpath = "/frr-route-map:lib/route-map/entry/match-condition/rmap-match-condition/frr-bgp-route-map:ipv6-address",
 			.cbs = {
 				.modify = lib_route_map_entry_match_condition_rmap_match_condition_ipv6_address_modify,
 				.destroy = lib_route_map_entry_match_condition_rmap_match_condition_ipv6_address_destroy,
+			}
+		},
+		{
+			.xpath = "/frr-route-map:lib/route-map/entry/match-condition/rmap-match-condition/frr-bgp-route-map:ipv6-prefix-length",
+			.cbs = {
+				.modify = lib_route_map_entry_match_condition_rmap_match_condition_ipv6_prefix_length_modify,
+				.destroy = lib_route_map_entry_match_condition_rmap_match_condition_ipv6_prefix_length_destroy,
 			}
 		},
 		{

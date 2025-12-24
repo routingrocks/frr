@@ -178,6 +178,18 @@ module frr-bgp-route-map {
       "Match protocol via which the route was learnt";
   }
 
+  identity ipv4-prefix-length {
+    base frr-route-map:rmap-match-type;
+    description
+      "Match IPv4 address prefix length";
+  }
+
+  identity ipv6-prefix-length {
+    base frr-route-map:rmap-match-type;
+    description
+      "Match IPv6 address prefix length";
+  }
+
   identity distance {
     base frr-route-map:rmap-set-type;
     description
@@ -811,6 +823,24 @@ identity set-extcommunity-color {
       when "derived-from-or-self(../frr-route-map:condition, 'frr-bgp-route-map:source-protocol')";
       leaf source-protocol {
         type frr-route-types:frr-route-types;
+      }
+    }
+
+    case ipv4-prefix-length {
+      when "derived-from-or-self(../frr-route-map:condition, 'frr-bgp-route-map:ipv4-prefix-length')";
+      leaf ipv4-prefix-length {
+        type uint8 {
+          range "0..32";
+        }
+      }
+    }
+
+    case ipv6-prefix-length {
+      when "derived-from-or-self(../frr-route-map:condition, 'frr-bgp-route-map:ipv6-prefix-length')";
+      leaf ipv6-prefix-length {
+        type uint8 {
+          range "0..128";
+        }
       }
     }
   }
