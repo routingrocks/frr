@@ -610,7 +610,6 @@ static void bfd_dplane_final_handler (struct bfd_dplane_server_session *bs)
 static void bfd_dplane_process_rx_packet(struct bfd_dplane_server_session *session,
 					  const struct bfd_pkt *cp)
 {
-	bool tx_updated = false;
 	if (!session || !cp) {
 		zlog_err("%s: NULL session or packet", __func__);
 		return;
@@ -639,10 +638,6 @@ static void bfd_dplane_process_rx_packet(struct bfd_dplane_server_session *sessi
 				   __func__, session->lid, session->rid, ntohl(cp->discrs.my_discr));
 	}
 	
-	uint32_t old_remote_desired_tx = session->remote_desired_tx;
-	uint32_t old_remote_required_rx = session->remote_required_rx;
-	uint32_t old_remote_detect_mult = session->remote_detect_mult;
-
 	/* Update remote discriminator */
 	session->rid = ntohl(cp->discrs.my_discr);
 	
@@ -655,9 +650,6 @@ static void bfd_dplane_process_rx_packet(struct bfd_dplane_server_session *sessi
 	session->remote_required_echo_rx = ntohl(cp->timers.required_min_echo);
 	session->remote_detect_mult = cp->detect_mult;
 	
-	bool timer_changed = ((old_remote_desired_tx != session->remote_desired_tx) ||
-				(old_remote_required_rx != session->remote_required_rx) ||
-				(old_remote_detect_mult != session->remote_detect_mult));
 
 	/* Update remote C-bit (Control Plane Independent) */
 	if (BFD_GETCBIT(cp->flags))
@@ -693,7 +685,6 @@ static void bfd_dplane_process_rx_packet(struct bfd_dplane_server_session *sessi
 		session->polling = 0;
 		
 		bfd_dplane_final_handler(session);
-		tx_updated = true;
 	}
 	
 	if (session->cur_timers_required_min_rx > session->remote_desired_tx)
@@ -702,14 +693,6 @@ static void bfd_dplane_process_rx_packet(struct bfd_dplane_server_session *sessi
 		session->detect_TO = (uint64_t)session->remote_detect_mult * session->remote_desired_tx;
 
 	bfd_dplane_update_rx_session_offload(session);	
-
-	/*if (!tx_updated && timer_changed) {
-		if (session->config_desired_tx > session->remote_required_rx)
-                	session->transmit_interval = session->config_desired_tx;
-       	 	else
-                	session->transmit_interval = session->remote_required_rx;
-		bfd_dplane_update_tx_session_offload(session);	
-	}*/
 
 	/*
 	 * We've received a packet with the POLL bit set, we must send
@@ -1671,7 +1654,7 @@ static void bfd_construct_rx_packet(sx_bfd_session_params_t *session_params_rx, 
         bfd_packet_rx->len = 24;
         bfd_packet_rx->discrs.my_discr = htonl(session->rid);
         bfd_packet_rx->discrs.remote_discr = htonl(session->lid);
-	bfd_packet_rx->timers.required_min_echo = htonl(session->config_required_echo_rx);
+	bfd_packet_rx->timers.required_min_echo = htonl(session->remote_required_echo_rx);
 
         bfd_packet_rx->detect_mult = session->remote_detect_mult;
 	/* Convert from host to network byte order for packet */
