@@ -1751,6 +1751,7 @@ static void bfd_dplane_server_handle_update_session(struct bfd_dplane_server_cli
 	bool old_shutdown = session->flags & BFD_SESSION_FLAG_SHUTDOWN;
 	uint32_t old_config_desired_tx = session->config_desired_tx;
 	uint32_t old_config_required_rx = session->config_required_rx;
+	uint32_t old_detect_multiplier = session->detect_mult;
 	bool old_passive_mode  = session->flags & BFD_SESSION_FLAG_PASSIVE;
 	bool is_up = (session->state == BFD_SESSION_UP);
 
@@ -1761,6 +1762,8 @@ static void bfd_dplane_server_handle_update_session(struct bfd_dplane_server_cli
 				(session->config_required_rx != old_config_required_rx));
 	bool passive_mode_changed = old_passive_mode ^ (session->flags & BFD_SESSION_FLAG_PASSIVE);
 	bool shutdown_mode_changed = old_shutdown ^ (session->flags & BFD_SESSION_FLAG_SHUTDOWN);
+	bool multiplier_changed = (session->detect_mult != old_detect_multiplier);
+	bool tx_updated = false;
 	
 	if (passive_mode_changed) {
 		//TODO handle this case
@@ -1853,6 +1856,11 @@ static void bfd_dplane_server_handle_update_session(struct bfd_dplane_server_cli
 			bfd_dplane_update_rx_session_offload(session);
 		}
 		
+		bfd_dplane_update_tx_session_offload(session);
+		tx_updated = true;
+	}
+	// In case of multiplier change only, update the TX session
+	if (is_up && !tx_updated && multiplier_changed) {
 		bfd_dplane_update_tx_session_offload(session);
 	}
 }
