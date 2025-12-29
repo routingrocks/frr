@@ -552,7 +552,7 @@ int bgp_unreach_info_add(struct bgp *bgp, afi_t afi, struct bgp_unreach_nlri *nl
 }
 
 /* Delete unreachability information */
-void bgp_unreach_info_delete(struct bgp *bgp, afi_t afi, struct prefix *prefix)
+void bgp_unreach_info_delete(struct bgp *bgp, afi_t afi, const struct prefix *prefix)
 {
 	struct bgp_dest *dest;
 	struct bgp_path_info *bpi;
