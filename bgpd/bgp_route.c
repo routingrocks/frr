@@ -311,6 +311,8 @@ void bgp_path_info_extra_free(struct bgp_path_info_extra **extra)
 
 	if (e->evpn)
 		XFREE(MTYPE_BGP_ROUTE_EXTRA_EVPN, e->evpn);
+	if (e->unreach)
+		XFREE(MTYPE_BGP_ROUTE_EXTRA_UNREACH, e->unreach);
 	if (e->flowspec)
 		XFREE(MTYPE_BGP_ROUTE_EXTRA_FS, e->flowspec);
 	if (e->vrfleak)
@@ -5874,7 +5876,9 @@ void bgp_update(struct peer *peer, const struct prefix *p, uint32_t addpath_id,
 			    old_tlv->timestamp != new_tlv->timestamp ||
 			    old_tlv->has_timestamp != new_tlv->has_timestamp ||
 			    old_tlv->reporter.s_addr != new_tlv->reporter.s_addr ||
-			    old_tlv->has_reporter != new_tlv->has_reporter) {
+			    old_tlv->has_reporter != new_tlv->has_reporter ||
+			    old_tlv->reporter_as != new_tlv->reporter_as ||
+			    old_tlv->has_reporter_as != new_tlv->has_reporter_as) {
 				/* TLVs changed - not a duplicate */
 				same_attr = 0;
 			}
@@ -13053,7 +13057,8 @@ void route_vty_out_detail(struct vty *vty, struct bgp *bgp, struct bgp_dest *bn,
 
 		if (unreach->has_timestamp) {
 			time_t ts = (time_t)unreach->timestamp;
-			char *time_str = ctime(&ts);
+			char time_buf[26];
+			char *time_str = ctime_r(&ts, time_buf);
 			if (time_str) {
 				size_t len = strlen(time_str);
 				if (len > 0 && time_str[len - 1] == '\n')

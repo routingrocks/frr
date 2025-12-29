@@ -75,8 +75,18 @@ DEFPY_HIDDEN(
 	/* Sub-TLV Type 1: Reason Code (defaults to UNSPECIFIED if not provided) */
 	if (reason_str) {
 		if (bgp_unreach_reason_str2code(reason_str, &unreach.reason_code) < 0) {
-			unreach.reason_code = atoi(reason_str);
-			if (unreach.reason_code >= 10 && unreach.reason_code <= 64535) {
+			char *endptr;
+			long code = strtol(reason_str, &endptr, 10);
+			if (*endptr != '\0' || code < 0 || code > 65535) {
+				vty_out(vty, "%% Invalid reason code: %s\n", reason_str);
+				return CMD_WARNING;
+			}
+			unreach.reason_code = (uint16_t)code;
+			/* Reserved ranges per draft-tantsura-idr-unreachability-safi:
+			 * 0-9: Standard codes, 10-64511: Reserved, 64512-65534: Private-Use, 65535: Reserved
+			 */
+			if ((unreach.reason_code >= 10 && unreach.reason_code <= 64511) ||
+			    unreach.reason_code == 65535) {
 				vty_out(vty, "%% Reason code %u is reserved\n", unreach.reason_code);
 				return CMD_WARNING;
 			}

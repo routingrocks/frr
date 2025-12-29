@@ -3808,6 +3808,7 @@ static int bgp_if_new_hook(struct interface *ifp)
 		return 0;
 	iifp = XCALLOC(MTYPE_BGP_IF_INFO, sizeof(struct bgp_interface));
 	iifp->cached_addresses = list_new();
+	iifp->cached_addresses->del = prefix_free_lists;
 	ifp->info = iifp;
 
 	return 0;

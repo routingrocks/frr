@@ -49,7 +49,7 @@ const char *bgp_unreach_reason_str(uint16_t code)
 
 	if (code <= 9)
 		return reason_names[code];
-	else if (code >= 64536)
+	else if (code >= 64512 && code <= 65534)
 		return "Private-Use";
 	else
 		return "Reserved";
