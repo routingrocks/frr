@@ -297,7 +297,9 @@ int bgp_nlri_parse_unreach(struct peer *peer, struct attr *attr, struct bgp_nlri
 	/* Start processing the NLRI */
 	pnt = packet->nlri;
 	lim = pnt + packet->length;
+	/* coverity[mixed_enum_type:SUPPRESS] */
 	afi = packet->afi;
+	/* coverity[mixed_enum_type:SUPPRESS] */
 	safi = packet->safi;
 	addpath_id = 0;
 
@@ -408,9 +410,15 @@ int bgp_nlri_parse_unreach(struct peer *peer, struct attr *attr, struct bgp_nlri
 		if (withdraw) {
 			bgp_withdraw(peer, &p, addpath_id, afi, safi, ZEBRA_ROUTE_BGP,
 				     BGP_ROUTE_NORMAL, NULL, NULL, 0, NULL);
-		} else {
+		} else if (attr) {
 			bgp_update(peer, &p, addpath_id, attr, afi, safi, ZEBRA_ROUTE_BGP,
 				   BGP_ROUTE_NORMAL, NULL, NULL, 0, 0, NULL);
+		} else {
+			/* attr is required for non-withdraw updates - skip this NLRI */
+			if (BGP_DEBUG(update, UPDATE_IN))
+				zlog_debug("%s: Missing attributes for unreachability update %pFX, skipping",
+					   peer->host, &p);
+			continue;
 		}
 
 		/* Free temporary TLV data */
@@ -773,6 +781,7 @@ void bgp_unreach_show(struct vty *vty, struct bgp *bgp, afi_t afi, struct prefix
 			json_object *json_adv_to = NULL;
 			struct peer *peer;
 			struct listnode *node, *nnode;
+			/* coverity[non_const_printf_format_string:SUPPRESS] */
 			for (ALL_LIST_ELEMENTS(bgp->peer, node, nnode, peer)) {
 				if (bgp_adj_out_lookup(peer, dest, 0)) {
 					if (!json_adv_to)
@@ -972,6 +981,7 @@ void bgp_unreach_show(struct vty *vty, struct bgp *bgp, afi_t afi, struct prefix
 				table->version, &bgp->router_id, bgp->vrf_id);
 			vty_out(vty, "Default local pref %u, local AS %u\n",
 				bgp->default_local_pref, bgp->as);
+			/* coverity[non_const_printf_format_string] - format strings are compile-time constants */
 			vty_out(vty, BGP_UNREACH_SHOW_SCODE_HEADER);
 			vty_out(vty, BGP_SHOW_OCODE_HEADER);
 			vty_out(vty, BGP_SHOW_RPKI_HEADER);
@@ -983,6 +993,7 @@ void bgp_unreach_show(struct vty *vty, struct bgp *bgp, afi_t afi, struct prefix
 			vty_out(vty, "Reporter: BGP router ID of the original reporter\n\n");
 
 			/* Column header - use macros to match standard BGP style */
+			/* coverity[non_const_printf_format_string] - format strings are compile-time constants */
 			if (afi == AFI_IP)
 				vty_out(vty, BGP_UNREACH_SHOW_HEADER);
 			else
@@ -1335,6 +1346,7 @@ void bgp_unreach_show(struct vty *vty, struct bgp *bgp, afi_t afi, struct prefix
 				json_object *json_adv_to = NULL;
 				struct peer *peer;
 				struct listnode *node, *nnode;
+				/* coverity[non_const_printf_format_string:SUPPRESS] */
 				for (ALL_LIST_ELEMENTS(bgp->peer, node, nnode, peer)) {
 					if (bgp_adj_out_lookup(peer, dest, 0)) {
 						if (!json_adv_to)

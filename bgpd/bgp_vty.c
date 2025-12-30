@@ -12953,6 +12953,7 @@ DEFPY(show_bgp_interface, show_bgp_interface_cmd,
 				if (detail && iifp && iifp->cached_addresses &&
 				    listcount(iifp->cached_addresses) > 0) {
 					json_object *json_cached = json_object_new_array();
+					/* coverity[non_const_printf_format_string:SUPPRESS] */
 					for (ALL_LIST_ELEMENTS_RO(iifp->cached_addresses, addr_node,
 								  cached_pfx)) {
 						prefix2str(cached_pfx, buf, sizeof(buf));
@@ -12991,6 +12992,7 @@ DEFPY(show_bgp_interface, show_bgp_interface_cmd,
 				    listcount(iifp->cached_addresses) > 0) {
 					vty_out(vty,
 						"    Cached addresses (for unreachability tracking):\n");
+					/* coverity[non_const_printf_format_string:SUPPRESS] */
 					for (ALL_LIST_ELEMENTS_RO(iifp->cached_addresses, addr_node,
 								  cached_pfx)) {
 						prefix2str(cached_pfx, buf, sizeof(buf));

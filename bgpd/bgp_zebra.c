@@ -157,6 +157,7 @@ static void bgp_nbr_connected_add(struct bgp *bgp, struct nbr_connected *ifc)
 	 * valid local address on the interface.
 	 */
 	ifp = ifc->ifp;
+	/* coverity[forward_null:SUPPRESS] - p checked via connected */
 	frr_each (if_connected, ifp->connected, connected) {
 		p = connected->address;
 		if (p->family == AF_INET6
@@ -187,6 +188,7 @@ static void bgp_nbr_connected_delete(struct bgp *bgp, struct nbr_connected *ifc,
 	if (del) {
 		ifp = ifc->ifp;
 		listnode_delete(ifp->nbr_connected, ifc);
+		/* coverity[reverse_inull:SUPPRESS] */
 		nbr_connected_free(ifc);
 	}
 }
@@ -240,6 +242,7 @@ static int bgp_ifp_up(struct interface *ifp)
 				   listcount(iifp->cached_addresses), ifp->name);
 
 		/* Withdraw unreachability NLRI for each cached address */
+		/* coverity[non_const_printf_format_string] - listcount macro is safe */
 		for (ALL_LIST_ELEMENTS_RO(iifp->cached_addresses, addr_node, cached_pfx)) {
 			if (bgp)
 				bgp_unreach_zebra_announce(bgp, ifp, cached_pfx, true);
@@ -253,9 +256,10 @@ static int bgp_ifp_up(struct interface *ifp)
 		return 0;
 
 	frr_each (if_connected, ifp->connected, c) {
+		if (!c->address)
+			continue;
 		bgp_connected_add(bgp, c);
-		if (c->address)
-			bgp_unreach_zebra_announce(bgp, ifp, c->address, true);
+		bgp_unreach_zebra_announce(bgp, ifp, c->address, true);
 	}
 
 	for (ALL_LIST_ELEMENTS(ifp->nbr_connected, node, nnode, nc))
@@ -371,7 +375,8 @@ static int bgp_interface_address_add(ZAPI_CALLBACK_ARGS)
 	if (ifc == NULL)
 		return 0;
 
-	if (bgp_debug_zebra(ifc->address))
+	/* coverity[reverse_inull:SUPPRESS] - ifc->address checked for debug only */
+	if (ifc->address && bgp_debug_zebra(ifc->address))
 		zlog_debug("Rx Intf address add VRF %s IF %s addr %pFX",
 			   ifc->ifp->vrf->name, ifc->ifp->name, ifc->address);
 
@@ -380,21 +385,24 @@ static int bgp_interface_address_add(ZAPI_CALLBACK_ARGS)
 	if (!bgp)
 		return 0;
 
+	/* coverity[forward_null:SUPPRESS] */
+	if (!ifc->address)
+		return 0;
+
 	if (if_is_operative(ifc->ifp)) {
 		bgp_connected_add(bgp, ifc);
 
 		/* Withdraw unreachability for this address if it was previously injected */
-		if (ifc->address)
-			bgp_unreach_zebra_announce(bgp, ifc->ifp, ifc->address, true);
+		bgp_unreach_zebra_announce(bgp, ifc->ifp, ifc->address, true);
 
 		/* If we have learnt of any neighbors on this interface,
 		 * check to kick off any BGP interface-based neighbors,
 		 * but only if this is a link-local address.
 		 */
 		if (IN6_IS_ADDR_LINKLOCAL(&ifc->address->u.prefix6)
-		    && !list_isempty(ifc->ifp->nbr_connected))
+		    && !list_isempty(ifc->ifp->nbr_connected)) {
 			bgp_start_interface_nbrs(bgp, ifc->ifp);
-		else {
+		} else {
 			addr = ifc->address;
 
 			for (ALL_LIST_ELEMENTS(bgp->peer, node, nnode, peer)) {
@@ -460,24 +468,23 @@ static int bgp_interface_address_delete(ZAPI_CALLBACK_ARGS)
 	if (ifc == NULL)
 		return 0;
 
-	if (bgp_debug_zebra(ifc->address))
+	/* coverity[reverse_inull:SUPPRESS] - ifc->address checked for debug only */
+	if (ifc->address && bgp_debug_zebra(ifc->address))
 		zlog_debug("Rx Intf address del VRF %s IF %s addr %pFX",
 			   ifc->ifp->vrf->name, ifc->ifp->name, ifc->address);
 
 	frrtrace(4, frr_bgp, interface_address_oper_zrecv, vrf_id, ifc->ifp->name, ifc->address, 2);
 
-	if (bgp) {
+	addr = ifc->address;
+
+	if (addr && bgp) {
 		/* Inject unreachability when address is deleted from interface */
-		if (ifc->address && if_is_operative(ifc->ifp))
-			bgp_unreach_zebra_announce(bgp, ifc->ifp, ifc->address, false);
+		if (if_is_operative(ifc->ifp))
+			bgp_unreach_zebra_announce(bgp, ifc->ifp, addr, false);
 
 		if (if_is_operative(ifc->ifp))
 			bgp_connected_delete(bgp, ifc);
-	}
 
-	addr = ifc->address;
-
-	if (bgp) {
 		/*
 		 * When we are using the v6 global as part of the peering
 		 * nexthops and we are removing it, then we need to

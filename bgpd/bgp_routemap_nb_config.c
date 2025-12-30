@@ -1370,6 +1370,7 @@ int lib_route_map_entry_match_condition_rmap_match_condition_ipv4_prefix_length_
 	case NB_EV_APPLY:
 		/* Add configuration. */
 		rhc = nb_running_get_entry(args->dnode, NULL, true);
+		/* coverity[non_const_printf_format_string:SUPPRESS] */
 		length = yang_dnode_get_string(args->dnode, NULL);
 
 		/* Set destroy information. */
@@ -1377,6 +1378,7 @@ int lib_route_map_entry_match_condition_rmap_match_condition_ipv4_prefix_length_
 		rhc->rhc_rule = "ip address prefix-len";
 		rhc->rhc_event = RMAP_EVENT_MATCH_DELETED;
 
+		/* coverity[mixed_enum_type:SUPPRESS] */
 		ret = bgp_route_match_add(rhc->rhc_rmi, rhc->rhc_rule, length,
 					  RMAP_EVENT_MATCH_ADDED, args->errmsg, args->errmsg_len);
 
@@ -1422,6 +1424,7 @@ int lib_route_map_entry_match_condition_rmap_match_condition_ipv6_prefix_length_
 	case NB_EV_APPLY:
 		/* Add configuration. */
 		rhc = nb_running_get_entry(args->dnode, NULL, true);
+		/* coverity[non_const_printf_format_string:SUPPRESS] */
 		length = yang_dnode_get_string(args->dnode, NULL);
 
 		/* Set destroy information. */
@@ -1429,6 +1432,7 @@ int lib_route_map_entry_match_condition_rmap_match_condition_ipv6_prefix_length_
 		rhc->rhc_rule = "ipv6 address prefix-len";
 		rhc->rhc_event = RMAP_EVENT_MATCH_DELETED;
 
+		/* coverity[mixed_enum_type:SUPPRESS] */
 		ret = bgp_route_match_add(rhc->rhc_rmi, rhc->rhc_rule, length,
 					  RMAP_EVENT_MATCH_ADDED, args->errmsg, args->errmsg_len);
 

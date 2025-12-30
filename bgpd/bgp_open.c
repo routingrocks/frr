@@ -320,6 +320,7 @@ static int bgp_capability_mp(struct peer *peer, struct capability_header *hdr)
 	bgp_capability_mp_data(s, &mpc);
 
 	if (bgp_debug_neighbor_events(peer))
+		/* coverity[mixed_enum_type:SUPPRESS] */
 		zlog_debug("%s OPEN has %s capability for afi/safi: %s/%s (AFI=%u, SAFI=%u)",
 			   peer->host, lookup_msg(capcode_str, hdr->code, NULL),
 			   iana_afi2str(mpc.afi), iana_safi2str(mpc.safi), mpc.afi, mpc.safi);

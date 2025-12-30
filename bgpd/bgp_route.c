@@ -3076,8 +3076,10 @@ bool subgroup_announce_check(struct bgp_dest *dest, struct bgp_path_info *pi,
 			struct interface *ifp = NULL;
 
 			if (p->family == AF_INET)
+				/* coverity[incompatible_param:SUPPRESS] */
 				ifp = if_lookup_by_ipv4_exact(&p->u.prefix4, bgp->vrf_id);
 			else if (p->family == AF_INET6)
+				/* coverity[incompatible_param:SUPPRESS] */
 				ifp = if_lookup_by_ipv6_exact(&p->u.prefix6, 0, bgp->vrf_id);
 
 			if (ifp && if_is_loopback(ifp))
@@ -9791,6 +9793,7 @@ bool bgp_aggregate_route(struct bgp *bgp, const struct prefix *p, afi_t afi,
 	/* Unimport suppressed routes from EVPN */
 	bgp_aggr_supp_withdraw_from_evpn(bgp, afi, safi);
 
+	/* coverity[resource_leak:SUPPRESS] - bgp_aggregate_install takes ownership */
 	bgp_aggregate_install(bgp, afi, safi, p, origin, aspath, community,
 			      ecommunity, lcommunity, atomic_aggregate,
 			      aggregate);
@@ -10008,6 +10011,7 @@ static void bgp_add_route_to_aggregate(struct bgp *bgp,
 			lcommunity = lcommunity_dup(aggregate->lcommunity);
 	}
 
+	/* coverity[resource_leak] - bgp_aggregate_install takes ownership of aspath/community/ecommunity/lcommunity */
 	bgp_aggregate_install(bgp, afi, safi, aggr_p, origin,
 			      aspath, community, ecommunity,
 			      lcommunity, atomic_aggregate, aggregate);
@@ -10119,6 +10123,7 @@ static void bgp_remove_route_from_aggregate(struct bgp *bgp, afi_t afi,
 			lcommunity = lcommunity_dup(aggregate->lcommunity);
 	}
 
+	/* coverity[resource_leak:SUPPRESS] - bgp_aggregate_install takes ownership */
 	bgp_aggregate_install(bgp, afi, safi, aggr_p, origin,
 			      aspath, community, ecommunity,
 			      lcommunity, atomic_aggregate, aggregate);
