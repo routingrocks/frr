@@ -35,6 +35,18 @@ typedef enum {
 	IANA_SAFI_LABELED_UNICAST = 4,
 	IANA_SAFI_ENCAP = 7,
 	IANA_SAFI_EVPN = 70,
+	/*
+	 * TEMPORARY: Using private SAFI 254 (RFC4760 Private Use range: 241-254)
+	 * until IANA officially assigns a value for Enhanced Unreachability Information.
+	 * Reference: https://datatracker.ietf.org/doc/draft-tantsura-idr-unreachability-safi/
+	 *
+	 * FUTURE MIGRATION STRATEGY (when IANA assigns official value X):
+	 * - Current release: Advertises only SAFI 254
+	 * - Future release: Advertises BOTH SAFI 254 AND SAFI X for backward compatibility
+	 * - New peers will prefer official SAFI X, fall back to 254 for old peers
+	 * - This ensures: old-old uses 254, old-new uses 254, new-new uses official X
+	 */
+	IANA_SAFI_UNREACH = 254,
 	IANA_SAFI_MPLS_VPN = 128,
 	IANA_SAFI_FLOWSPEC = 133
 } iana_safi_t;
@@ -92,6 +104,8 @@ static inline safi_t safi_iana2int(iana_safi_t safi)
 		return SAFI_EVPN;
 	case IANA_SAFI_LABELED_UNICAST:
 		return SAFI_LABELED_UNICAST;
+	case IANA_SAFI_UNREACH:
+		return SAFI_UNREACH;
 	case IANA_SAFI_FLOWSPEC:
 		return SAFI_FLOWSPEC;
 	case IANA_SAFI_RESERVED:
@@ -116,6 +130,8 @@ static inline iana_safi_t safi_int2iana(safi_t safi)
 		return IANA_SAFI_EVPN;
 	case SAFI_LABELED_UNICAST:
 		return IANA_SAFI_LABELED_UNICAST;
+	case SAFI_UNREACH:
+		return IANA_SAFI_UNREACH;
 	case SAFI_FLOWSPEC:
 		return IANA_SAFI_FLOWSPEC;
 	case SAFI_UNSPEC:

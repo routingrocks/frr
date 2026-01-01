@@ -3870,6 +3870,53 @@ static const struct route_map_rule_cmd
 	route_match_ipv6_next_hop_type_free
 };
 
+/* `match ip address prefix-len PREFIXLEN' */
+/* `match ipv6 address prefix-len PREFIXLEN' */
+
+static enum route_map_cmd_result_t
+route_match_address_prefix_len(void *rule, const struct prefix *prefix, void *object)
+{
+	uint32_t *prefixlen = (uint32_t *)rule;
+
+	return ((prefix->prefixlen == *prefixlen) ? RMAP_MATCH : RMAP_NOMATCH);
+}
+
+static void *route_match_address_prefix_len_compile(const char *arg)
+{
+	uint32_t *prefix_len;
+	char *endptr = NULL;
+	unsigned long tmpval;
+
+	/* prefix len value should be integer. */
+	if (!all_digit(arg))
+		return NULL;
+
+	errno = 0;
+	tmpval = strtoul(arg, &endptr, 10);
+	if (*endptr != '\0' || errno || tmpval > UINT32_MAX)
+		return NULL;
+
+	prefix_len = XMALLOC(MTYPE_ROUTE_MAP_COMPILED, sizeof(uint32_t));
+
+	*prefix_len = tmpval;
+	return prefix_len;
+}
+
+static void route_match_address_prefix_len_free(void *rule)
+{
+	XFREE(MTYPE_ROUTE_MAP_COMPILED, rule);
+}
+
+static const struct route_map_rule_cmd route_match_ip_address_prefix_len_cmd = {
+	"ip address prefix-len", route_match_address_prefix_len,
+	route_match_address_prefix_len_compile, route_match_address_prefix_len_free
+};
+
+static const struct route_map_rule_cmd route_match_ipv6_address_prefix_len_cmd = {
+	"ipv6 address prefix-len", route_match_address_prefix_len,
+	route_match_address_prefix_len_compile, route_match_address_prefix_len_free
+};
+
 /* `set ipv6 nexthop global IP_ADDRESS' */
 
 /* Set nexthop to object.  object must be pointer to struct attr. */
@@ -4422,6 +4469,11 @@ static void bgp_route_map_process_peer(const char *rmap_name,
 	    && (strcmp(rmap_name, peer->default_rmap[afi][safi].name) == 0))
 		peer->default_rmap[afi][safi].map = map;
 
+	/* Update allowas-in route-map cache */
+	if (peer->allowas_in_rmap[afi][safi].name &&
+	    (strcmp(rmap_name, peer->allowas_in_rmap[afi][safi].name) == 0))
+		peer->allowas_in_rmap[afi][safi].rmap = map;
+
 	/* Notify BGP conditional advertisement scanner percess */
 	peer->advmap_config_change[afi][safi] = true;
 }
@@ -4472,6 +4524,11 @@ static void bgp_route_map_update_peer_group(const char *rmap_name,
 			if (filter->advmap.cname &&
 			    (strcmp(rmap_name, filter->advmap.cname) == 0))
 				filter->advmap.cmap = map;
+
+			/* Update allowas-in route-map cache for peer-group */
+			if (group->conf->allowas_in_rmap[afi][safi].name &&
+			    (strcmp(rmap_name, group->conf->allowas_in_rmap[afi][safi].name) == 0))
+				group->conf->allowas_in_rmap[afi][safi].rmap = map;
 		}
 	}
 }
@@ -7276,6 +7333,64 @@ ALIAS_HIDDEN (match_ipv6_next_hop_address,
 	      "Match IPv6 next-hop address of route\n"
 	      "IPv6 address of next hop\n")
 
+DEFPY_YANG(match_ip_address_prefix_len, match_ip_address_prefix_len_cmd,
+	   "match ip address prefix-len (0-32)$prefixlen",
+	   MATCH_STR IP_STR "Match address of route\n"
+			    "Match prefix length of IP address\n"
+			    "Prefix length\n")
+{
+	const char *xpath = "./match-condition[condition='frr-bgp-route-map:ipv4-prefix-length']";
+	char xpath_value[XPATH_MAXLEN];
+
+	nb_cli_enqueue_change(vty, xpath, NB_OP_CREATE, NULL);
+	snprintf(xpath_value, sizeof(xpath_value),
+		 "%s/rmap-match-condition/frr-bgp-route-map:ipv4-prefix-length", xpath);
+	nb_cli_enqueue_change(vty, xpath_value, NB_OP_MODIFY, prefixlen_str);
+
+	return nb_cli_apply_changes(vty, NULL);
+}
+
+DEFPY_YANG(no_match_ip_address_prefix_len, no_match_ip_address_prefix_len_cmd,
+	   "no match ip address prefix-len [(0-32)$prefixlen]",
+	   NO_STR MATCH_STR IP_STR "Match address of route\n"
+				   "Match prefix length of IP address\n"
+				   "Prefix length\n")
+{
+	const char *xpath = "./match-condition[condition='frr-bgp-route-map:ipv4-prefix-length']";
+
+	nb_cli_enqueue_change(vty, xpath, NB_OP_DESTROY, NULL);
+	return nb_cli_apply_changes(vty, NULL);
+}
+
+DEFPY_YANG(match_ipv6_address_prefix_len, match_ipv6_address_prefix_len_cmd,
+	   "match ipv6 address prefix-len (0-128)$prefixlen",
+	   MATCH_STR IPV6_STR "Match address of route\n"
+			      "Match prefix length of IPv6 address\n"
+			      "Prefix length\n")
+{
+	const char *xpath = "./match-condition[condition='frr-bgp-route-map:ipv6-prefix-length']";
+	char xpath_value[XPATH_MAXLEN];
+
+	nb_cli_enqueue_change(vty, xpath, NB_OP_CREATE, NULL);
+	snprintf(xpath_value, sizeof(xpath_value),
+		 "%s/rmap-match-condition/frr-bgp-route-map:ipv6-prefix-length", xpath);
+	nb_cli_enqueue_change(vty, xpath_value, NB_OP_MODIFY, prefixlen_str);
+
+	return nb_cli_apply_changes(vty, NULL);
+}
+
+DEFPY_YANG(no_match_ipv6_address_prefix_len, no_match_ipv6_address_prefix_len_cmd,
+	   "no match ipv6 address prefix-len [(0-128)$prefixlen]",
+	   NO_STR MATCH_STR IPV6_STR "Match address of route\n"
+				     "Match prefix length of IPv6 address\n"
+				     "Prefix length\n")
+{
+	const char *xpath = "./match-condition[condition='frr-bgp-route-map:ipv6-prefix-length']";
+
+	nb_cli_enqueue_change(vty, xpath, NB_OP_DESTROY, NULL);
+	return nb_cli_apply_changes(vty, NULL);
+}
+
 ALIAS_HIDDEN (no_match_ipv6_next_hop_address,
 	      no_match_ipv6_next_hop_old_cmd,
 	      "no match ipv6 next-hop X:X::X:X",
@@ -7951,6 +8066,8 @@ void bgp_route_map_init(void)
 	route_map_install_match(&route_match_ipv4_next_hop_cmd);
 	route_map_install_match(&route_match_ipv6_address_prefix_list_cmd);
 	route_map_install_match(&route_match_ipv6_next_hop_type_cmd);
+	route_map_install_match(&route_match_ip_address_prefix_len_cmd);
+	route_map_install_match(&route_match_ipv6_address_prefix_len_cmd);
 	route_map_install_set(&route_set_ipv6_nexthop_global_cmd);
 	route_map_install_set(&route_set_ipv6_nexthop_prefer_global_cmd);
 	route_map_install_set(&route_set_ipv6_nexthop_local_cmd);
@@ -7962,6 +8079,10 @@ void bgp_route_map_init(void)
 	install_element(RMAP_NODE, &match_ipv6_next_hop_old_cmd);
 	install_element(RMAP_NODE, &no_match_ipv6_next_hop_old_cmd);
 	install_element(RMAP_NODE, &match_ipv4_next_hop_cmd);
+	install_element(RMAP_NODE, &match_ip_address_prefix_len_cmd);
+	install_element(RMAP_NODE, &no_match_ip_address_prefix_len_cmd);
+	install_element(RMAP_NODE, &match_ipv6_address_prefix_len_cmd);
+	install_element(RMAP_NODE, &no_match_ipv6_address_prefix_len_cmd);
 	install_element(RMAP_NODE, &no_match_ipv4_next_hop_cmd);
 	install_element(RMAP_NODE, &set_ipv6_nexthop_global_cmd);
 	install_element(RMAP_NODE, &no_set_ipv6_nexthop_global_cmd);

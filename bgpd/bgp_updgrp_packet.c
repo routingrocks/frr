@@ -823,10 +823,9 @@ struct bpacket *subgroup_update_packet(struct update_subgroup *subgrp)
 					snlri, peer, afi, safi, &vecarr,
 					adv->baa->attr);
 
-			bgp_packet_mpattr_prefix(snlri, afi, safi, dest_p, prd,
-						 label_pnt, num_labels,
-						 addpath_capable, addpath_tx_id,
-						 adv->baa->attr);
+			bgp_packet_mpattr_prefix(snlri, afi, safi, dest_p, prd, label_pnt,
+						 num_labels, addpath_capable, addpath_tx_id,
+						 adv->baa->attr, path);
 		}
 
 		num_pfx++;

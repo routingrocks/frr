@@ -2077,6 +2077,9 @@ void bgp_per_src_nhg_handle_soo_addr_update(struct bgp *bgp, const struct in_add
 		ecommunity_str(bgp->per_source_nhg_soo);
 
 		FOREACH_AFI_SAFI (afi, safi) {
+			/* Skip SAFI_UNREACH - don't create static routes for unreachability */
+			if (safi == SAFI_UNREACH)
+				continue;
 			if (CHECK_FLAG(bgp->per_src_nhg_flags[afi][safi],
 				       BGP_FLAG_ADVERTISE_ORIGIN)) {
 				bgp_static_set(NULL, bgp, true,
@@ -2102,6 +2105,9 @@ void bgp_per_src_nhg_handle_soo_addr_update(struct bgp *bgp, const struct in_add
 		}
 
 		FOREACH_AFI_SAFI (afi, safi) {
+			/* Skip SAFI_UNREACH - don't create static routes for unreachability */
+			if (safi == SAFI_UNREACH)
+				continue;
 			if (CHECK_FLAG(bgp->per_src_nhg_flags[afi][safi],
 				       BGP_FLAG_ADVERTISE_ORIGIN)) {
 				bgp_static_set(NULL, bgp, true,
