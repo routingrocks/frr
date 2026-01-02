@@ -4506,7 +4506,10 @@ dplane_route_update_internal(struct route_node *rn,
 		old_flags = dplane_ctx_get_old_flags(ctx);
 		if ((dplane_ctx_get_type(ctx) == dplane_ctx_get_old_type(ctx)) &&
 		    (((dplane_ctx_get_nhe_id(ctx) == dplane_ctx_get_old_nhe_id(ctx)) &&
-		      (dplane_ctx_get_nhe_id(ctx) >= ZEBRA_NHG_PROTO_LOWER)) ||
+		      (dplane_ctx_get_nhe_id(ctx) >= ZEBRA_NHG_PROTO_LOWER) &&
+		      (old_re && (!CHECK_FLAG(old_re->status, ROUTE_ENTRY_REMOVED) &&
+				  CHECK_FLAG(old_re->status, ROUTE_ENTRY_INSTALLED) &&
+				  !CHECK_FLAG(old_re->status, ROUTE_ENTRY_FAILED)))) ||
 		     (dplane_ctx_get_op(ctx) == DPLANE_OP_ROUTE_UPDATE &&
 		      !RSYSTEM_ROUTE(dplane_ctx_get_type(ctx)) &&
 		      (CHECK_FLAG(flags, ZEBRA_FLAG_OFFLOADED) ||
