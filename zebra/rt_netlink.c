@@ -4390,13 +4390,17 @@ static ssize_t kernel_br_port_update_ctx(struct zebra_dplane_ctx *ctx, void *buf
 	uint32_t flags;
 	uint8_t block_bum;
 	int cmd = RTM_SETLINK;
-	const struct ipaddr *sph_filters;
-	uint32_t sph_filter_cnt;
-	uint32_t kern_sph_filters[BR_SPH_LIST_SIZE];
+	const struct in_addr *sph_filters;
+	const struct in6_addr *sph_filters6;
+	uint32_t sph_filter_cnt4;
+	uint32_t sph_filter_cnt6;
+	uint32_t kern_sph_filters[BR_SPH_LIST_SIZE] = {};
+	struct in6_addr kern_sph_filters6[BR_SPH_LIST_SIZE] = {};
 	uint32_t max_filters;
 	uint32_t index;
 	struct rtattr *nest;
 	char vtep_str[ES_VTEP_LIST_STR_SZ];
+	char vtep_str6[ES_VTEP_LIST_STR_SZ];
 
 	if (IS_ZEBRA_DEBUG_DPLANE_DETAIL)
 		zlog_debug("Dplane br-port update %s, idx %u", dplane_ctx_get_ifname(ctx),
@@ -4405,7 +4409,9 @@ static ssize_t kernel_br_port_update_ctx(struct zebra_dplane_ctx *ctx, void *buf
 	nhg_id = dplane_ctx_get_br_port_backup_nhg_id(ctx);
 	flags = dplane_ctx_get_br_port_flags(ctx);
 	sph_filters = dplane_ctx_get_br_port_sph_filters(ctx);
-	sph_filter_cnt = dplane_ctx_get_br_port_sph_filter_cnt(ctx);
+	sph_filter_cnt4 = dplane_ctx_get_br_port_sph_filter_cnt(ctx);
+	sph_filter_cnt6 = dplane_ctx_get_br_port_sph_filter_cnt6(ctx);
+	sph_filters6 = dplane_ctx_get_br_port_sph_filters6(ctx);
 
 	memset(req, 0, sizeof(*req));
 
@@ -4430,27 +4436,41 @@ static ssize_t kernel_br_port_update_ctx(struct zebra_dplane_ctx *ctx, void *buf
 		return 0;
 
 	/* SPH filter */
-	memset(kern_sph_filters, 0, sizeof(kern_sph_filters));
-	max_filters = (sph_filter_cnt < BR_SPH_LIST_SIZE) ? sph_filter_cnt : BR_SPH_LIST_SIZE;
+	/* IPv4 VTEP addresses */
+	max_filters = (sph_filter_cnt4 < BR_SPH_LIST_SIZE) ? sph_filter_cnt4 : BR_SPH_LIST_SIZE;
 	for (index = 0; index < max_filters; ++index)
-		kern_sph_filters[index] = sph_filters[index].ipaddr_v4.s_addr;
+		kern_sph_filters[index] = sph_filters[index].s_addr;
 
 	if (!nl_attr_put(&req->n, buflen, IFLA_BRPORT_DUMMY_SPH_FILTER, &kern_sph_filters,
 			 sizeof(kern_sph_filters)))
+		return 0;
+
+	/* IPv6 VTEP addresses */
+	max_filters = (sph_filter_cnt6 < BR_SPH_LIST_SIZE) ? sph_filter_cnt6 : BR_SPH_LIST_SIZE;
+	for (index = 0; index < max_filters; ++index)
+		IPV6_ADDR_COPY(&kern_sph_filters6[index], &sph_filters6[index]);
+
+	if (!nl_attr_put(&req->n, buflen, IFLA_BRPORT_DUMMY_SPH_FILTER6, &kern_sph_filters6,
+			 sizeof(kern_sph_filters6)))
 		return 0;
 
 	nl_attr_nest_end(&req->n, nest);
 
 	if (IS_ZEBRA_DEBUG_KERNEL) {
 		vtep_str[0] = '\0';
-		for (index = 0; index < sph_filter_cnt; ++index) {
-			sprintf(vtep_str + strlen(vtep_str), "%s ",
-				inet_ntoa(sph_filters[index].ipaddr_v4));
+		vtep_str6[0] = '\0';
+		for (index = 0; index < sph_filter_cnt4; ++index) {
+			sprintf(vtep_str + strlen(vtep_str), "%s ", inet_ntoa(sph_filters[index]));
 		}
-		zlog_debug("Tx %s family %s IF %s(%d)%s backup_nhg 0x%x(%d) sph %s",
+		for (index = 0; index < sph_filter_cnt6; ++index) {
+			snprintfrr(vtep_str6 + strlen(vtep_str6),
+				     sizeof(vtep_str6) - strlen(vtep_str6), "%pI6 ", &sph_filters6[index]);
+		}
+
+		zlog_debug("Tx %s family %s IF %s(%d)%s backup_nhg 0x%x(%d) sph %s sph6 %s",
 			   nl_msg_type_to_str(cmd), nl_family_to_str(req->ifm.ifi_family),
 			   dplane_ctx_get_ifname(ctx), dplane_ctx_get_ifindex(ctx),
-			   block_bum ? "block_bum " : "", nhg_id, nhg_id, vtep_str);
+			   block_bum ? "block_bum " : "", nhg_id, nhg_id, vtep_str, vtep_str6);
 	}
 
 	return NLMSG_ALIGN(req->n.nlmsg_len);

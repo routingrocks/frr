@@ -777,8 +777,7 @@ struct bgp_dest *bgp_evpn_vni_ip_node_get(struct bgp_table *const table,
 		/* prefix in the global table doesn't include the VTEP-IP so
 		 * we need to create a different copy for the VNI
 		 */
-		evpn_type1_prefix_vni_ip_copy(&vni_p, evp,
-					      parent_pi->attr->nexthop);
+		evpn_type1_prefix_vni_ip_copy(&vni_p, evp, parent_pi->attr);
 		evp = &vni_p;
 	} else if (evp->prefix.route_type == BGP_EVPN_MAC_IP_ROUTE) {
 		/* Only MAC-IP should go into this table, not mac-only */
@@ -808,8 +807,7 @@ bgp_evpn_vni_ip_node_lookup(const struct bgp_table *const table,
 		/* prefix in the global table doesn't include the VTEP-IP so
 		 * we need to create a different copy for the VNI
 		 */
-		evpn_type1_prefix_vni_ip_copy(&vni_p, evp,
-					      parent_pi->attr->nexthop);
+		evpn_type1_prefix_vni_ip_copy(&vni_p, evp, parent_pi->attr);
 		evp = &vni_p;
 	} else if (evp->prefix.route_type == BGP_EVPN_MAC_IP_ROUTE) {
 		/* Only MAC-IP should go into this table, not mac-only */
@@ -1357,7 +1355,7 @@ enum zclient_send_status evpn_zebra_install(struct bgp *bgp, struct bgpevpn *vpn
 						  &vtep_ip, 1, flags, seq,
 						  bgp_evpn_attr_get_esi(pi->attr));
 	} else if (p->prefix.route_type == BGP_EVPN_AD_ROUTE) {
-		ret = bgp_evpn_remote_es_evi_add(bgp, vpn, p);
+		ret = bgp_evpn_remote_es_evi_add(bgp, vpn, p, pi);
 	} else {
 		switch (bgp_attr_get_pmsi_tnl_type(pi->attr)) {
 		case PMSI_TNLTYPE_INGR_REPL:
@@ -1418,7 +1416,7 @@ enum zclient_send_status evpn_zebra_uninstall(struct bgp *bgp,
 						  (is_sync ? &zero_vtep_ip : &vtep_ip), 0, 0, 0,
 						  NULL);
 	else if (p->prefix.route_type == BGP_EVPN_AD_ROUTE)
-		ret = bgp_evpn_remote_es_evi_del(bgp, vpn, p);
+		ret = bgp_evpn_remote_es_evi_del(bgp, vpn, p, pi);
 	else
 		ret = bgp_zebra_send_remote_vtep(bgp, vpn, p,
 						 VXLAN_FLOOD_DISABLED, 0);
@@ -2248,14 +2246,8 @@ static int update_evpn_route(struct bgp *bgp, struct bgpevpn *vpn,
 
 	/* Build path-attribute for this route. */
 	bgp_attr_default_set(&attr, bgp, BGP_ORIGIN_IGP);
-	if (IS_IPADDR_V4(&vpn->originator_ip)) {
-		attr.nexthop = vpn->originator_ip.ipaddr_v4;
-		attr.mp_nexthop_global_in = vpn->originator_ip.ipaddr_v4;
-		attr.mp_nexthop_len = BGP_ATTR_NHLEN_IPV4;
-	} else {
-		IPV6_ADDR_COPY(&attr.mp_nexthop_global, &vpn->originator_ip.ipaddr_v6);
-		attr.mp_nexthop_len = BGP_ATTR_NHLEN_IPV6_GLOBAL;
-	}
+	bgp_evpn_vtep_ip_to_attr_nh(&vpn->originator_ip, &attr);
+
 	attr.sticky = CHECK_FLAG(flags, ZEBRA_MACIP_TYPE_STICKY) ? 1 : 0;
 	attr.default_gw = CHECK_FLAG(flags, ZEBRA_MACIP_TYPE_GW) ? 1 : 0;
 	attr.router_flag = CHECK_FLAG(flags,
@@ -2559,14 +2551,8 @@ void bgp_evpn_update_type2_route_entry(struct bgp *bgp, struct bgpevpn *vpn,
 	 * attributes will be shared in the hash table.
 	 */
 	bgp_attr_default_set(&attr, bgp, BGP_ORIGIN_IGP);
-	if (IS_IPADDR_V4(&vpn->originator_ip)) {
-		attr.nexthop = vpn->originator_ip.ipaddr_v4;
-		attr.mp_nexthop_global_in = vpn->originator_ip.ipaddr_v4;
-		attr.mp_nexthop_len = BGP_ATTR_NHLEN_IPV4;
-	} else {
-		IPV6_ADDR_COPY(&attr.mp_nexthop_global, &vpn->originator_ip.ipaddr_v6);
-		attr.mp_nexthop_len = BGP_ATTR_NHLEN_IPV6_GLOBAL;
-	}
+	bgp_evpn_vtep_ip_to_attr_nh(&vpn->originator_ip, &attr);
+
 	attr.sticky = (local_pi->attr->sticky) ? 1 : 0;
 	attr.router_flag = (local_pi->attr->router_flag) ? 1 : 0;
 	attr.es_flags = local_pi->attr->es_flags;
@@ -3315,8 +3301,31 @@ static int install_evpn_route_entry_in_vni_common(
 			bgp_path_info_restore(dest, pi);
 
 		/* Mark if nexthop has changed. */
-		if (!IPV4_ADDR_SAME(&pi->attr->nexthop, &attr_new->nexthop))
+		if (pi->attr->mp_nexthop_len != attr_new->mp_nexthop_len) {
+			/* Nexthop address family changed */
 			SET_FLAG(pi->flags, BGP_PATH_IGP_CHANGED);
+		} else if (BGP_ATTR_MP_NEXTHOP_LEN_IP6(pi->attr)) {
+			/* IPv6 nexthop */
+			if (!IPV6_ADDR_SAME(&pi->attr->mp_nexthop_global,
+					    &attr_new->mp_nexthop_global))
+				SET_FLAG(pi->flags, BGP_PATH_IGP_CHANGED);
+			/* Also check link-local nexthop if present */
+			else if ((pi->attr->mp_nexthop_len == BGP_ATTR_NHLEN_IPV6_GLOBAL_AND_LL ||
+				  pi->attr->mp_nexthop_len == BGP_ATTR_NHLEN_VPNV6_GLOBAL_AND_LL) &&
+				 !IPV6_ADDR_SAME(&pi->attr->mp_nexthop_local,
+						 &attr_new->mp_nexthop_local))
+				SET_FLAG(pi->flags, BGP_PATH_IGP_CHANGED);
+		} else if (pi->attr->mp_nexthop_len == BGP_ATTR_NHLEN_IPV4 ||
+			   pi->attr->mp_nexthop_len == BGP_ATTR_NHLEN_VPNV4) {
+			/* IPv4 nexthop in mp_nexthop_global_in */
+			if (!IPV4_ADDR_SAME(&pi->attr->mp_nexthop_global_in,
+					    &attr_new->mp_nexthop_global_in))
+				SET_FLAG(pi->flags, BGP_PATH_IGP_CHANGED);
+		} else {
+			/* IPv4 nexthop in nexthop field */
+			if (!IPV4_ADDR_SAME(&pi->attr->nexthop, &attr_new->nexthop))
+				SET_FLAG(pi->flags, BGP_PATH_IGP_CHANGED);
+		}
 
 		old_local_es = bgp_evpn_attr_is_local_es(pi->attr);
 		new_local_es = bgp_evpn_attr_is_local_es(attr_new);
@@ -4358,10 +4367,9 @@ static int bgp_evpn_install_uninstall_table(struct bgp *bgp, afi_t afi,
 	/* EAD prefix in the global table doesn't include the VTEP-IP so
 	 * we need to create a different copy for the VNI
 	 */
-	if (evp->prefix.route_type == BGP_EVPN_AD_ROUTE)
-		evp = evpn_type1_prefix_vni_ip_copy(&ad_evp, evp,
-						    attr->nexthop);
-
+	if (evp->prefix.route_type == BGP_EVPN_AD_ROUTE) {
+		evp = evpn_type1_prefix_vni_ip_copy(&ad_evp, evp, attr);
+	}
 	ecom = bgp_attr_get_ecommunity(attr);
 	if (!ecom || !ecom->size)
 		return -1;
@@ -6275,19 +6283,41 @@ void bgp_evpn_encode_prefix(struct stream *s, const struct prefix *p,
 		stream_putl(s, evp->prefix.imet_addr.eth_tag); /* Ethernet Tag ID */
 
 		stream_putc(s, orig_ip_bits); /* Originator IP address Length - bits */
-		if (orig_ip_bits)
+		if (orig_ip_bits) {
 			stream_put(s, &evp->prefix.imet_addr.ip.ip, orig_ip_bits / 8);
-
+		} else {
+			if (BGP_DEBUG(zebra, ZEBRA))
+				zlog_debug("%s %pFX has incorrect nexthop field", __func__, evp);
+		}
 		break;
 
-	case BGP_EVPN_ES_ROUTE:
-		stream_putc(s, 23); /* TODO: length: assumes ipv4 VTEP */
+	case BGP_EVPN_ES_ROUTE: {
+		uint8_t ip_bits = 0;
+		/* RFC-7432 ES NLRI 19 = RD (8) + ESI (10) + IP length (1) */
+		uint8_t total_bytes = 19; /* Fixed independent of IP family */
+
+		if (IS_IPADDR_V4(&evp->prefix.es_addr.ip)) {
+			ip_bits = IPV4_MAX_BITLEN;
+			total_bytes += IPV4_MAX_BYTELEN; /* V4 Originator IP */
+		} else if (IS_IPADDR_V6(&evp->prefix.es_addr.ip)) {
+			ip_bits = IPV6_MAX_BITLEN;
+			total_bytes += IPV6_MAX_BYTELEN; /* V6 Originator IP */
+		}
+
+		stream_putc(s, total_bytes);
 		stream_put(s, prd->val, 8); /* RD */
 		stream_put(s, evp->prefix.es_addr.esi.val, 10); /* ESI */
-		stream_putc(s, IPV4_MAX_BITLEN); /* IP address Length - bits */
+		stream_putc(s, ip_bits); /* Originator IP address Length - bits */
 		/* VTEP IP */
-		stream_put_in_addr(s, &evp->prefix.es_addr.ip.ipaddr_v4);
+		if (ip_bits) {
+			stream_put(s, &evp->prefix.es_addr.ip.ip, ip_bits / 8);
+		} else {
+			if (BGP_DEBUG(zebra, ZEBRA))
+				zlog_debug("%s %pFX has incorrect nexthop field", __func__, evp);
+		}
+
 		break;
+	}
 
 	case BGP_EVPN_AD_ROUTE:
 		/* RD, ESI, EthTag, 1 VNI */

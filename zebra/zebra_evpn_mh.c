@@ -1723,7 +1723,8 @@ static void zebra_evpn_mh_vtep_uplink_sph_ingress_tc_setup(struct zebra_evpn_mh_
 {
 	char cmd[TC_CMD_STR_LEN];
 	uint32_t handle;
-	char buf1[INET_ADDRSTRLEN];
+	char buf1[INET6_ADDRSTRLEN];
+	char proto[5] = { 0 };
 
 	if (add) {
 		/* If this is the first attempt to add a TC filter on an uplink
@@ -1744,9 +1745,15 @@ static void zebra_evpn_mh_vtep_uplink_sph_ingress_tc_setup(struct zebra_evpn_mh_
 
 		handle = EVPN_MH_SKB_MARK_BASE + mh_vtep->sph_offset;
 		ipaddr2str(&mh_vtep->vtep_ip, buf1, sizeof(buf1));
+		/* tc rule uses ip vs ipv6 protocol type for v4 vs. v6 VTEP address */
+		if (IS_IPADDR_V4(&mh_vtep->vtep_ip))
+			strncpy(proto, "ip", sizeof(proto));
+		else
+			strncpy(proto, "ipv6", sizeof(proto));
+
 		snprintf(cmd, sizeof(cmd),
-			 "%s%s filter replace dev %s ingress prot ip pref %u flower ip_proto udp src_ip %s dst_port 4789 skip_hw action skbedit mark %u",
-			 TC_SUDO_STR, TC_BIN_STR, zif->ifp->name, handle, buf1, handle);
+			 "%s%s filter replace dev %s ingress prot %s pref %u flower ip_proto udp src_ip %s dst_port 4789 skip_hw action skbedit mark %u",
+			 TC_SUDO_STR, TC_BIN_STR, zif->ifp->name, proto, handle, buf1, handle);
 		zebra_evpn_mh_tc_program(cmd);
 	} else {
 		handle = EVPN_MH_SKB_MARK_BASE + mh_vtep->sph_offset;
@@ -1897,7 +1904,7 @@ static void zebra_evpn_es_vtep_sph_egress_tc_setup(struct zebra_evpn_es_vtep *es
 			return;
 		es_vtep->flags |= ZEBRA_EVPNES_VTEP_SPH_SET;
 		if (IS_ZEBRA_DEBUG_EVPN_MH_ES)
-			zlog_debug("es %s vtep %pI4 egress sph add intf %s oper %u",
+			zlog_debug("es %s vtep %pIA egress sph add intf %s oper %u",
 				   es_vtep->es->esi_str, &es_vtep->vtep_ip, zif->ifp->name,
 				   if_is_operative(zif->ifp));
 
@@ -1927,7 +1934,7 @@ static void zebra_evpn_es_vtep_sph_egress_tc_setup(struct zebra_evpn_es_vtep *es
 			return;
 		es_vtep->flags &= ~ZEBRA_EVPNES_VTEP_SPH_SET;
 		if (IS_ZEBRA_DEBUG_EVPN_MH_ES)
-			zlog_debug("es %s vtep %pI4 egress sph del", es_vtep->es->esi_str,
+			zlog_debug("es %s vtep %pIA egress sph del", es_vtep->es->esi_str,
 				   &es_vtep->vtep_ip);
 
 		handle = EVPN_MH_SKB_MARK_BASE + mh_vtep->sph_offset;
@@ -1974,7 +1981,7 @@ static void zebra_evpn_es_vtep_local_clear(struct zebra_evpn_es_vtep *es_vtep)
 		return;
 
 	if (IS_ZEBRA_DEBUG_EVPN_MH_ES)
-		zlog_debug("es %s vtep %pI4 local clear", es_vtep->es->esi_str, &es_vtep->vtep_ip);
+		zlog_debug("es %s vtep %pIA local clear", es_vtep->es->esi_str, &es_vtep->vtep_ip);
 
 	es_vtep->flags &= ~ZEBRA_EVPNES_VTEP_LOCAL;
 	mh_vtep = es_vtep->mh_vtep;
@@ -2046,7 +2053,8 @@ static struct zebra_evpn_es_vtep *zebra_evpn_es_vtep_find(struct zebra_evpn_es *
 /* flush all the dataplane br-port info associated with the ES */
 static bool zebra_evpn_es_br_port_dplane_clear(struct zebra_evpn_es *es)
 {
-	struct ipaddr sph_filters[ES_VTEP_MAX_CNT];
+	struct in_addr sph_filters[ES_VTEP_MAX_CNT];
+	struct in6_addr sph_filters6[ES_VTEP_MAX_CNT];
 
 	if (!(es->flags & ZEBRA_EVPNES_BR_PORT))
 		return false;
@@ -2055,8 +2063,9 @@ static bool zebra_evpn_es_br_port_dplane_clear(struct zebra_evpn_es *es)
 		zlog_debug("es %s br-port dplane clear", es->esi_str);
 
 	memset(&sph_filters, 0, sizeof(sph_filters));
-	dplane_br_port_update(es->zif->ifp, false /* non_df */, 0, sph_filters,
-			      0 /* backup_nhg_id */);
+	memset(&sph_filters6, 0, sizeof(sph_filters6));
+	dplane_br_port_update(es->zif->ifp, false /* non_df */, 0, sph_filters, 0,
+			      sph_filters6 /* v6 vtep */, 0 /* backup_nhg_id */);
 	return true;
 }
 
@@ -2073,10 +2082,12 @@ static bool zebra_evpn_es_br_port_dplane_update(struct zebra_evpn_es *es,
 						const char *caller)
 {
 	uint32_t backup_nhg_id;
-	struct ipaddr sph_filters[ES_VTEP_MAX_CNT];
+	struct in_addr sph_filters[ES_VTEP_MAX_CNT];
+	struct in6_addr sph_filters6[ES_VTEP_MAX_CNT];
 	struct listnode *node = NULL;
 	struct zebra_evpn_es_vtep *es_vtep;
-	uint32_t sph_filter_cnt = 0;
+	uint32_t sph_filter_cnt4 = 0;
+	uint32_t sph_filter_cnt6 = 0;
 
 	if (!(es->flags & ZEBRA_EVPNES_LOCAL))
 		return zebra_evpn_es_br_port_dplane_clear(es);
@@ -2100,6 +2111,7 @@ static bool zebra_evpn_es_br_port_dplane_update(struct zebra_evpn_es *es,
 				es->esi_str);
 	} else {
 		if (listcount(es->es_vtep_list) > ES_VTEP_MAX_CNT) {
+			/* TODO convert it to flog */
 			zlog_warn("es %s vtep count %d exceeds filter cnt %d",
 				  es->esi_str, listcount(es->es_vtep_list),
 				  ES_VTEP_MAX_CNT);
@@ -2109,14 +2121,21 @@ static bool zebra_evpn_es_br_port_dplane_update(struct zebra_evpn_es *es,
 				if (es_vtep->flags
 				    & ZEBRA_EVPNES_VTEP_DEL_IN_PROG)
 					continue;
-				sph_filters[sph_filter_cnt] = es_vtep->vtep_ip;
-				++sph_filter_cnt;
+				if (IS_IPADDR_V4(&es_vtep->vtep_ip)) {
+					IPV4_ADDR_COPY(&sph_filters[sph_filter_cnt4],
+						       &es_vtep->vtep_ip.ipaddr_v4);
+					++sph_filter_cnt4;
+				} else if (IS_IPADDR_V6(&es_vtep->vtep_ip)) {
+					IPV6_ADDR_COPY(&sph_filters6[sph_filter_cnt6],
+						       &es_vtep->vtep_ip.ipaddr_v6);
+					++sph_filter_cnt6;
+				}
 			}
 		}
 	}
 
-	dplane_br_port_update(es->zif->ifp, !!(es->flags & ZEBRA_EVPNES_NON_DF),
-			      sph_filter_cnt, sph_filters, backup_nhg_id);
+	dplane_br_port_update(es->zif->ifp, !!(es->flags & ZEBRA_EVPNES_NON_DF), sph_filter_cnt4,
+			      sph_filters, sph_filter_cnt6, sph_filters6, backup_nhg_id);
 
 	return true;
 }
@@ -2387,8 +2406,7 @@ static int zebra_evpn_es_send_add_to_client(struct zebra_evpn_es *es)
 
 	zclient_create_header(s, ZEBRA_LOCAL_ES_ADD, zebra_vrf_get_evpn_id());
 	stream_put(s, &es->esi, sizeof(esi_t));
-	/* TODO_V6_VTEP FIXME v6 support */
-	stream_put_ipv4(s, zmh_info->es_originator_ip.ipaddr_v4.s_addr);
+	stream_put_ipaddr(s, &zmh_info->es_originator_ip);
 	oper_up = !!(es->flags & ZEBRA_EVPNES_OPER_UP);
 	stream_putc(s, oper_up);
 	stream_putw(s, es->df_pref);
@@ -3077,9 +3095,7 @@ void zebra_evpn_proc_remote_es(ZAPI_HANDLER_ARGS)
 	s = msg;
 
 	STREAM_GET(&esi, s, sizeof(esi_t));
-       /* Temporary until BGP supports IPv6 VTEP */
-       SET_IPADDR_V4(&vtep_ip);
-       STREAM_GET(&vtep_ip.ipaddr_v4.s_addr, s, sizeof(vtep_ip.ipaddr_v4.s_addr));
+	STREAM_GET_IPADDR(s, &vtep_ip);
 
 	frrtrace(3, frr_zebra, zebra_evpn_proc_remote_es, &vtep_ip, &esi, hdr->command);
 	if (hdr->command == ZEBRA_REMOTE_ES_VTEP_ADD) {
