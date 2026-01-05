@@ -1277,7 +1277,8 @@ def parse_frr_bgp_per_src_nhg_soo_timer_slot_run(event):
                      "soo_nhg_flags": print_soo_nhg_flags,
                      "soo_rt_flags": print_soo_rt_flags,
                      "loc": lambda x: {
-                         1: "soo selected is subset of all route with soo, converged"
+                         1: "soo selected is subset of all route with soo, converged",
+                         2: "soo max timer exceeded. Moving routes to zebra nhid"
                      }.get(x, f"Unknown per src NHG SOO timer slot run location {x}")}
     parse_event(event, field_parsers)
 

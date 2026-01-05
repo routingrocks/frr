@@ -112,6 +112,7 @@ static void bgp_start_soo_timer(struct bgp *bgp, struct bgp_per_src_nhg_hash_ent
 		frrtrace(1, frr_bgp, per_src_nhg_soo_timer_start, soo_entry);
 		wheel_add_item(bgp->per_src_nhg_soo_timer_wheel, soo_entry);
 		soo_entry->soo_timer_running = true;
+		soo_entry->soo_entry_time_start = monotime(NULL);
 	}
 }
 
@@ -128,6 +129,7 @@ static void bgp_stop_soo_timer(struct bgp *bgp, struct bgp_per_src_nhg_hash_entr
 		frrtrace(1, frr_bgp, per_src_nhg_soo_timer_stop, soo_entry);
 		wheel_remove_item(bgp->per_src_nhg_soo_timer_wheel, soo_entry);
 		soo_entry->soo_timer_running = false;
+		soo_entry->soo_entry_time_start = 0;
 	}
 }
 
@@ -415,7 +417,7 @@ static void bgp_per_src_nhg_flush_cb(struct hash_bucket *bucket, void *arg)
 	SET_FLAG(nhe->flags, PER_SRC_NEXTHOP_GROUP_DEL_PENDING);
 	hash_iterate(nhe->route_with_soo_table,
 		     (void (*)(struct hash_bucket *, void *))bgp_per_src_nhg_move_to_zebra_nhid_cb,
-		     NULL);
+		     (void *)false);
 
 	/* 'SOO route' dest */
 	dest = nhe->dest;
@@ -907,12 +909,21 @@ static void bgp_per_src_nhg_move_to_zebra_nhid_cb(struct hash_bucket *bucket, vo
 {
 	struct bgp_dest_soo_hash_entry *route_with_soo_entry =
 		(struct bgp_dest_soo_hash_entry *)bucket->data;
-
+	bool soo_max_time_exceeded = (bool)ctx;
 	if (route_with_soo_entry) {
 		/* only move those which are using soo nhid yet */
-		if (CHECK_FLAG(route_with_soo_entry->flags, DEST_USING_SOO_NHGID))
+		if (!CHECK_FLAG(route_with_soo_entry->flags, DEST_USING_SOO_NHGID)) {
+			return;
+		}
+		if (soo_max_time_exceeded) {
+			if (!is_soo_rt_selected_pi_subset_of_rt_with_soo_pi(route_with_soo_entry)) {
+				bgp_rt_with_soo_zebra_route_install(route_with_soo_entry,
+								    route_with_soo_entry->nhe);
+			}
+		} else {
 			bgp_rt_with_soo_zebra_route_install(route_with_soo_entry,
 							    route_with_soo_entry->nhe);
+		}
 	}
 }
 
@@ -921,6 +932,7 @@ static void bgp_per_src_nhg_timer_slot_run(void *item)
 {
 	struct bgp_per_src_nhg_hash_entry *nhe = item;
 	struct bgp_dest *dest;
+	time_t current_time;
 
 	/* If SOO selected NHs match installed SOO NHG AND
 	 * all routes w/ SOO point to SOO NHG done
@@ -943,6 +955,7 @@ static void bgp_per_src_nhg_timer_slot_run(void *item)
 			   get_afi_safi_str(nhe->afi, nhe->safi, false));
 
 	/* all routes with soo converged to soo route */
+	current_time = monotime(NULL);
 	if (is_soo_rt_selected_pi_subset_of_all_rts_with_soo_using_soo_nhg_pi(nhe)) {
 		/* program the running ecmp and do NHG replace */
 		if (BGP_DEBUG(per_src_nhg, PER_SRC_NHG))
@@ -954,13 +967,36 @@ static void bgp_per_src_nhg_timer_slot_run(void *item)
 
 		frrtrace(2, frr_bgp, per_src_nhg_soo_timer_slot_run, nhe, 1);
 
-		if (nhe->refcnt)
-			if (CHECK_FLAG(nhe->flags, PER_SRC_NEXTHOP_GROUP_INSTALL_PENDING))
-				bgp_per_src_nhg_add_send(nhe);
+		if (nhe->refcnt && CHECK_FLAG(nhe->flags, PER_SRC_NEXTHOP_GROUP_INSTALL_PENDING))
+			bgp_per_src_nhg_add_send(nhe);
 
 		/* remove the timer from the timer wheel since processing is
 		 * done */
 		bgp_stop_soo_timer(nhe->bgp, nhe);
+
+	} else if (current_time - nhe->soo_entry_time_start > BGP_PER_SRC_NHG_SOO_TIMER_TIMEOUT) {
+		if (BGP_DEBUG(per_src_nhg, PER_SRC_NHG))
+			zlog_debug("bgp vrf %s per src nhg soo route %pIA %s soo max timer exceeded. Moving routes to zebra nhid",
+				   nhe->bgp->name_pretty, &nhe->ip,
+				   get_afi_safi_str(nhe->afi, nhe->safi, false));
+
+		frrtrace(2, frr_bgp, per_src_nhg_soo_timer_slot_run, nhe, 2);
+		if (nhe->refcnt && CHECK_FLAG(nhe->flags, PER_SRC_NEXTHOP_GROUP_INSTALL_PENDING)) {
+			hash_iterate(nhe->route_with_soo_table,
+				     (void (*)(struct hash_bucket *,
+					       void *))bgp_per_src_nhg_move_to_zebra_nhid_cb,
+				     (void *)true);
+			/*TODO: remove bgp_per_src_nhg_add_send(nhe); in this workflow.
+			This code is hit only when soo timer crosses 20sec timeout.
+			bgp_per_src_nhg_move_to_zebra_nhid_cb should register for route
+			updates from zebra. Once the routes are actually installed
+			in kernel with zebra nhid, bgp_per_src_nhg_add_send(nhe); should be called.
+			Once per src nhg is updated, All the 'routes with SoO' should be walked
+			and move from zebra nhid to soo nhid.
+			*/
+			bgp_per_src_nhg_add_send(nhe);
+			bgp_stop_soo_timer(nhe->bgp, nhe);
+		}
 	} else {
 		if (BGP_DEBUG(per_src_nhg, PER_SRC_NHG))
 			zlog_debug("bgp vrf %s per src nhg soo route %pIA %s not all route "
@@ -1359,7 +1395,7 @@ static void bgp_per_src_nhg_delete(struct bgp_per_src_nhg_hash_entry *nhe)
 			hash_iterate(nhe->route_with_soo_table,
 				     (void (*)(struct hash_bucket *,
 					       void *))bgp_per_src_nhg_move_to_zebra_nhid_cb,
-				     NULL);
+				     (void *)false);
 			/* 'SOO route' dest */
 			dest = nhe->dest;
 			if (dest && CHECK_FLAG(nhe->flags, PER_SRC_NEXTHOP_GROUP_SOO_ROUTE_INSTALL)) {
@@ -1563,6 +1599,35 @@ void bgp_process_route_transition_between_nhid(struct bgp *bgp, struct bgp_dest 
 	}
 }
 
+static bool rt_with_soo_use_soo_nhg(struct bgp_dest_soo_hash_entry *dest_he, struct bgp_per_src_nhg_hash_entry *nhe) {
+	/* A. SOO nhg in ideal state - soo route is installed
+	soo route selected pi - NHG'(a,b)
+	soo route installed pi - NHG(a,b)
+	install-pending flag will not be set for soo nhg.
+
+	B. When soo nhg is in disjoint transition state
+	soo route selected pi - NHG'(c,d)
+	soo route installed pi - NHG(a,b)
+	install-pending flag will be set for soo nhg.
+
+	C. When new path is added to soo nhg
+	soo route selected pi - NHG'(a,b,c)
+	soo route installed pi - NHG(a,b)
+	install-pending flag will be set for soo nhg.
+
+	In cases B and C, the soo timer will be running, and INSTALL_PENDING flag will be set,
+	then route-with-soo pi should be compared with selected pi[NHG'] of soo nhg
+	and not with installed pi[NHG], As soo nhg installed pi[NHG] will no longer be valid.
+	*/
+	if ((is_soo_rt_installed_pi_subset_of_rt_with_soo_pi(dest_he) &&
+		 !CHECK_FLAG(nhe->flags, PER_SRC_NEXTHOP_GROUP_INSTALL_PENDING)) ||
+	    (CHECK_FLAG(nhe->flags, PER_SRC_NEXTHOP_GROUP_INSTALL_PENDING) &&
+		is_soo_rt_selected_pi_subset_of_rt_with_soo_pi(dest_he))) {
+		return true;
+	}
+	return false;
+}
+
 bool bgp_per_src_nhg_use_nhgid(struct bgp *bgp, struct bgp_dest *dest, struct bgp_path_info *pi,
 			       uint32_t *nhg_id)
 {
@@ -1630,7 +1695,7 @@ bool bgp_per_src_nhg_use_nhgid(struct bgp *bgp, struct bgp_dest *dest, struct bg
 				return false;
 
 			prefix2str(&dest_he->p, pfxprint, sizeof(pfxprint));
-			if ((!is_soo_rt_installed_pi_subset_of_rt_with_soo_pi(dest_he) &&
+			if ((!rt_with_soo_use_soo_nhg(dest_he, nhe) &&
 			     (CHECK_FLAG(nhe->flags, PER_SRC_NEXTHOP_GROUP_VALID))) ||
 			    (CHECK_FLAG(bgp->per_src_nhg_flags[table->afi][table->safi],
 					BGP_FLAG_CONFIG_DEL_PENDING)) ||

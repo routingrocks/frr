@@ -91,6 +91,8 @@ struct bgp_per_src_nhg_hash_entry {
 
 	bool soo_timer_running;
 
+	time_t soo_entry_time_start;
+
 	uint32_t flags;
 
 #define PER_SRC_NEXTHOP_GROUP_VALID		   (1 << 0)
@@ -106,6 +108,18 @@ struct bgp_per_src_nhg_hash_entry {
 #define BGP_PER_SRC_NHG_SOO_TIMER_WHEEL_SLOTS 10
 /* in milli seconds, total timer wheel period */
 #define BGP_PER_SRC_NHG_SOO_TIMER_WHEEL_PERIOD 50
+/* stop soo timer if all routes with soo have not converged within 20 seconds
+ * The 20-second value is based on convergence testing at high scale:
+ * 1. 80k routes with 16-way ECMP
+ * 2. 8k routes with 128-way ECMP
+ * In these scenarios, ECMP expansion during "all links up" events can take
+ * several seconds as BGP DC PIC processes routes. The 20-second timer provides
+ * sufficient buffer beyond the worst-case convergence time observed in empirical testing,
+ * ensuring SOO logic completes ECMP expansion before forcing a move to zebra NHG.
+ * The specific value (20 seconds) has no special significance beyond being comfortably
+ * higher than measured worst-case convergence times in our test scenarios.
+ */
+#define BGP_PER_SRC_NHG_SOO_TIMER_TIMEOUT 20
 
 /* SOO Hash Table APIs */
 void bgp_per_src_nhg_init(struct bgp *bgp, afi_t afi, safi_t safi);
