@@ -771,6 +771,16 @@ void rib_install_kernel(struct route_node *rn, struct route_entry *re, struct ro
 		flog_err(EC_ZEBRA_DP_INSTALL_FAIL,
 			 "%u:%u:%pRN: Failed to enqueue dataplane %s install", re->vrf_id,
 			 re->table, rn, last_route ? "last route" : "");
+		if (re->nhe && PROTO_OWNED(re->nhe)) {
+			/* If the route is owned by a protocol,
+			 * set the FAILED flag and unset the INSTALLED flag
+			 * Later these flags are used to determine whether route install to
+			 * kernel can be skipped.
+			 */
+			SET_FLAG(re->status, ROUTE_ENTRY_FAILED);
+			UNSET_FLAG(re->status, ROUTE_ENTRY_INSTALLED);
+		}
+
 		break;
 	}
 	case ZEBRA_DPLANE_REQUEST_SUCCESS:
