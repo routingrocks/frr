@@ -880,11 +880,14 @@ void bgp_unreach_show(struct vty *vty, struct bgp *bgp, afi_t afi, struct prefix
 
 		/* If detail flag, use detailed output per route */
 		if (detail) {
+			int prefix_count = 0;
+
 			if (use_json)
 				json = json_object_new_object();
 
 			for (dest = bgp_table_top(table); dest; dest = bgp_route_next(dest)) {
 				const struct prefix *p = bgp_dest_get_prefix(dest);
+				bool has_paths = false;
 
 				if (use_json) {
 					/* Build detailed JSON output (like single prefix view) */
@@ -1012,6 +1015,7 @@ void bgp_unreach_show(struct vty *vty, struct bgp *bgp, afi_t afi, struct prefix
 
 						json_object_array_add(json_paths, json_path);
 						count++;
+						has_paths = true;
 					}
 
 					json_object_object_add(json, prefix_str, json_paths);
@@ -1026,14 +1030,20 @@ void bgp_unreach_show(struct vty *vty, struct bgp *bgp, afi_t afi, struct prefix
 								     SAFI_UNREACH,
 								     RPKI_NOT_BEING_USED, NULL);
 						count++;
+						has_paths = true;
 					}
 				}
+
+				if (has_paths)
+					prefix_count++;
 			}
 
 			if (use_json) {
 				vty_json(vty, json);
 			} else {
-				vty_out(vty, "Total: %d unreachability entries\n", count);
+				vty_out(vty,
+					"\nDisplayed %d routes and %d total paths\n",
+					prefix_count, count);
 			}
 			return;
 		}
@@ -1444,14 +1454,16 @@ void bgp_unreach_show(struct vty *vty, struct bgp *bgp, afi_t afi, struct prefix
 		}
 
 		if (use_json) {
-			/* Add totalPrefixes */
-			json_object_int_add(json, "totalPrefixes", prefix_count);
+			/* Add numPrefixes (consistent with unicast) */
+			json_object_int_add(json, "numPrefixes", prefix_count);
 			vty_json(vty, json);
 		} else {
 			if (count == 0)
 				vty_out(vty, "No unreachability information\n");
 			else
-				vty_out(vty, "Total: %d unreachability entries\n", count);
+				vty_out(vty,
+					"\nDisplayed %d routes and %d total paths\n",
+					prefix_count, count);
 		}
 	}
 }
