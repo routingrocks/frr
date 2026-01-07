@@ -1938,11 +1938,11 @@ def ignore_delete_re_add_lines(lines_to_add, lines_to_del):
             # (see comment above), add command with 'no' to lines_to_add and
             # remove from lines_to_del to improve scaling performance.
             if found is False:
+                all_pfx_no_exists = False
                 if re_acl_pfxlst.group(2) == "prefix-list":
                     prefix_list_name = re_acl_pfxlst.group(3).strip()
                     # Check if a all 'no prefix-list' command already exists
                     all_pfx_no_cmd = f"no {re_acl_pfxlst.group(1)} {re_acl_pfxlst.group(2)} {prefix_list_name}"
-                    all_pfx_no_exists = False
                     # Look through lines_to_add for the general no command
                     if all_pfx_no_cmd in existing_entries:
                         all_pfx_no_exists = True
