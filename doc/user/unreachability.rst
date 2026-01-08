@@ -112,6 +112,30 @@ To enable Unreachability Information SAFI with a neighbor:
      exit-address-family
    exit
 
+Advertisement Control
+^^^^^^^^^^^^^^^^^^^^^
+
+.. clicmd:: bgp advertise-unreach interfaces-match PREFIX
+
+   Control which local interface addresses trigger UNREACH NLRI advertisement.
+   Only self-originated UNREACH routes for interfaces matching PREFIX will be
+   created and advertised to peers.
+
+   When an interface with a matching address goes down, an UNREACH route is
+   created and advertised. When it comes back up, the route is withdrawn and
+   deleted. Non-matching interfaces do not generate UNREACH routes.
+
+   UNREACH routes received from peers are forwarded normally (standard BGP
+   transit) regardless of this configuration.
+
+   .. code-block:: frr
+
+      router bgp 64600
+        address-family ipv6 unreachability
+         neighbor 2001:db8:100::1 activate
+         bgp advertise-unreach interfaces-match 2001:db8:1::/48
+        exit-address-family
+
 .. _show-commands-unreachability:
 
 Show Commands

@@ -1419,6 +1419,22 @@ static bool bgp_prefix_covered_by_aggregate(struct bgp *bgp, afi_t afi, const st
 	return false;
 }
 
+/* Check if prefix matches the configured UNREACH advertisement filter.
+ * Returns true if the prefix should be advertised as UNREACH NLRI.
+ */
+bool bgp_prefix_matches_unreach_filter(struct bgp *bgp, afi_t afi, const struct prefix *p)
+{
+	if (!bgp || !p)
+		return false;
+
+	/* No filter configured - don't advertise */
+	if (!bgp->unreach_adv_prefix[afi])
+		return false;
+
+	/* Check if prefix matches the configured filter */
+	return prefix_match(bgp->unreach_adv_prefix[afi], p);
+}
+
 /* Cleanup unreachability routes when an aggregate is removed */
 void bgp_unreach_cleanup_for_aggregate(struct bgp *bgp, afi_t afi, const struct prefix *aggr_p)
 {
