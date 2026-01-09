@@ -1992,7 +1992,7 @@ void bgp_process_mpath_route_soo_attr(struct bgp *bgp, afi_t afi, safi_t safi, s
 
 static void bgp_per_src_nhg_peer_clear_route_cb(struct hash_bucket *bucket, void *ctx)
 {
-	struct bgp_path_info *pi;
+	struct bgp_path_info *pi,*next;
 	struct bgp_per_src_nhg_hash_entry *nhe = (struct bgp_per_src_nhg_hash_entry *)bucket->data;
 	struct bgp_peer_clear_route_ctx *clear_ctx = (struct bgp_peer_clear_route_ctx *)ctx;
 	struct peer *peer = clear_ctx->peer;
@@ -2000,7 +2000,8 @@ static void bgp_per_src_nhg_peer_clear_route_cb(struct hash_bucket *bucket, void
 
 	if (nhe && nhe->dest) {
 		struct bgp_dest *dest = nhe->dest;
-		for (pi = bgp_dest_get_bgp_path_info(dest); pi; pi = pi->next) {
+		for (pi = bgp_dest_get_bgp_path_info(dest); pi;pi = next) {
+			next = pi->next;
 			if ((pi->peer == peer) &&
 			    (pi->type == ZEBRA_ROUTE_BGP && pi->sub_type == BGP_ROUTE_NORMAL)) {
 				SET_FLAG(nhe->flags, PER_SRC_NEXTHOP_GROUP_SOO_ROUTE_CLEAR_ONLY);
