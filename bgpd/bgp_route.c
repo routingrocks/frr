@@ -5568,8 +5568,10 @@ void bgp_update(struct peer *peer, const struct prefix *p, uint32_t addpath_id,
 	bgp = peer->bgp;
 	dest = bgp_afi_node_get(bgp->rib[afi][safi], afi, safi, p, prd);
 	rib_table = bgp_dest_table(dest);
-	if (!rib_table)
+	if (!rib_table) {
+		bgp_dest_unlock_node(dest);
 		return;
+	}
 	/* TODO: Check to see if we can get rid of "is_valid_label" */
 	if (afi == AFI_L2VPN && safi == SAFI_EVPN)
 		has_valid_label = (num_labels > 0) ? 1 : 0;
@@ -6498,9 +6500,6 @@ void bgp_update(struct peer *peer, const struct prefix *p, uint32_t addpath_id,
 	/* Register new BGP information. */
 	bgp_path_info_add(dest, new);
 
-	/* route_node_get lock */
-	bgp_dest_unlock_node(dest);
-
 #ifdef ENABLE_BGP_VNC
 	if (safi == SAFI_MPLS_VPN) {
 		struct bgp_dest *pdest = NULL;
@@ -6548,6 +6547,7 @@ void bgp_update(struct peer *peer, const struct prefix *p, uint32_t addpath_id,
 	}
 #endif
 
+	bgp_dest_unlock_node(dest);
 	return;
 
 /* This BGP update is filtered.  Log the reason then update BGP
