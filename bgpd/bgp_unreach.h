@@ -36,6 +36,10 @@
 #define BGP_UNREACH_TLV_HEADER_LEN    3 /* Type(1) + Length(2) */
 #define BGP_UNREACH_SUBTLV_HEADER_LEN 3 /* Sub-Type(1) + Sub-Length(2) */
 
+/* TLV header field offsets */
+#define BGP_UNREACH_TLV_TYPE_OFFSET 0 /* TLV Type field */
+#define BGP_UNREACH_TLV_LEN_OFFSET  1 /* TLV Length field (2 bytes) */
+
 /* Reporter TLV (Type 1) fixed fields */
 #define BGP_UNREACH_REPORTER_ID_LEN 4 /* BGP Router ID */
 #define BGP_UNREACH_REPORTER_AS_LEN 4 /* AS Number (4-octet) */
