@@ -789,6 +789,11 @@ struct bgp {
 	/* BGP routing information base.  */
 	struct bgp_table *rib[AFI_MAX][SAFI_MAX];
 
+	/* UNREACH advertisement prefix filter - only advertise UNREACH routes
+	 * for interface addresses matching this prefix. NULL = disabled.
+	 */
+	struct prefix *unreach_adv_prefix[AFI_MAX];
+
 	/* BGP table route-map.  */
 	struct bgp_rmap table_map[AFI_MAX][SAFI_MAX];
 

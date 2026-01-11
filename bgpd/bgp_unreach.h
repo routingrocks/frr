@@ -115,8 +115,7 @@ extern void bgp_unreach_info_free(struct bgp_unreach_info *unreach);
 extern int bgp_unreach_info_add(struct bgp *bgp, afi_t afi, struct bgp_unreach_nlri *nlri,
 				struct attr *attr);
 extern void bgp_unreach_info_delete(struct bgp *bgp, afi_t afi, const struct prefix *prefix);
-extern void bgp_unreach_cleanup_for_aggregate(struct bgp *bgp, afi_t afi,
-					      const struct prefix *aggr_p);
+extern bool bgp_prefix_matches_unreach_filter(struct bgp *bgp, afi_t afi, const struct prefix *p);
 
 /* Show command support */
 extern void bgp_unreach_show(struct vty *vty, struct bgp *bgp, afi_t afi, struct prefix *prefix,

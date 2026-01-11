@@ -20783,6 +20783,10 @@ static void bgp_config_write_family(struct vty *vty, struct bgp *bgp, afi_t afi,
 	if (CHECK_FLAG(bgp->per_src_nhg_flags[afi][safi], BGP_FLAG_CONDITIONAL_DISAGG))
 		vty_out(vty, "  bgp conditional-disaggregation\n");
 
+	/* UNREACH advertisement filter */
+	if (safi == SAFI_UNREACH && bgp->unreach_adv_prefix[afi])
+		vty_out(vty, "  bgp advertise-unreach interfaces-match %pFX\n",
+			bgp->unreach_adv_prefix[afi]);
 
 	/* BGP flag dampening. */
 	if (CHECK_FLAG(bgp->af_flags[afi][safi], BGP_CONFIG_DAMPENING))

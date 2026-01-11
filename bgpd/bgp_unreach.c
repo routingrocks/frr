@@ -1390,82 +1390,20 @@ void bgp_unreach_show(struct vty *vty, struct bgp *bgp, afi_t afi, struct prefix
 	}
 }
 
-static bool bgp_prefix_covered_by_aggregate(struct bgp *bgp, afi_t afi, const struct prefix *p)
+/* Check if prefix matches the configured UNREACH advertisement filter.
+ * Returns true if the prefix should be advertised as UNREACH NLRI.
+ */
+bool bgp_prefix_matches_unreach_filter(struct bgp *bgp, afi_t afi, const struct prefix *p)
 {
-	struct bgp_table *table;
-	struct bgp_dest *dest, *child;
-	struct bgp_aggregate *aggregate;
-
-	table = bgp->aggregate[afi][SAFI_UNICAST];
-	if (bgp_table_top_nolock(table) == NULL)
+	if (!bgp || !p)
 		return false;
 
-	if (p->prefixlen == 0)
+	/* No filter configured - don't advertise */
+	if (!bgp->unreach_adv_prefix[afi])
 		return false;
 
-	child = bgp_node_get(table, p);
-
-	for (dest = child; dest; dest = bgp_dest_parent_nolock(dest)) {
-		const struct prefix *dest_p = bgp_dest_get_prefix(dest);
-
-		aggregate = bgp_dest_get_bgp_aggregate_info(dest);
-		if (aggregate != NULL && dest_p->prefixlen < p->prefixlen) {
-			bgp_dest_unlock_node(child);
-			return true;
-		}
-	}
-
-	bgp_dest_unlock_node(child);
-	return false;
-}
-
-/* Cleanup unreachability routes when an aggregate is removed */
-void bgp_unreach_cleanup_for_aggregate(struct bgp *bgp, afi_t afi, const struct prefix *aggr_p)
-{
-	struct bgp_table *table;
-	struct bgp_dest *dest;
-	struct bgp_path_info *pi;
-	struct prefix unreach_p;
-	bool restart_loop;
-
-	if (!bgp || !aggr_p)
-		return;
-
-	table = bgp->rib[afi][SAFI_UNREACH];
-	if (!table)
-		return;
-
-	do {
-		restart_loop = false;
-
-		for (dest = bgp_table_top(table); dest; dest = bgp_route_next(dest)) {
-			const struct prefix *dest_p = bgp_dest_get_prefix(dest);
-
-			if (!prefix_match(aggr_p, dest_p))
-				continue;
-
-			for (pi = bgp_dest_get_bgp_path_info(dest); pi; pi = pi->next) {
-				if (pi->peer != bgp->peer_self)
-					continue;
-
-				prefix_copy(&unreach_p, dest_p);
-
-				if (!bgp_prefix_covered_by_aggregate(bgp, afi, &unreach_p)) {
-					if (BGP_DEBUG(update, UPDATE_OUT))
-						zlog_debug("UNREACH CLEANUP: withdraw unreach %pFX, no covering aggregate",
-							   dest_p);
-
-					bgp_unreach_info_delete(bgp, afi, &unreach_p);
-					bgp_dest_unlock_node(dest);
-					restart_loop = true;
-					break;
-				}
-			}
-
-			if (restart_loop)
-				break;
-		}
-	} while (restart_loop);
+	/* Check if prefix matches the configured filter */
+	return prefix_match(bgp->unreach_adv_prefix[afi], p);
 }
 
 void bgp_unreach_zebra_announce(struct bgp *bgp, struct interface *ifp,
@@ -1501,9 +1439,12 @@ void bgp_unreach_zebra_announce(struct bgp *bgp, struct interface *ifp,
 		if (BGP_DEBUG(zebra, ZEBRA))
 			zlog_debug("Withdraw unreachability for %pFX on %s", prefix, ifp->name);
 	} else {
-		if (!bgp_prefix_covered_by_aggregate(bgp, afi, prefix)) {
+		/* Check if prefix matches the configured advertisement filter.
+		 * Only create UNREACH in local RIB if it matches.
+		 */
+		if (!bgp_prefix_matches_unreach_filter(bgp, afi, prefix)) {
 			if (BGP_DEBUG(zebra, ZEBRA))
-				zlog_debug("Skip unreachability for %pFX on %s - no covering aggregate",
+				zlog_debug("Skip UNREACH for %pFX on %s - does not match advertisement filter",
 					   prefix, ifp->name);
 			return;
 		}

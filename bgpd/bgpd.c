@@ -3549,6 +3549,10 @@ peer_init:
 	bgp->llgr_stale_time = BGP_DEFAULT_LLGR_STALE_TIME;
 	bgp->rmap_def_originate_eval_timer = RMAP_DEFAULT_ORIGINATE_EVAL_TIMER;
 
+	/* Initialize UNREACH advertisement filter to NULL (disabled) */
+	bgp->unreach_adv_prefix[AFI_IP] = NULL;
+	bgp->unreach_adv_prefix[AFI_IP6] = NULL;
+
 #ifdef ENABLE_BGP_VNC
 	if (inst_type != BGP_INSTANCE_TYPE_VRF && !hidden) {
 		bgp->rfapi = bgp_rfapi_new(bgp);
@@ -4366,6 +4370,12 @@ void bgp_free(struct bgp *bgp)
 		if (bgp->vpn_policy[afi].tovpn_rd_pretty)
 			XFREE(MTYPE_BGP_NAME,
 			      bgp->vpn_policy[afi].tovpn_rd_pretty);
+
+		/* Free UNREACH advertisement filter */
+		if (bgp->unreach_adv_prefix[afi]) {
+			prefix_free(&bgp->unreach_adv_prefix[afi]);
+			bgp->unreach_adv_prefix[afi] = NULL;
+		}
 	}
 	bgp_srv6_cleanup(bgp);
 	bgp_confederation_id_unset(bgp);
