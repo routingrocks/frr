@@ -1460,6 +1460,10 @@ void bgp_per_src_nhg_upd_msg_check(struct bgp *bgp, afi_t afi, safi_t safi, stru
 			}
 			frrtrace(2, frr_bgp, per_src_nhg_soo_rt_dest_ecmp_check, nhe, 1);
 			bgp_per_src_nhg_add_send(nhe);
+			hash_iterate(nhe->route_with_soo_table,
+				     (void (*)(struct hash_bucket *,
+					       void *))bgp_per_src_nhg_move_to_soo_nhid_cb,
+				     NULL);
 		} else {
 			/* Case 1: Disjoint
 			 * Case 2: Overlap
