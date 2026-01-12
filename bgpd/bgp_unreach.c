@@ -3,6 +3,44 @@
  * BGP Unreachability Information SAFI
  * Copyright (C) 2025 Nvidia Corporation
  *                    Karthikeya Venkat Muppalla
+ *
+ * Wire format per draft-tantsura-idr-unreachability-safi:
+ *
+ * NLRI Format (Section 3.2-3.3):
+ *  0                   1                   2                   3
+ *  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * | Prefix Length |           Prefix (variable)                   |
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |                  Reporter TLV (variable)                      |
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *
+ * Reporter TLV Format (Section 3.4):
+ *  0                   1                   2                   3
+ *  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |     Type=1    |            Length             |               |
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+               |
+ * |              Reporter Identifier (4 octets)                   |
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |              Reporter AS Number (4 octets)                    |
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |                    Sub-TLVs (variable)                        |
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *
+ * Sub-TLV Format (Section 3.5):
+ *  0                   1                   2                   3
+ *  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |   Sub-Type    |         Sub-Length            |               |
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+               |
+ * |                   Sub-Value (variable)                        |
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *
+ * Implementation notes:
+ * - Multiple NLRIs can be packed in single UPDATE message
+ * - Current implementation: 1 Reporter TLV per NLRI (no aggregation)
+ * - Unknown Sub-TLV types are silently ignored (forward compatibility)
  */
 
 #include <zebra.h>
@@ -86,24 +124,19 @@ int bgp_unreach_reason_str2code(const char *str, uint16_t *code)
 	return 0;
 }
 
-/* Parse TLVs from unreachability NLRI
+/* Parse Reporter TLV from unreachability NLRI
  *
- * This function parses a single Reporter TLV from the NLRI data.
- * Per the draft, multiple Reporter TLVs MAY be present in a single NLRI,
- * but current implementation processes only the first one.
+ * Extracts Reporter ID, Reporter AS, and Sub-TLVs (Reason Code, Timestamp).
+ * Wire format documented at top of file.
  *
  * Parameters:
- *   data - Pointer to TLV data (may contain multiple Reporter TLVs)
- *   len  - Total length of TLV data
- *   unreach - Output structure to store parsed Reporter TLV fields
+ *   data - Pointer to start of ONE Reporter TLV (Type + Length + payload)
+ *   len  - Length of THIS Reporter TLV only (caller pre-calculated)
+ *   unreach - Output structure to store parsed fields
  *
  * Returns:
- *   0 on success (first Reporter TLV parsed)
+ *   0 on success
  *   -1 on parse error
- *
- * Note: Only the first Reporter TLV is extracted. Additional Reporter TLVs
- *       in the data are not processed by this function. The caller is
- *       responsible for detecting and logging presence of additional TLVs.
  */
 int bgp_unreach_tlv_parse(uint8_t *data, uint16_t len, struct bgp_unreach_nlri *unreach)
 {
@@ -194,6 +227,12 @@ int bgp_unreach_tlv_parse(uint8_t *data, uint16_t len, struct bgp_unreach_nlri *
 			return -1;
 		}
 
+		/* Reject zero-length Sub-TLVs (invalid, no data) */
+		if (sub_len == 0) {
+			zlog_err("Zero-length Sub-TLV type %u", sub_type);
+			return -1;
+		}
+
 		switch (sub_type) {
 		case BGP_UNREACH_SUBTLV_TYPE_REASON_CODE:
 			if (sub_len != BGP_UNREACH_REASON_CODE_LEN) {
@@ -235,7 +274,11 @@ int bgp_unreach_tlv_parse(uint8_t *data, uint16_t len, struct bgp_unreach_nlri *
 	return 0;
 }
 
-/* Encode TLVs into stream (per draft order) */
+/* Encode Reporter TLV into stream
+ *
+ * Encodes Reporter ID, Reporter AS, and Sub-TLVs (Reason Code, Timestamp).
+ * Wire format documented at top of file.
+ */
 int bgp_unreach_tlv_encode(struct stream *s, struct bgp_unreach_nlri *unreach)
 {
 	/* Calculate Reporter TLV total length:
@@ -279,7 +322,11 @@ int bgp_unreach_tlv_encode(struct stream *s, struct bgp_unreach_nlri *unreach)
 	return 0;
 }
 
-/* Parse unreachability NLRI */
+/* Parse unreachability NLRI
+ *
+ * Parses one or more UNREACH NLRIs from UPDATE message.
+ * Wire format documented at top of file.
+ */
 int bgp_nlri_parse_unreach(struct peer *peer, struct attr *attr, struct bgp_nlri *packet,
 			   bool withdraw)
 {
@@ -351,39 +398,58 @@ int bgp_nlri_parse_unreach(struct peer *peer, struct attr *attr, struct bgp_nlri
 			memcpy(&p.u.prefix, pnt, psize);
 		pnt += psize;
 
-		/* Parse TLVs - per draft, multiple Reporter TLVs MAY be present.
-	 * Current implementation processes only the first Reporter TLV.
-	 * Additional Reporter TLVs are silently ignored (forward compatibility).
-	 */
-		if (pnt < lim) {
-			uint16_t total_tlv_data = lim - pnt;
-
-			/* Read first Reporter TLV header to determine its length */
-			if (total_tlv_data < BGP_UNREACH_TLV_HEADER_LEN) {
-				zlog_err("%s: Insufficient TLV data for %pFX", peer->host, &p);
-				return BGP_NLRI_PARSE_ERROR;
-			}
-
-			/* Peek at TLV Length field (offset +1, 2 bytes, network byte order) */
-			uint16_t first_tlv_len = ((uint16_t)pnt[1] << 8) | pnt[2];
-			uint16_t first_tlv_total = BGP_UNREACH_TLV_HEADER_LEN + first_tlv_len;
-
-			if (bgp_unreach_tlv_parse(pnt, total_tlv_data, &unreach) < 0) {
-				zlog_err("%s: Failed to parse unreachability TLVs for %pFX",
-					 peer->host, &p);
-				return BGP_NLRI_PARSE_ERROR;
-			}
-
-			/* Check if additional Reporter TLVs are present (ignored per current implementation).
-		 * Log at INFO level for visibility without alarming operators.
+		/* Parse TLVs for this NLRI.
+		 * Each NLRI has: [prefix][Reporter TLV(s)]
+		 * We need to consume only THIS NLRI's TLVs, not all remaining data.
 		 */
-			if (total_tlv_data > first_tlv_total) {
-				if (BGP_DEBUG(update, UPDATE_IN))
-					zlog_info("%s: Multiple Reporter TLVs received for %pFX (only first processed, %u of %u bytes used)",
-						  peer->host, &p, first_tlv_total, total_tlv_data);
+		if (pnt < lim) {
+			uint16_t remaining_in_packet = lim - pnt;
+
+			/* Read Reporter TLV header to determine its length */
+			if (remaining_in_packet < BGP_UNREACH_TLV_HEADER_LEN) {
+				zlog_err("%s: Insufficient Reporter TLV data for %pFX", peer->host,
+					 &p);
+				return BGP_NLRI_PARSE_ERROR;
 			}
 
-			pnt = lim; /* Advance past all TLV data */
+			/* Read Reporter TLV Length field (2 bytes, network byte order) */
+			uint16_t reporter_tlv_len = ((uint16_t)pnt[BGP_UNREACH_TLV_LEN_OFFSET]
+						     << 8) |
+						    pnt[BGP_UNREACH_TLV_LEN_OFFSET + 1];
+
+			/* Validate Reporter TLV length is within valid range */
+			if (reporter_tlv_len < BGP_UNREACH_REPORTER_FIXED_LEN) {
+				zlog_err("%s: Reporter TLV length %u too short (min %u) for %pFX",
+					 peer->host, reporter_tlv_len,
+					 BGP_UNREACH_REPORTER_FIXED_LEN, &p);
+				return BGP_NLRI_PARSE_ERROR;
+			}
+
+			uint16_t reporter_tlv_total = BGP_UNREACH_TLV_HEADER_LEN + reporter_tlv_len;
+
+			/* Validate Reporter TLV doesn't overflow remaining packet */
+			if (reporter_tlv_total > remaining_in_packet) {
+				zlog_err("%s: Reporter TLV length %u exceeds remaining packet %u for %pFX",
+					 peer->host, reporter_tlv_total, remaining_in_packet, &p);
+				return BGP_NLRI_PARSE_ERROR;
+			}
+
+			/* Parse Reporter TLV (extracts Reporter ID, AS, Sub-TLVs) */
+			if (bgp_unreach_tlv_parse(pnt, reporter_tlv_total, &unreach) < 0) {
+				zlog_err("%s: Failed to parse Reporter TLV for %pFX", peer->host,
+					 &p);
+				return BGP_NLRI_PARSE_ERROR;
+			}
+
+			/* Advance pointer past THIS NLRI's Reporter TLV to next NLRI.
+		 * psize set to 0 prevents double-advance in loop header.
+		 *
+		 * Implementation note: We expect 1 Reporter TLV per NLRI. If sender
+		 * includes multiple Reporter TLVs without capability negotiation,
+		 * they will be misinterpreted as next NLRI, causing parse error and
+		 * UPDATE rejection. This enforces proper capability negotiation.
+		 */
+			pnt += reporter_tlv_total;
 			psize = 0;
 		}
 
