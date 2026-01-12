@@ -1802,6 +1802,50 @@ Configuring Peers
 
    This command is only allowed for eBGP peers.
 
+.. clicmd:: neighbor <A.B.C.D|X:X::X:X|WORD> allowas-in route-map WORD [<(1-10)|origin>]
+
+   Accept incoming routes with AS path containing the system AS number, but only
+   for routes that match the specified route-map. This provides maximum flexibility
+   for selective AS-path loop prevention based on any BGP attributes.
+
+   Route-maps can match on prefixes, AS-path patterns, communities, extended communities, and
+   any other BGP attributes, allowing complex filtering logic.
+
+   The parameter `WORD` specifies the name of the route-map to use for matching.
+   Only routes that result in a `permit` action from the route-map will have
+   allowas-in applied. The route-map performs matching only; it does not modify
+   route attributes.
+
+   The parameter `(1-10)` configures the amount of accepted occurrences of the
+   system AS number in AS path for matching routes (default: 3).
+
+   The parameter `origin` configures BGP to only accept routes originated with
+   the same AS number as the system, for matching routes.
+
+   Example configuration to allow AS-path loops for routes with a specific SoO community:
+
+   .. code-block:: frr
+
+      ip extcommunity-list standard MGMT_SOO permit soo 1.1.1.1:0
+      !
+      route-map RM_ALLOW_AS permit 10
+       match extcommunity MGMT_SOO
+      !
+      router bgp 65201
+       neighbor 10.0.0.1 remote-as external
+       !
+       address-family ipv4 unicast
+        neighbor 10.0.0.1 allowas-in route-map RM_ALLOW_AS 1
+       exit-address-family
+
+   Behavior:
+
+   - Routes matching the route-map (permit): allowas-in is applied
+   - Routes NOT matching the route-map (deny): strict AS-path loop detection
+   - If route-map is not found: strict AS-path loop detection
+
+   This command is only allowed for eBGP peers.
+
 .. clicmd:: neighbor <A.B.C.D|X:X::X:X|WORD> addpath-tx-all-paths
 
    Configure BGP to send all known paths to neighbor in order to preserve multi
@@ -3989,6 +4033,41 @@ Convergence
    This command sets the time in secs to wait before starting to advertise routes to
    neighbors for per source nexthop group
 
+.. clicmd:: bgp conditional-disaggregation
+
+   Enable conditional disaggregation for the address family. When enabled, routes
+   received in the Unreachability SAFI can trigger automatic disaggregation of
+   suppressed SAFI_UNICAST routes, subject to Site of Origin (SoO) matching and
+   route existence validation.
+
+   This feature allows BGP to selectively advertise more-specific routes when
+   unreachability information is received, enabling fine-grained traffic steering
+   and failover in multi-homed environments.
+
+   When this command is configured:
+
+   - BGP walks the SAFI_UNREACH table and evaluates each route for potential
+     disaggregation
+   - Routes are disaggregated only if they match the SoO community and exist in
+     the SAFI_UNICAST table
+   - Disaggregated routes are marked with the ``conditional-disaggregated`` flag
+
+   When this command is removed with ``no bgp conditional-disaggregation``:
+
+   - Previously disaggregated routes are re-suppressed
+   - Withdrawals are sent to BGP neighbors for the disaggregated routes
+
+   This command is only supported for IPv4 and IPv6 unicast address families.
+   The feature remains disabled by default and must be explicitly configured.
+
+   .. code-block:: frr
+
+      router bgp 65201
+       address-family ipv4 unicast
+        bgp conditional-disaggregation
+       exit-address-family
+      !
+
 .. _bgp-debugging:
 
 Debugging
@@ -4327,7 +4406,7 @@ incoming/outgoing directions.
 
       Total number of VRFs (including default): 3
 
-.. clicmd:: show bgp [<ipv4|ipv6> <unicast|multicast|vpn|labeled-unicast|flowspec> | l2vpn evpn]
+.. clicmd:: show bgp [<ipv4|ipv6> <unicast|multicast|vpn|labeled-unicast|flowspec|unreachability> | l2vpn evpn]
 
    These commands display BGP routes for the specific routing table indicated by
    the selected afi and the selected safi. If no afi and no safi value is given,
@@ -5479,6 +5558,8 @@ Show command json output:
 .. include:: wecmp_linkbw.rst
 
 .. include:: flowspec.rst
+
+.. include:: unreachability.rst
 
 .. [#med-transitivity-rant] For some set of objects to have an order, there *must* be some binary ordering relation that is defined for *every* combination of those objects, and that relation *must* be transitive. I.e.:, if the relation operator is <, and if a < b and b < c then that relation must carry over and it *must* be that a < c for the objects to have an order. The ordering relation may allow for equality, i.e. a < b and b < a may both be true and imply that a and b are equal in the order and not distinguished by it, in which case the set has a partial order. Otherwise, if there is an order, all the objects have a distinct place in the order and the set has a total order)
 .. [bgp-route-osci-cond] McPherson, D. and Gill, V. and Walton, D., "Border Gateway Protocol (BGP) Persistent Route Oscillation Condition", IETF RFC3345

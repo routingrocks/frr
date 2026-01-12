@@ -771,6 +771,16 @@ void rib_install_kernel(struct route_node *rn, struct route_entry *re, struct ro
 		flog_err(EC_ZEBRA_DP_INSTALL_FAIL,
 			 "%u:%u:%pRN: Failed to enqueue dataplane %s install", re->vrf_id,
 			 re->table, rn, last_route ? "last route" : "");
+		if (re->nhe && PROTO_OWNED(re->nhe)) {
+			/* If the route is owned by a protocol,
+			 * set the FAILED flag and unset the INSTALLED flag
+			 * Later these flags are used to determine whether route install to
+			 * kernel can be skipped.
+			 */
+			SET_FLAG(re->status, ROUTE_ENTRY_FAILED);
+			UNSET_FLAG(re->status, ROUTE_ENTRY_INSTALLED);
+		}
+
 		break;
 	}
 	case ZEBRA_DPLANE_REQUEST_SUCCESS:
@@ -3972,8 +3982,8 @@ int zebra_rib_queue_evpn_rem_es_add(const esi_t *esi, const struct ipaddr *vtep_
 	w->df_pref = df_pref;
 
 	if (IS_ZEBRA_DEBUG_RIB_DETAILED)
-		zlog_debug("%s: vtep %pIA, esi %s enqueued", __func__, vtep_ip,
-			   esi_to_str(esi, buf, sizeof(buf)));
+		zlog_debug("%s: vtep %pIA, esi %s df_alg %u df_pref %u enqueued", __func__, vtep_ip,
+			   esi_to_str(esi, buf, sizeof(buf)), df_alg, df_pref);
 
 	return mq_add_handler(w, rib_meta_queue_evpn_add);
 }

@@ -50,6 +50,18 @@ struct graceful_restart_af {
 #define CAPABILITY_CODE_LLGR           71 /* Long-lived Graceful Restart */
 #define CAPABILITY_CODE_FQDN           73 /* Advertise hostname capability */
 #define CAPABILITY_CODE_SOFT_VERSION   75 /* Software Version capability */
+/*
+ * TEMPORARY: Using private capability code 254 (RFC4760 Private Use range: 241-254)
+ * until IANA officially assigns a value for Enhanced Unreachability Information.
+ * Reference: https://datatracker.ietf.org/doc/draft-tantsura-idr-unreachability-safi/
+ *
+ * FUTURE MIGRATION STRATEGY (when IANA assigns official value X):
+ * - Current release: Advertises only capability code 254
+ * - Future release: Advertises BOTH capability 254 AND X for backward compatibility
+ * - New peers will prefer official capability X, fall back to 254 for old peers
+ * - This ensures: old-old uses 254, old-new uses 254, new-new uses official X
+ */
+#define CAPABILITY_CODE_UNREACH		254 /* Enhanced Unreachability Information */
 #define CAPABILITY_CODE_ENHE            5 /* Extended Next Hop Encoding */
 #define CAPABILITY_CODE_EXT_MESSAGE     6 /* Extended Message Support */
 #define CAPABILITY_CODE_ROLE            9 /* Role Capability */

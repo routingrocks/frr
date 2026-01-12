@@ -126,17 +126,20 @@ void bgp_process_route_transition_between_nhid(struct bgp *bgp, struct bgp_dest 
 
 /* Handle SOO Attr*/
 void bgp_process_route_soo_attr(struct bgp *bgp, afi_t afi, safi_t safi, struct bgp_dest *dest,
-				struct bgp_path_info *pi, bool is_add);
+				struct bgp_path_info *pi, bool is_add, const char *caller);
 void bgp_process_route_soo_attr_change(struct bgp *bgp, afi_t afi, safi_t safi,
 				       struct bgp_dest *dest, struct bgp_path_info *pi,
-				       struct attr *new_attr);
-void bgp_process_mpath_route_soo_attr(struct bgp *bgp, afi_t afi, safi_t safi, struct bgp_dest *dest,
-				      struct bgp_path_info *new_best, bool is_add);
-void bgp_per_src_nhg_handle_router_id_update(struct bgp *bgp, const struct in_addr *id);
+				       struct attr *new_attr, const char *caller);
+void bgp_process_mpath_route_soo_attr(struct bgp *bgp, afi_t afi, safi_t safi,
+				      struct bgp_dest *dest, struct bgp_path_info *new_best,
+				      bool is_add, const char *caller);
+void bgp_per_src_nhg_handle_soo_addr_update(struct bgp *bgp, const struct in_addr *new_soo_addr,
+					    bool is_router_id_change);
 void bgp_per_src_nhg_upd_msg_check(struct bgp *bgp, afi_t afi, safi_t safi, struct bgp_dest *dest);
 void bgp_peer_clear_soo_routes(struct peer *peer, afi_t afi, safi_t safi, struct bgp_table *table);
 /* Utils */
 bool bgp_check_is_soo_route(struct bgp *bgp, struct bgp_dest *dest, struct bgp_path_info *pi);
+bool bgp_per_src_nhg_soo_id_change(struct bgp_dest *dest, struct bgp_path_info *pi, struct bgp *bgp);
 bool is_path_using_soo_nhg(const struct prefix *p, struct bgp_path_info *path, uint32_t *soo_nhg,
 			   struct in_addr *soo);
 bool is_nhg_per_origin_configured(struct bgp *bgp);

@@ -548,9 +548,35 @@ bool bgp_adj_out_set_subgroup(struct bgp_dest *dest,
 	 * the route wasn't changed actually.
 	 * Do not suppress BGP UPDATES for route-refresh.
 	 */
+	bool suppress_duplicate = false;
+
 	if (CHECK_FLAG(bgp->flags, BGP_FLAG_SUPPRESS_DUPLICATES)
 	    && !CHECK_FLAG(subgrp->sflags, SUBGRP_STATUS_FORCE_UPDATES)
 	    && adj->attr_hash == attr_hash) {
+		/* For SAFI_UNREACH, also check TLV data since it's not in attr_hash */
+		if (safi == SAFI_UNREACH && path->extra && path->extra->unreach && adj->adv &&
+		    adj->adv->pathi && adj->adv->pathi->extra && adj->adv->pathi->extra->unreach) {
+			struct bgp_path_info_extra_unreach *old_tlv =
+				adj->adv->pathi->extra->unreach;
+			struct bgp_path_info_extra_unreach *new_tlv = path->extra->unreach;
+
+			/* Compare all TLV fields */
+			if (old_tlv->reason_code == new_tlv->reason_code &&
+			    old_tlv->has_reason_code == new_tlv->has_reason_code &&
+			    old_tlv->timestamp == new_tlv->timestamp &&
+			    old_tlv->has_timestamp == new_tlv->has_timestamp &&
+			    old_tlv->reporter.s_addr == new_tlv->reporter.s_addr &&
+			    old_tlv->has_reporter == new_tlv->has_reporter) {
+				/* TLVs are identical, suppress duplicate */
+				suppress_duplicate = true;
+			}
+		} else if (safi != SAFI_UNREACH) {
+			/* For non-UNREACH SAFIs, attr_hash comparison is sufficient */
+			suppress_duplicate = true;
+		}
+	}
+
+	if (suppress_duplicate) {
 		if (BGP_DEBUG(update, UPDATE_OUT)) {
 			char attr_str[BUFSIZ] = {0};
 

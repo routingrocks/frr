@@ -342,6 +342,36 @@ static void bfd_dplane_set_slow_timer(struct bfd_dplane_server_session *bs) {
         bs->cur_timers_required_min_rx = BFD_DEF_SLOWTX;
 }
 
+/**
+ * Calculate jittered transmit interval according to RFC 5880 Section 6.5.2
+ * 
+ * The transmit interval should be randomly jittered between 75% and 100%
+ * of the nominal value (or 75%-90% if detect_mult is 1) to prevent
+ * self-synchronization between multiple BFD sessions.
+ * 
+ * @param interval_us Base interval in microseconds
+ * @param detect_mult Detection multiplier (used to determine jitter range)
+ * @return Jittered interval in microseconds
+ */
+static uint32_t bfd_dplane_apply_jitter(uint32_t interval_us, uint8_t detect_mult)
+{
+	int maxpercent;
+	uint32_t jitter;
+	
+	/*
+	 * RFC 5880 Section 6.5.2:
+	 * - Normally jitter between 75% and 100% (maxpercent = 26 gives us 75-101%)
+	 * - If detect_mult is 1, jitter between 75% and 90% (maxpercent = 16 gives us 75-91%)
+	 * This is more conservative when there's less tolerance for missed packets.
+	 */
+	maxpercent = (detect_mult == 1) ? 16 : 26;
+	
+	/* Calculate: interval * (75 + random(0 to maxpercent)) / 100 */
+	jitter = (interval_us * (75 + (frr_weak_random() % maxpercent))) / 100;
+	
+	return jitter;
+}
+
 static sx_status_t initialize_sx_sdk(void) {
 	sx_status_t rc;
 
@@ -544,12 +574,22 @@ TIMEOUT_ERROR:
 
 static void bfd_dplane_final_handler (struct bfd_dplane_server_session *bs)
 {
+	bs->cur_timers_required_min_rx = bs->config_required_rx;
+	bs->cur_timers_desired_min_tx = bs->config_desired_tx;
+	
+	/* Calculate base transmit interval (negotiated between peers) */
 	if (bs->config_desired_tx > bs->remote_required_rx)
 		bs->transmit_interval = bs->config_desired_tx;
 	else
 		bs->transmit_interval = bs->remote_required_rx;
 
-	bs->cur_timers_desired_min_tx = bs->transmit_interval;
+	/* 
+	 * Note: RFC 5880 jitter (75-100% randomization) will be applied in
+	 * bfd_construct_tx_packet when the TX session is actually updated to hardware.
+	 * We store the base interval here, and jitter is calculated fresh each time
+	 * to ensure proper randomization and prevent self-synchronization across
+	 * multiple BFD sessions.
+	 */
 
 	bfd_dplane_update_tx_session_offload(bs);
 }
@@ -570,7 +610,6 @@ static void bfd_dplane_final_handler (struct bfd_dplane_server_session *bs)
 static void bfd_dplane_process_rx_packet(struct bfd_dplane_server_session *session,
 					  const struct bfd_pkt *cp)
 {
-	bool tx_updated = false;
 	if (!session || !cp) {
 		zlog_err("%s: NULL session or packet", __func__);
 		return;
@@ -599,10 +638,6 @@ static void bfd_dplane_process_rx_packet(struct bfd_dplane_server_session *sessi
 				   __func__, session->lid, session->rid, ntohl(cp->discrs.my_discr));
 	}
 	
-	uint32_t old_remote_desired_tx = session->remote_desired_tx;
-	uint32_t old_remote_required_rx = session->remote_required_rx;
-	uint32_t old_remote_detect_mult = session->remote_detect_mult;
-
 	/* Update remote discriminator */
 	session->rid = ntohl(cp->discrs.my_discr);
 	
@@ -615,9 +650,6 @@ static void bfd_dplane_process_rx_packet(struct bfd_dplane_server_session *sessi
 	session->remote_required_echo_rx = ntohl(cp->timers.required_min_echo);
 	session->remote_detect_mult = cp->detect_mult;
 	
-	bool timer_changed = ((old_remote_desired_tx != session->remote_desired_tx) ||
-				(old_remote_required_rx != session->remote_required_rx) ||
-				(old_remote_detect_mult != session->remote_detect_mult));
 
 	/* Update remote C-bit (Control Plane Independent) */
 	if (BFD_GETCBIT(cp->flags))
@@ -653,7 +685,6 @@ static void bfd_dplane_process_rx_packet(struct bfd_dplane_server_session *sessi
 		session->polling = 0;
 		
 		bfd_dplane_final_handler(session);
-		tx_updated = true;
 	}
 	
 	if (session->cur_timers_required_min_rx > session->remote_desired_tx)
@@ -662,14 +693,6 @@ static void bfd_dplane_process_rx_packet(struct bfd_dplane_server_session *sessi
 		session->detect_TO = (uint64_t)session->remote_detect_mult * session->remote_desired_tx;
 
 	bfd_dplane_update_rx_session_offload(session);	
-
-	if (!tx_updated && timer_changed) {
-		if (session->config_desired_tx > session->remote_required_rx)
-                	session->transmit_interval = session->config_desired_tx;
-       	 	else
-                	session->transmit_interval = session->remote_required_rx;
-		bfd_dplane_update_tx_session_offload(session);	
-	}
 
 	/*
 	 * We've received a packet with the POLL bit set, we must send
@@ -682,9 +705,8 @@ static void bfd_dplane_process_rx_packet(struct bfd_dplane_server_session *sessi
 			zlog_debug("%s: [lid=%u] POLL bit set, need to send FINAL",
 				   __func__, session->lid);
 
-		bfd_dplane_final_handler(session);
 		session->send_final = 1;
-		bfd_dplane_update_tx_session_offload(session);		
+		bfd_dplane_final_handler(session);
 		/*Revert the final bit to 0 */
 		session->send_final = 0;
 		bfd_dplane_update_tx_session_offload(session);		
@@ -941,10 +963,6 @@ static void bfd_dplane_read_packet_trap(struct event *t)
 	
 	/* Allocate receive_info on heap to avoid large stack usage */
 	receive_info = XCALLOC(MTYPE_TMP, sizeof(sx_receive_info_t));
-
-//	frr_with_privs(&bglobal.bfdd_privs) {
-//		event_add_read(master, bfd_dplane_read_packet_trap, NULL, packet_notif_channel.channel.fd.fd, &packet_trap_event);
-	//}
 
 	frr_with_privs(&bglobal.bfdd_privs) {
 		rc = sx_lib_host_ifc_recv(&packet_notif_channel.channel.fd, packet_buffer, &packet_size, receive_info);
@@ -1479,13 +1497,21 @@ static void convert_ipv4_byte_order(struct in_addr *dst, const struct in_addr *s
 
 static void bfd_construct_tx_packet(sx_bfd_session_params_t *session_params_tx, struct bfd_pkt *bfd_packet_tx, struct bfd_dplane_server_session *session, bool new_session) 
 {
+	uint32_t jittered_interval;
+	
 	session_params_tx->session_data.type = SX_BFD_ASYNC_ACTIVE_TX;
-	//if (new_session) {
-	//	session_params_tx->session_data.data.tx_data.interval = session->config_desired_tx;
-	//} else {
-		/* Use calculated transmit interval */
-	session_params_tx->session_data.data.tx_data.interval = session->transmit_interval;
-	//}
+	
+	/* Apply RFC 5880 jitter to transmit interval to prevent synchronization */
+	jittered_interval = bfd_dplane_apply_jitter(session->transmit_interval, 
+	                                            session->detect_mult);
+	
+	session_params_tx->session_data.data.tx_data.interval = jittered_interval;
+	
+	if (bglobal.debug_dplane)
+		zlog_debug("%s: [lid=%u] Applied jitter: base=%u jittered=%u (%.1f%%)",
+		           __func__, session->lid, 
+		           session->transmit_interval, jittered_interval,
+		           (jittered_interval * 100.0) / session->transmit_interval);
 
 	session_params_tx->session_data.data.tx_data.packet_encap.encap_type = SX_BFD_UDP_OVER_IP;
 	session_params_tx->peer.peer_type = SX_BFD_PEER_IP_AND_VRF;
@@ -1536,13 +1562,8 @@ static void bfd_construct_tx_packet(sx_bfd_session_params_t *session_params_tx, 
 	 * - When polling: advertise NEW config values (what we want to negotiate to)
 	 * - When not polling: advertise cur_timers (current operational values)
 	 */
-	//if (!session->polling) {
-	//	bfd_packet_tx->timers.desired_min_tx = htonl(session->cur_timers_desired_min_tx);
-	//	bfd_packet_tx->timers.required_min_rx = htonl(session->cur_timers_required_min_rx);
-//	} else {
 	bfd_packet_tx->timers.desired_min_tx = htonl(session->config_desired_tx);
 	bfd_packet_tx->timers.required_min_rx = htonl(session->config_required_rx);
-//	}
 	bfd_packet_tx->timers.required_min_echo = htonl(session->config_required_echo_rx);
 
 	bfd_packet_tx->flags = 0;
@@ -1560,23 +1581,19 @@ static void bfd_construct_tx_packet(sx_bfd_session_params_t *session_params_tx, 
 		bfd_packet_tx->discrs.remote_discr = htonl(session->rid);
 		
 		
-		/* Sanity check: P-bit and F-bit should never be set simultaneously */
-		if (session->polling && session->send_final) {
-			session->polling = 0;
-			session->send_final = 1;
-        		//if (session->config_desired_tx > session->remote_required_rx)
-                	//	session->transmit_interval = session->config_desired_tx;
-        		//else
-                	//	session->transmit_interval = session->remote_required_rx;
-
-			 //session_params_tx->session_data.data.tx_data.interval = session->transmit_interval;
-		}
-		/* Set P-bit and F-bit from session */
-		if (session->polling) {
-			BFD_SETPBIT(bfd_packet_tx->flags, 1);
-		}
 		if (session->send_final) {
 			BFD_SETFBIT(bfd_packet_tx->flags, 1);
+		}
+		if (!session->send_final && session->polling) {
+			BFD_SETPBIT(bfd_packet_tx->flags, 1);
+		}
+		/* Sanity check: P-bit and F-bit should never be set simultaneously */
+		if (session->polling) {
+			bfd_packet_tx->timers.desired_min_tx = htonl(session->config_desired_tx);
+			bfd_packet_tx->timers.required_min_rx = htonl(session->config_required_rx);
+		} else {
+			bfd_packet_tx->timers.desired_min_tx = htonl(session->cur_timers_desired_min_tx);
+			bfd_packet_tx->timers.required_min_rx = htonl(session->cur_timers_required_min_rx);
 		}
 	}
 
@@ -1637,18 +1654,12 @@ static void bfd_construct_rx_packet(sx_bfd_session_params_t *session_params_rx, 
         bfd_packet_rx->len = 24;
         bfd_packet_rx->discrs.my_discr = htonl(session->rid);
         bfd_packet_rx->discrs.remote_discr = htonl(session->lid);
-	bfd_packet_rx->timers.required_min_echo = htonl(session->config_required_echo_rx);
+	bfd_packet_rx->timers.required_min_echo = htonl(session->remote_required_echo_rx);
 
-	if (new_session) {
-        	bfd_packet_rx->detect_mult = BFD_DEFDETECTMULT;
-		bfd_packet_rx->timers.desired_min_tx = htonl(BFD_DEFDESIREDMINTX); //htonl(session->config_desired_tx);
-		bfd_packet_rx->timers.required_min_rx = htonl(BFD_DEFREQUIREDMINRX); //htonl(session->config_required_rx);
-	} else {
-        	bfd_packet_rx->detect_mult = session->remote_detect_mult;
-		/* Convert from host to network byte order for packet */
-		bfd_packet_rx->timers.desired_min_tx = htonl(session->remote_desired_tx);
-		bfd_packet_rx->timers.required_min_rx = htonl(session->remote_required_rx);
-	}
+        bfd_packet_rx->detect_mult = session->remote_detect_mult;
+	/* Convert from host to network byte order for packet */
+	bfd_packet_rx->timers.desired_min_tx = htonl(session->remote_desired_tx);
+	bfd_packet_rx->timers.required_min_rx = htonl(session->remote_required_rx);
 
         bfd_packet_rx->flags = 0;
         BFD_SETSTATE(bfd_packet_rx->flags, BFD_SESSION_UP);
@@ -1740,6 +1751,7 @@ static void bfd_dplane_server_handle_update_session(struct bfd_dplane_server_cli
 	bool old_shutdown = session->flags & BFD_SESSION_FLAG_SHUTDOWN;
 	uint32_t old_config_desired_tx = session->config_desired_tx;
 	uint32_t old_config_required_rx = session->config_required_rx;
+	uint32_t old_detect_multiplier = session->detect_mult;
 	bool old_passive_mode  = session->flags & BFD_SESSION_FLAG_PASSIVE;
 	bool is_up = (session->state == BFD_SESSION_UP);
 
@@ -1750,6 +1762,8 @@ static void bfd_dplane_server_handle_update_session(struct bfd_dplane_server_cli
 				(session->config_required_rx != old_config_required_rx));
 	bool passive_mode_changed = old_passive_mode ^ (session->flags & BFD_SESSION_FLAG_PASSIVE);
 	bool shutdown_mode_changed = old_shutdown ^ (session->flags & BFD_SESSION_FLAG_SHUTDOWN);
+	bool multiplier_changed = (session->detect_mult != old_detect_multiplier);
+	bool tx_updated = false;
 	
 	if (passive_mode_changed) {
 		//TODO handle this case
@@ -1824,31 +1838,29 @@ static void bfd_dplane_server_handle_update_session(struct bfd_dplane_server_cli
 		 * Strategy: Update cur_timers to max(old, new) so we advertise and use
 		 * the most lenient values during the polling sequence.
 		 */
-		
+	         
 		/* For RX: If increasing requirement, use new (larger) value immediately for our detect_TO */
 		if (session->config_required_rx > session->cur_timers_required_min_rx) {
-			session->cur_timers_required_min_rx = session->config_required_rx;
+			//session->cur_timers_required_min_rx = session->config_required_rx;
 			rx_changed = true;
 		}
 		
 		/* For TX: If increasing interval, keep old (faster) rate until poll completes */
-		if (session->config_desired_tx > session->cur_timers_desired_min_tx) {
-			session->cur_timers_desired_min_tx = session->config_desired_tx;
-			//session->transmit_interval = session->config_desired_tx;
-		} else {
-			//Start sending with higher rate
+		if (session->config_desired_tx < session->cur_timers_desired_min_tx) {
 			session->transmit_interval = session->config_desired_tx;
 		}
 		
-		/* Recalculate detect_TO with updated cur_timers */
-		if (session->cur_timers_required_min_rx > session->remote_desired_tx)
-			session->detect_TO = (uint64_t)session->remote_detect_mult * session->cur_timers_required_min_rx;
-		else
-			session->detect_TO = (uint64_t)session->remote_detect_mult * session->remote_desired_tx;
-		
 		/* Update both RX (detect_TO) and TX (send POLL) */
-		if (rx_changed) 
+		if (rx_changed) {
+			session->detect_TO = (uint64_t) session->remote_detect_mult * session->config_required_rx;
 			bfd_dplane_update_rx_session_offload(session);
+		}
+		
+		bfd_dplane_update_tx_session_offload(session);
+		tx_updated = true;
+	}
+	// In case of multiplier change only, update the TX session
+	if (is_up && !tx_updated && multiplier_changed) {
 		bfd_dplane_update_tx_session_offload(session);
 	}
 }
@@ -1882,10 +1894,11 @@ static void bfd_dplane_server_handle_add_session(struct bfd_dplane_server_client
 	/* Initiate new connection with slow timers*/
 	session->detect_TO = (BFD_DEFDETECTMULT * BFD_DEF_SLOWTX);
 	session->transmit_interval = BFD_DEF_SLOWTX;
+	bfd_dplane_set_slow_timer(session);
 	session->state = BFD_SESSION_DOWN;
 	session->remote_state = BFD_SESSION_DOWN;
-        session->remote_desired_tx = BFD_DEFDESIREDMINTX;
-        session->remote_required_rx = BFD_DEFREQUIREDMINRX;
+        session->remote_desired_tx = BFD_DEF_SLOWTX;
+        session->remote_required_rx = BFD_DEF_SLOWTX;
         session->remote_required_echo_rx = BFD_DEF_REQ_MIN_ECHO_RX;
 	session->detect_mult = BFD_DEFDETECTMULT;
 	session->offloaded_tx_session_id = 0;

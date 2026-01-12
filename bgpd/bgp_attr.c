@@ -42,6 +42,8 @@
 #include "bgp_flowspec_private.h"
 #include "bgp_mac.h"
 #include "bgpd/bgp_trace.h"
+#include "bgpd/bgp_route.h"
+#include "bgpd/bgp_unreach.h"
 
 
 /* Attribute strings for logging. */
@@ -2360,7 +2362,7 @@ int bgp_mp_reach_parse(struct bgp_attr_parser_args *args,
 	/* Nexthop length check. */
 	switch (attr->mp_nexthop_len) {
 	case 0:
-		if (safi != SAFI_FLOWSPEC) {
+		if (safi != SAFI_FLOWSPEC && safi != SAFI_UNREACH) {
 			zlog_info("%s: %s sent wrong next-hop length, %d, in MP_REACH_NLRI",
 				  __func__, peer->host, attr->mp_nexthop_len);
 			return BGP_ATTR_PARSE_ERROR_NOTIFYPLS;
@@ -4089,7 +4091,7 @@ size_t bgp_packet_mpattr_start(struct stream *s, struct peer *peer, afi_t afi,
 	    && (safi == SAFI_UNICAST || safi == SAFI_LABELED_UNICAST
 		|| safi == SAFI_MPLS_VPN || safi == SAFI_MULTICAST))
 		nh_afi = peer_cap_enhe(peer, afi, safi) ? AFI_IP6 : AFI_IP;
-	else if (safi == SAFI_FLOWSPEC)
+	else if (safi == SAFI_FLOWSPEC || safi == SAFI_UNREACH)
 		nh_afi = afi;
 	else
 		nh_afi = BGP_NEXTHOP_AFI_FROM_NHLEN(attr->mp_nexthop_len);
@@ -4123,6 +4125,9 @@ size_t bgp_packet_mpattr_start(struct stream *s, struct peer *peer, afi_t afi,
 				stream_putc(s, attr->mp_nexthop_len);
 				stream_put_ipv4(s, attr->nexthop.s_addr);
 			}
+			break;
+		case SAFI_UNREACH:
+			stream_putc(s, 0); /* no nexthop for unreachability */
 			break;
 		case SAFI_UNSPEC:
 		case SAFI_MAX:
@@ -4176,6 +4181,9 @@ size_t bgp_packet_mpattr_start(struct stream *s, struct peer *peer, afi_t afi,
 		case SAFI_FLOWSPEC:
 			stream_putc(s, 0); /* no nexthop for flowspec */
 			break;
+		case SAFI_UNREACH:
+			stream_putc(s, 0); /* no nexthop for unreachability */
+			break;
 		case SAFI_UNSPEC:
 		case SAFI_MAX:
 			assert(!"SAFI's UNSPEC or MAX being specified are a DEV ESCAPE");
@@ -4200,11 +4208,10 @@ size_t bgp_packet_mpattr_start(struct stream *s, struct peer *peer, afi_t afi,
 	return sizep;
 }
 
-void bgp_packet_mpattr_prefix(struct stream *s, afi_t afi, safi_t safi,
-			      const struct prefix *p,
-			      const struct prefix_rd *prd, mpls_label_t *label,
-			      uint32_t num_labels, bool addpath_capable,
-			      uint32_t addpath_tx_id, struct attr *attr)
+void bgp_packet_mpattr_prefix(struct stream *s, afi_t afi, safi_t safi, const struct prefix *p,
+			      const struct prefix_rd *prd, mpls_label_t *label, uint32_t num_labels,
+			      bool addpath_capable, uint32_t addpath_tx_id, struct attr *attr,
+			      struct bgp_path_info *path)
 {
 	switch (safi) {
 	case SAFI_UNSPEC:
@@ -4239,7 +4246,45 @@ void bgp_packet_mpattr_prefix(struct stream *s, afi_t afi, safi_t safi,
 		stream_put(s, (const void *)p->u.prefix_flowspec.ptr,
 			   p->u.prefix_flowspec.prefixlen);
 		break;
+	case SAFI_UNREACH:
+		/* Unreachability NLRI encoding with TLVs from path->extra */
+		if (addpath_capable)
+			stream_putl(s, addpath_tx_id);
+		stream_putc(s, p->prefixlen);
+		if (PSIZE(p->prefixlen) > 0)
+			stream_put(s, &p->u.prefix, PSIZE(p->prefixlen));
 
+		/* Encode TLVs from path->extra->unreach (NLRI data, not attributes) */
+		if (path && path->extra && path->extra->unreach) {
+			struct bgp_unreach_nlri nlri;
+			struct bgp_path_info_extra_unreach *unreach = path->extra->unreach;
+
+			/* Debug: Log what we're encoding */
+			zlog_debug("UNREACH ENCODE TLV: prefix=%pFX, reason=%u, path=%p", p,
+				   unreach->reason_code, path);
+
+			/* Build NLRI structure from path extra data */
+			memset(&nlri, 0, sizeof(nlri));
+			nlri.timestamp = unreach->timestamp;
+			nlri.has_timestamp = unreach->has_timestamp;
+			nlri.reason_code = unreach->reason_code;
+			nlri.has_reason_code = unreach->has_reason_code;
+			nlri.reporter = unreach->reporter;
+			nlri.has_reporter = unreach->has_reporter;
+			nlri.reporter_as = unreach->reporter_as;
+			nlri.has_reporter_as = unreach->has_reporter_as;
+
+			/* Encode TLVs as part of NLRI (not as BGP attributes) */
+			bgp_unreach_tlv_encode(s, &nlri);
+		} else if (path == NULL) {
+			zlog_warn("UNREACH ENCODE: path=NULL for prefix=%pFX - TLVs will NOT be encoded!",
+				  p);
+		} else if (!path->extra) {
+			zlog_warn("UNREACH ENCODE: path->extra=NULL for prefix=%pFX", p);
+		} else if (!path->extra->unreach) {
+			zlog_warn("UNREACH ENCODE: path->extra->unreach=NULL for prefix=%pFX", p);
+		}
+		break;
 	case SAFI_UNICAST:
 	case SAFI_MULTICAST:
 		stream_put_prefix_addpath(s, p, addpath_capable, addpath_tx_id);
@@ -4284,6 +4329,16 @@ size_t bgp_packet_mpattr_prefix_size(afi_t afi, safi_t safi,
 		break;
 	case SAFI_FLOWSPEC:
 		size = ((struct prefix_fs *)p)->prefix.prefixlen;
+		break;
+	case SAFI_UNREACH:
+		/* Size is prefix + TLVs
+		 * Each TLV: 1 byte type + 2 bytes length + value
+		 * - Original Reporter TLV (Type 1, MANDATORY): 3 + 4 = 7 bytes
+		 * - Reason Code TLV (Type 2, optional): 3 + 2 = 5 bytes  
+		 * - Timestamp TLV (Type 3, optional): 3 + 8 = 11 bytes
+		 * Maximum TLV size: 7 + 5 + 11 = 23 bytes
+		 */
+		size += 23; /* Maximum TLV size */
 		break;
 	}
 
@@ -4441,9 +4496,8 @@ bgp_size_t bgp_packet_attribute(struct bgp *bgp, struct peer *peer,
 
 		mpattrlen_pos = bgp_packet_mpattr_start(s, peer, afi, safi,
 							vecarr, attr);
-		bgp_packet_mpattr_prefix(s, afi, safi, p, prd, label,
-					 num_labels, addpath_capable,
-					 addpath_tx_id, attr);
+		bgp_packet_mpattr_prefix(s, afi, safi, p, prd, label, num_labels, addpath_capable,
+					 addpath_tx_id, attr, bpi);
 		bgp_packet_mpattr_end(s, mpattrlen_pos);
 	}
 
@@ -5007,8 +5061,8 @@ void bgp_packet_mpunreach_prefix(struct stream *s, const struct prefix *p,
 		num_labels = 1;
 	}
 
-	bgp_packet_mpattr_prefix(s, afi, safi, p, prd, label, num_labels,
-				 addpath_capable, addpath_tx_id, attr);
+	bgp_packet_mpattr_prefix(s, afi, safi, p, prd, label, num_labels, addpath_capable,
+				 addpath_tx_id, attr, NULL);
 }
 
 void bgp_packet_mpunreach_end(struct stream *s, size_t attrlen_pnt)

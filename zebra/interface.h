@@ -110,6 +110,9 @@ enum zebra_if_flags {
 	ZIF_FLAG_STATIC_PEER_LL_WAITING = (1 << 11),
 	/* Peer link-local confirmation has been received for this interface */
 	ZIF_FLAG_STATIC_PEER_LL_CONFIRMED = (1 << 12),
+	/* Kernel protodown state from RTM_NEWLINK - used to detect kernel
+	 * protodown transitions independently from ZIF_FLAG_PROTODOWN */
+	ZIF_FLAG_KERNEL_PROTODOWN_SET = (1 << 13),
 };
 
 /* We snoop on ARP replies and NAs rxed on bridge ports if MH is

@@ -788,7 +788,7 @@ def parse_frr_bgp_evpn_mh_nh_rmac_zsend(event):
 
 def parse_frr_bgp_evpn_mh_local_es_add_zrecv(event):
     field_parsers = {"esi": print_esi,
-                     "vtep": print_net_ipv4_addr}
+                     "vtep": print_ip_addr}
     parse_event(event, field_parsers)
 
 def parse_frr_bgp_evpn_mh_local_es_del_zrecv(event):
@@ -805,22 +805,23 @@ def parse_frr_bgp_evpn_mh_local_es_evi_del_zrecv(event):
 
 def parse_frr_bgp_evpn_mh_es_evi_vtep_add(event):
     field_parsers = {"esi": print_esi,
-                     "vtep": print_net_ipv4_addr}
+                     "vtep": print_ip_addr}
     parse_event(event, field_parsers)
 
 def parse_frr_bgp_evpn_mh_es_evi_vtep_del(event):
     field_parsers = {"esi": print_esi,
-                     "vtep": print_net_ipv4_addr}
+                     "vtep": print_ip_addr}
     parse_event(event, field_parsers)
 
 def parse_frr_bgp_evpn_mh_local_ead_es_evi_route_upd(event):
     field_parsers = {"esi": print_esi,
-                     "vtep": print_net_ipv4_addr}
+                     "vtep_v4": print_net_ipv4_addr,
+                     "vtep_v6": print_ip_addr}
     parse_event(event, field_parsers)
 
 def parse_frr_bgp_evpn_mh_local_ead_es_evi_route_del(event):
     field_parsers = {"esi": print_esi,
-                     "vtep": print_net_ipv4_addr}
+                     "vtep": print_ip_addr}
     parse_event(event, field_parsers)
 
 def parse_frr_bgp_evpn_local_vni_add_zrecv(event):
@@ -1032,7 +1033,7 @@ def evpn_type_to_string(type_val):
 def parse_frr_bgp_evpn_mh_vtep_zsend(event):
     field_parsers = {
         "action": evpn_action_to_string,
-        "vtep": print_net_ipv4_addr,
+        "vtep": print_ip_addr,
         "esi": print_esi
     }
     parse_event(event, field_parsers)
@@ -1046,7 +1047,7 @@ def parse_frr_bgp_evpn_mh_nhg_zsend(event):
     parse_event(event, field_parsers)
 
 def parse_frr_bgp_evpn_mh_nh_zsend(event):
-    field_parsers = {"vtep": print_net_ipv4_addr}
+    field_parsers = {"vtep": print_ip_addr}
     parse_event(event, field_parsers)
 
 def parse_frr_bgp_upd_rmac_is_self_mac(event):

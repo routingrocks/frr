@@ -174,6 +174,8 @@ const char *safi2str(safi_t safi)
 		return "labeled-unicast";
 	case SAFI_FLOWSPEC:
 		return "flowspec";
+	case SAFI_UNREACH:
+		return "unreachability";
 	case SAFI_UNSPEC:
 	case SAFI_MAX:
 		return "unknown";
@@ -978,11 +980,12 @@ static const char *prefixevpn_ead2str(const struct prefix_evpn *p, char *str,
 	char buf1[INET6_ADDRSTRLEN];
 
 	family = IS_IPADDR_V4(&p->prefix.ead_addr.ip) ? AF_INET : AF_INET6;
+
 	snprintf(str, size, "[%d]:[%u]:[%s]:[%d]:[%s]:[%u]",
 		 p->prefix.route_type, p->prefix.ead_addr.eth_tag,
 		 esi_to_str(&p->prefix.ead_addr.esi, buf, sizeof(buf)),
 		 (family == AF_INET) ? IPV4_MAX_BITLEN : IPV6_MAX_BITLEN,
-		 inet_ntop(family, &p->prefix.ead_addr.ip.ipaddr_v4, buf1,
+		 inet_ntop(family, &p->prefix.ead_addr.ip.ip.addr, buf1,
 			   sizeof(buf1)),
 		 p->prefix.ead_addr.frag_id);
 	return str;
