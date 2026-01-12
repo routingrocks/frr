@@ -524,11 +524,11 @@ void ptm_bfd_sess_up(struct bfd_session *bfd)
 
 	control_notify(bfd, bfd->ses_state);
 
-	/* Trace state change */
-	frrtrace(4, frr_bfd, state_change, bfd, old_state, bfd->ses_state, bfd->local_diag);
 
 	if (old_state != bfd->ses_state) {
 		bfd->stats.session_up++;
+	        /* Trace state change */
+	        frrtrace(4, frr_bfd, state_change, bfd, old_state, bfd->ses_state, bfd->local_diag);
 		if (bglobal.debug_peer_event)
 			zlog_debug("state-change: [%s] %s -> %s",
 				   bs_to_string(bfd), state_list[old_state].str,

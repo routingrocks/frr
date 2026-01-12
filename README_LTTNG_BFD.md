@@ -14,12 +14,14 @@ BFD LTTng support provides comprehensive production-optimized tracing of BFD pro
 - Profile and echo mode configuration changes
 - Control socket client management
 - Data plane interactions (session updates, echo, socket errors)
+- **Warmboot support**: Cross-module tracing for BFD sessions during fast shutdown/warmboot
 
 **Key Features:**
 - Binary field format for minimal overhead (no string serialization)
 - Consolidated paired events using boolean flags
 - Production-safe tracing with no high-frequency events
 - Numeric error codes for efficient filtering
+- **CTF enum decoding**: BFD states and diagnostic codes are automatically decoded by babeltrace
 
 ## Building with LTTng Support
 
@@ -115,13 +117,13 @@ babeltrace ~/lttng-traces/bfd_session-*/
 babeltrace --output-format=ctf ~/lttng-traces/bfd_session-*/
 ```
 
-**Note:** The `frr_babeltrace.py` script includes custom parsers for all 23 BFD events:
+**Note:** The `frr_babeltrace.py` script includes custom parsers for BFD events. Many fields are now automatically decoded via CTF enums defined in the trace headers.
 
 **Session Lifecycle & State:**
 - `session_lifecycle` - Converts is_create to "CREATE"/"DELETE", family to "IPv4"/"IPv6"
 - `session_enable_event` - Converts to "ENABLE"/"DISABLE" and state names
-- `state_change` - Converts state codes to "UP"/"DOWN"/"INIT"/"ADM_DOWN" and diagnostic codes
-- `control_notify` - Converts notification state to readable format
+- `state_change` - States and diagnostics auto-decoded via CTF enums (bfd_state, bfd_diag)
+- `control_notify` - notify_state auto-decoded via CTF enum (bfd_state)
 
 **Packet & Authentication:**
 - `packet_validation_error` - Converts error codes to strings (e.g., "PACKET_TOO_SMALL")
@@ -146,12 +148,22 @@ babeltrace --output-format=ctf ~/lttng-traces/bfd_session-*/
 - `zebra_address_event` - Converts action to "ADD"/"DELETE" and family to "IPv4"/"IPv6"
 
 **PTM Events:**
-- `ptm_session_event` - Session operations with full session info (addresses, refcount, diag)
+- `ptm_session_event` - Session operations with full session info (addresses, vrf_id, ifindex, ifname, refcount); diag auto-decoded via CTF enum (bfd_diag)
 - `ptm_client_event` - Client operations (register/deregister with pid)
 - `ptm_config_refcount_error` - CLI session with refcount=0 bug (with session addresses)
 - `ptm_error` - PTM errors with error codes (1-9)
 - `packet_send_error` - Converts error_type to "SEND_FAILURE"/"PARTIAL_SEND" with full session info and errno messages
 - `stats_error` - Converts error_type to descriptive strings with errno messages
+
+**BGP BFD Events (frr_bgp):**
+- `bfd_session_register` - BGP registers BFD session (peer, vrf_id, location code)
+- `bfd_session_deregister` - BGP deregisters BFD session (peer, vrf_id, location code)
+- `bfd_session_status_update` - BFD status received; old_state/new_state auto-decoded via CTF enum (bfd_state)
+- `bfd_fast_shutdown` - Fast shutdown processing (vrf_name, upgrade flag)
+
+**Zebra BFD Events (frr_zebra):**
+- `bfd_dest_register` - Dest register/deregister; action via CTF enum (bfd_action), client_proto via CTF enum (route_type)
+- `bfd_dest_update` - Dest update from BFDd; client_proto via CTF enum (route_type)
 
 **Packet & Echo Events (with full packet context):**
 - `packet_validation_error` - Error codes with actual/expected values, mhop, peer/local addresses
@@ -364,6 +376,140 @@ BFD LTTng tracing integrates with the overall FRR tracing framework and can be u
 - Zebra LTTng tracing
 - General LTTng tracing
 
+## Warmboot Tracing Support
+
+BFD tracing includes cross-module support for tracking BFD session lifecycle during warmboot/fast shutdown scenarios. This provides end-to-end visibility into how BFD sessions are managed across BGP, Zebra, and BFDd.
+
+### BGP Module Tracepoints (frr_bgp)
+
+The following tracepoints are available in the BGP module for BFD session management:
+
+| Tracepoint | Description |
+|------------|-------------|
+| `bfd_session_register` | BGP registers/installs BFD session with BFDd via Zebra |
+| `bfd_session_deregister` | BGP deregisters BFD session (config removal, fast shutdown) |
+| `bfd_session_status_update` | BFD status update received from BFDd (UP/DOWN transitions) |
+| `bfd_fast_shutdown` | BGP processes fast shutdown, deregisters all BFD sessions |
+
+#### bfd_session_register Fields
+- `peer`: Peer hostname or IP
+- `vrf_id`: VRF ID
+- `location`: Where registration occurred (1=config_apply, 2=config_apply_group, 3=update_source)
+
+#### bfd_session_deregister Fields
+- `peer`: Peer hostname or IP
+- `vrf_id`: VRF ID
+- `location`: Where deregistration occurred:
+  - 1 = fast_shutdown
+  - 2 = update_source_change
+  - 3 = multihop_change
+  - 4 = peer_config_removal
+  - 5 = peer_group_config_removal
+
+#### bfd_session_status_update Fields
+- `peer`: Peer hostname or IP
+- `vrf_id`: VRF ID
+- `old_state`: Previous BFD state (CTF enum: NONE/UNKNOWN/DOWN/UP/ADMIN_DOWN)
+- `new_state`: New BFD state (CTF enum)
+- `cbit`: Local C-bit value (for graceful restart)
+- `remote_cbit`: Remote C-bit value
+
+#### bfd_fast_shutdown Fields
+- `vrf_name`: VRF name being processed
+- `upgrade`: Whether this is an upgrade (warmboot) vs regular shutdown
+
+### Zebra Module Tracepoints (frr_zebra)
+
+The following tracepoints are available in Zebra for BFD message routing:
+
+| Tracepoint | Description |
+|------------|-------------|
+| `bfd_dest_register` | BFD destination register/deregister message from client |
+| `bfd_dest_update` | BFD destination update message from BFDd |
+
+#### bfd_dest_register Fields
+- `action`: CTF enum (REGISTER=1, DEREGISTER=2)
+- `client_proto`: Client protocol (CTF enum: BGP, OSPF, ISIS, etc.)
+- `msg_len`: Message length
+
+#### bfd_dest_update Fields
+- `client_proto`: Client protocol (CTF enum)
+- `msg_len`: Message length
+
+### BFDd Module Enhancements
+
+The BFDd module now includes CTF enum definitions for automatic decoding:
+
+| Enum | Values |
+|------|--------|
+| `bfd_state` | ADMIN_DOWN(0), DOWN(1), INIT(2), UP(3) |
+| `bfd_diag` | NO_DIAG(0), CTRL_DETECT_EXPIRED(1), ECHO_FAILED(2), NEIGHBOR_DOWN(3), FWD_PLANE_RESET(4), PATH_DOWN(5), CONCAT_PATH_DOWN(6), ADMIN_DOWN(7), REV_CONCAT_PATH_DOWN(8) |
+
+The `ptm_session_event` tracepoint now includes additional fields:
+- `vrf_id`: VRF ID
+- `ifindex`: Interface index
+- `ifname`: Interface name
+
+### Warmboot Tracing Example
+
+To trace BFD session lifecycle during warmboot:
+
+```bash
+# Create sessions for all modules
+lttng create warmboot-bfd
+
+# Enable BGP BFD tracepoints
+lttng enable-event -u 'frr_bgp:bfd_session_register,frr_bgp:bfd_session_deregister,frr_bgp:bfd_session_status_update,frr_bgp:bfd_fast_shutdown'
+
+# Enable Zebra BFD tracepoints
+lttng enable-event -u 'frr_zebra:bfd_dest_register,frr_zebra:bfd_dest_update'
+
+# Enable BFD state and session tracepoints
+lttng enable-event -u 'frr_bfd:state_change,frr_bfd:control_notify,frr_bfd:ptm_session_event'
+
+# Start tracing
+lttng start
+
+# Trigger warmboot
+# ...
+
+# Stop and view
+lttng stop
+/usr/lib/frr/frr_babeltrace.py ~/lttng-traces/warmboot-bfd-*/
+```
+
+### Expected Warmboot Trace Sequence
+
+During a typical warmboot, you should see:
+
+1. **Pre-warmboot (fast shutdown)**:
+   - `frr_bgp:bfd_fast_shutdown` - BGP starting fast shutdown
+   - `frr_bgp:bfd_session_deregister` (location=1) - Per-peer BFD deregistration
+   - `frr_zebra:bfd_dest_register` (action=DEREGISTER) - Zebra forwarding deregister to BFDd
+   - `frr_bfd:ptm_session_event` (action=DELETE) - BFDd removing sessions
+   - `frr_bfd:state_change` - Sessions going DOWN
+   - `frr_bfd:control_notify` - Notifications sent to clients
+
+2. **Post-warmboot (recovery)**:
+   - `frr_bgp:bfd_session_register` - BGP re-registering BFD sessions
+   - `frr_zebra:bfd_dest_register` (action=REGISTER) - Zebra forwarding to BFDd
+   - `frr_bfd:ptm_session_event` (action=ADD) - BFDd creating sessions
+   - `frr_bfd:state_change` - Sessions transitioning UP
+   - `frr_bgp:bfd_session_status_update` - BGP receiving status updates
+
+### LTTNG Trace Backup During Warmboot
+
+To preserve traces across warmboot/reboot, the `start-lttng` script (from `cumulus-overrides` package) should backup FRR traces before clearing sessions. The following sessions are backed up:
+- `frr-local-onboot` (BGP traces)
+- `frr-local-bfd-onboot` (BFD traces)
+- `frr-local-zebra-onboot` (Zebra traces)
+
+Backed up traces are stored with timestamps, e.g.:
+```
+/var/log/lttng-traces/frr-local-onboot-20251218_093000/
+/var/log/lttng-traces/frr-local-bfd-onboot-20251218_093000/
+```
+
 ## Troubleshooting
 
 ### No tracepoints visible
@@ -410,14 +556,15 @@ lttng enable-event -u 'frr_bfd:profile_apply,frr_bfd:timer_negotiation,frr_bfd:e
 ## Summary
 
 The BFD LTTng tracing implementation provides **30+ production-optimized tracepoints** covering:
-- 4 session lifecycle events (with address info, mhop, vrfname, ifname)
+- 4 session lifecycle events (with address info, mhop, vrf_id, ifindex)
 - 6 packet validation and peer events (with full packet context)
 - 1 authentication event (with packet context)
 - 3 configuration and timer events
 - 2 control socket events (consolidated)
 - 4 data plane events
 - 4 PTM events (session, client, config_refcount_error, error)
-- 2 Zebra integration events (interface, address)
+- 2 Zebra BFD routing events (dest_register, dest_update)
+- 4 BGP BFD integration events (register, deregister, status_update, fast_shutdown)
 - 1 packet send error event (with full session details)
 
 **Key Design Principles:**
@@ -427,6 +574,8 @@ The BFD LTTng tracing implementation provides **30+ production-optimized tracepo
 - **No dummy values**: Separate tracepoints for different contexts instead of using zero/null placeholders
 - **Binary fields**: Minimal overhead with no string serialization
 - **Production-safe**: All tracepoints fire only on significant events
+- **CTF enum decoding**: States, diagnostics, and protocol types are decoded automatically by babeltrace
+- **Cross-module warmboot support**: End-to-end tracing across BGP, Zebra, and BFDd for warmboot scenarios
 
 This design makes the implementation suitable for continuous production monitoring without performance impact, while providing the same diagnostic information as debug logs.
 
@@ -436,3 +585,5 @@ This design makes the implementation suitable for continuous production monitori
 - [FRR Tracing Framework](../lib/trace.h)
 - [BFD Protocol RFC 5880](https://tools.ietf.org/html/rfc5880)
 - [BFD Trace Header](bfdd/bfd_trace.h)
+- [BGP Trace Header](bgpd/bgp_trace.h) - BGP BFD tracepoints
+- [Zebra Trace Header](zebra/zebra_trace.h) - Zebra BFD routing tracepoints

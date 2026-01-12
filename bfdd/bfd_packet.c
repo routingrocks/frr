@@ -1178,9 +1178,12 @@ GLOBAL_SOCKET:
 	/* Find the session that this packet belongs. */
 	bfd = ptm_bfd_sess_find(cp, &peer, &local, ifp, vrfid, is_mhop);
 	if (bfd == NULL) {
+                /* This is hitting frequently so removing */
+#if 0
 		frrtrace(6, frr_bfd, packet_session_not_found,
 			 is_mhop, &peer, &local, ifindex, vrfid,
 			 ntohl(cp->discrs.my_discr));
+#endif
 		cp_debug(is_mhop, &peer, &local, ifindex, vrfid,
 			 "no session found");
 		return;

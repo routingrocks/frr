@@ -483,24 +483,13 @@ def parse_frr_bfd_auth_event(event):
 def parse_frr_bfd_state_change(event):
     """Parse BFD state change events"""
     family = event.get("family")
+    # Note: old_state, new_state, diag are decoded by CTF enums in bfd_trace.h
+    # Only decode fields that don't have CTF enum definitions
     field_parsers = {
-        "old_state": bfd_state2str,
-        "new_state": bfd_state2str,
         "family": lambda x: "IPv4" if x == socket.AF_INET else "IPv6" if x == socket.AF_INET6 else f"AF_{x}",
         "local_addr": lambda x: print_bfd_addr(x, family),
         "peer_addr": lambda x: print_bfd_addr(x, family),
         "mhop": lambda x: "multihop" if x else "singlehop",
-        "diag": lambda x: {
-            0: "No Diagnostic",
-            1: "Control Detection Time Expired",
-            2: "Echo Function Failed",
-            3: "Neighbor Signaled Session Down",
-            4: "Forwarding Plane Reset",
-            5: "Path Down",
-            6: "Concatenated Path Down",
-            7: "Administratively Down",
-            8: "Reverse Concatenated Path Down"
-        }.get(x, f"Unknown Diag {x}")
     }
     parse_event(event, field_parsers)
 
@@ -533,8 +522,8 @@ def parse_frr_bfd_remote_discriminator_change(event):
 def parse_frr_bfd_control_notify(event):
     """Parse BFD control notification events"""
     family = event.get("family", 0)
+    # Note: notify_state is decoded by CTF enum in bfd_trace.h
     field_parsers = {
-        "notify_state": bfd_state2str,
         "family": lambda x: "IPv4" if x == socket.AF_INET else "IPv6" if x == socket.AF_INET6 else f"AF_{x}",
         "local_addr": lambda x: print_bfd_addr(x, family) if family != 0 else "N/A",
         "peer_addr": lambda x: print_bfd_addr(x, family) if family != 0 else "N/A",
@@ -696,22 +685,12 @@ def parse_frr_bfd_control_protocol_error(event):
 def parse_frr_bfd_ptm_session_event(event):
     """Parse BFD PTM session events"""
     family = event.get("family", 0)
+    # Note: diag is decoded by CTF enum (bfd_diag) in bfd_trace.h
     field_parsers = {
         "action": lambda x: {
             1: "ADD",
             2: "DELETE"
         }.get(x, f"UNKNOWN_ACTION_{x}"),
-        "diag": lambda x: {
-            0: "No Diagnostic",
-            1: "Control Detection Time Expired",
-            2: "Echo Function Failed",
-            3: "Neighbor Signaled Session Down",
-            4: "Forwarding Plane Reset",
-            5: "Path Down",
-            6: "Concatenated Path Down",
-            7: "Administratively Down",
-            8: "Reverse Concatenated Path Down"
-        }.get(x, f"Unknown Diag {x}"),
         "family": lambda x: "IPv4" if x == socket.AF_INET else "IPv6" if x == socket.AF_INET6 else f"AF_{x}",
         "local_addr": lambda x: print_bfd_addr(x, family),
         "peer_addr": lambda x: print_bfd_addr(x, family)

@@ -1388,6 +1388,7 @@ void zebra_ptm_bfd_dst_register(ZAPI_HANDLER_ARGS)
 		zlog_debug("bfd_dst_register msg from client %s: length=%d",
 			   zebra_route_string(client->proto), hdr->length);
 
+	frrtrace(3, frr_zebra, bfd_dest_register, 1, client->proto, hdr->length);
 	_zebra_ptm_reroute(client, zvrf, msg, ZEBRA_BFD_DEST_REGISTER);
 }
 
@@ -1397,6 +1398,7 @@ void zebra_ptm_bfd_dst_deregister(ZAPI_HANDLER_ARGS)
 		zlog_debug("bfd_dst_deregister msg from client %s: length=%d",
 			   zebra_route_string(client->proto), hdr->length);
 
+	frrtrace(3, frr_zebra, bfd_dest_register, 2, client->proto, hdr->length);
 	_zebra_ptm_reroute(client, zvrf, msg, ZEBRA_BFD_DEST_DEREGISTER);
 }
 
@@ -1424,6 +1426,8 @@ void zebra_ptm_bfd_dst_replay(ZAPI_HANDLER_ARGS)
 	if (IS_ZEBRA_DEBUG_EVENT)
 		zlog_debug("bfd_dst_update msg from client %s: length=%d",
 			   zebra_route_string(client->proto), hdr->length);
+
+	frrtrace(2, frr_zebra, bfd_dest_update, client->proto, hdr->length);
 
 	/*
 	 * Client messages must be re-routed, otherwise do the `bfdd`

@@ -9209,8 +9209,14 @@ static void bgp_stop_peer_threads_and_close(struct peer_connection *connection)
 	struct peer *peer = connection->peer;
 
 	/* Unregister BFD session if present */
-	if (peer->bfd_config && peer->bfd_config->session)
+	if (peer->bfd_config && peer->bfd_config->session) {
+		if (BGP_DEBUG(bfd, BFD_LIB))
+			zlog_debug("%s: deregistering BFD session for peer %pBP vrf %s(%u)",
+				   __func__, peer, peer->bgp->name_pretty,
+				   peer->bgp->vrf_id);
+		frrtrace(3, frr_bgp, bfd_session_deregister, peer->host, peer->bgp->vrf_id, 1);
 		bfd_sess_uninstall(peer->bfd_config->session);
+	}
 
 	/* Delete all existing events of the peer */
 	event_cancel_event_ready(bm->master, connection);
@@ -9288,11 +9294,16 @@ void bgp_process_fast_down(bool upgrade)
 	/* Terminate all the peer threads and
 	 * close the sockets
 	 */
-	for (ALL_LIST_ELEMENTS(bm->bgp, mnode, mnnode, bgp))
+	for (ALL_LIST_ELEMENTS(bm->bgp, mnode, mnnode, bgp)) {
+		if (BGP_DEBUG(bfd, BFD_LIB))
+			zlog_debug("%s: processing fast shutdown for VRF %s, stopping peers and deregistering BFD sessions",
+				   __func__, bgp->name_pretty);
+		frrtrace(2, frr_bgp, bfd_fast_shutdown, bgp->name_pretty, upgrade);
 		for (ALL_LIST_ELEMENTS(bgp->peer, node, nnode, peer))
 			if (peer->connection->fd >= 0) {
 				bgp_stop_peer_threads_and_close(peer->connection);
 			}
+	}
 	if (upgrade)
 		SET_FLAG(bm->flags, BM_FLAG_UPGRADE);
 }
