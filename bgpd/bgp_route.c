@@ -1335,28 +1335,32 @@ int bgp_path_info_cmp(struct bgp *bgp, struct bgp_path_info *new,
 	 * For non-modifiable attributes/paremters, use-imported-attributes is ignored. Such attributes
 	 * parameters are Peer Type, IGP Metric, Cluster List, Neighbor Address.
 	 */
-	struct bgp_path_info *new_for_modifiable_attrs, *exist_for_modifiable_attrs;
+	struct bgp_path_info *new_path_for_modifiable_attr, *exist_path_for_modifiable_attr;
 
 	if (CHECK_FLAG(bgp->flags, BGP_FLAG_BESTPATH_USE_IMPORTED_ATTRS)) {
 		/* Use imported (current VRF) attributes for modifiable attributes */
-		new_for_modifiable_attrs = new;
-		exist_for_modifiable_attrs = exist;
+		new_path_for_modifiable_attr = new;
+		exist_path_for_modifiable_attr = exist;
 	} else {
 		/* Use ultimate (source VRF) attributes for modifiable attributes (default) */
-		new_for_modifiable_attrs = bgp_get_imported_bpi_ultimate(new);
-		exist_for_modifiable_attrs = bgp_get_imported_bpi_ultimate(exist);
+		new_path_for_modifiable_attr = bgp_get_imported_bpi_ultimate(new);
+		exist_path_for_modifiable_attr = bgp_get_imported_bpi_ultimate(exist);
 	}
+
+	/* Continue to use ultimate path/attr for certain cases like IGP etc */
+	new = bgp_get_imported_bpi_ultimate(new);
+	exist = bgp_get_imported_bpi_ultimate(exist);
 
 	/* 4. AS path length check. */
 	if (!CHECK_FLAG(bgp->flags, BGP_FLAG_ASPATH_IGNORE)) {
-		int exist_hops = aspath_count_hops(exist_for_modifiable_attrs->attr->aspath);
-		int exist_confeds = aspath_count_confeds(exist_for_modifiable_attrs->attr->aspath);
+		int exist_hops = aspath_count_hops(exist_path_for_modifiable_attr->attr->aspath);
+		int exist_confeds = aspath_count_confeds(exist_path_for_modifiable_attr->attr->aspath);
 
 		if (CHECK_FLAG(bgp->flags, BGP_FLAG_ASPATH_CONFED)) {
 			int aspath_hops;
 
-			aspath_hops = aspath_count_hops(new_for_modifiable_attrs->attr->aspath);
-			aspath_hops += aspath_count_confeds(new_for_modifiable_attrs->attr->aspath);
+			aspath_hops = aspath_count_hops(new_path_for_modifiable_attr->attr->aspath);
+			aspath_hops += aspath_count_confeds(new_path_for_modifiable_attr->attr->aspath);
 
 			if (aspath_hops < (exist_hops + exist_confeds)) {
 				*reason = bgp_path_selection_confed_as_path;
@@ -1380,7 +1384,7 @@ int bgp_path_info_cmp(struct bgp *bgp, struct bgp_path_info *new,
 				return 0;
 			}
 		} else {
-			int newhops = aspath_count_hops(new_for_modifiable_attrs->attr->aspath);
+			int newhops = aspath_count_hops(new_path_for_modifiable_attr->attr->aspath);
 
 			if (newhops < exist_hops) {
 				*reason = bgp_path_selection_as_path;
@@ -1405,41 +1409,41 @@ int bgp_path_info_cmp(struct bgp *bgp, struct bgp_path_info *new,
 	}
 
 	/* 5. Origin check. */
-	if (new_for_modifiable_attrs->attr->origin < exist_for_modifiable_attrs->attr->origin) {
+	if (new_path_for_modifiable_attr->attr->origin < exist_path_for_modifiable_attr->attr->origin) {
 		*reason = bgp_path_selection_origin;
 		if (debug)
 			zlog_debug("%s: %s wins over %s due to ORIGIN %s < %s",
 				   pfx_buf, new_buf, exist_buf,
-				   bgp_origin_long_str[new_for_modifiable_attrs->attr->origin],
-				   bgp_origin_long_str[exist_for_modifiable_attrs->attr->origin]);
+				   bgp_origin_long_str[new_path_for_modifiable_attr->attr->origin],
+				   bgp_origin_long_str[exist_path_for_modifiable_attr->attr->origin]);
 		return 1;
 	}
 
-	if (new_for_modifiable_attrs->attr->origin > exist_for_modifiable_attrs->attr->origin) {
+	if (new_path_for_modifiable_attr->attr->origin > exist_path_for_modifiable_attr->attr->origin) {
 		*reason = bgp_path_selection_origin;
 		if (debug)
 			zlog_debug("%s: %s loses to %s due to ORIGIN %s > %s",
 				   pfx_buf, new_buf, exist_buf,
-				   bgp_origin_long_str[new_for_modifiable_attrs->attr->origin],
-				   bgp_origin_long_str[exist_for_modifiable_attrs->attr->origin]);
+				   bgp_origin_long_str[new_path_for_modifiable_attr->attr->origin],
+				   bgp_origin_long_str[exist_path_for_modifiable_attr->attr->origin]);
 		return 0;
 	}
 
 	/* 6. MED check. */
-	internal_as_route = (aspath_count_hops(new_for_modifiable_attrs->attr->aspath) == 0
-			     && aspath_count_hops(exist_for_modifiable_attrs->attr->aspath) == 0);
-	confed_as_route = (aspath_count_confeds(new_for_modifiable_attrs->attr->aspath) > 0
-			   && aspath_count_confeds(exist_for_modifiable_attrs->attr->aspath) > 0
-			   && aspath_count_hops(new_for_modifiable_attrs->attr->aspath) == 0
-			   && aspath_count_hops(exist_for_modifiable_attrs->attr->aspath) == 0);
+	internal_as_route = (aspath_count_hops(new_path_for_modifiable_attr->attr->aspath) == 0
+			     && aspath_count_hops(exist_path_for_modifiable_attr->attr->aspath) == 0);
+	confed_as_route = (aspath_count_confeds(new_path_for_modifiable_attr->attr->aspath) > 0
+			   && aspath_count_confeds(exist_path_for_modifiable_attr->attr->aspath) > 0
+			   && aspath_count_hops(new_path_for_modifiable_attr->attr->aspath) == 0
+			   && aspath_count_hops(exist_path_for_modifiable_attr->attr->aspath) == 0);
 
 	if (CHECK_FLAG(bgp->flags, BGP_FLAG_ALWAYS_COMPARE_MED)
 	    || (CHECK_FLAG(bgp->flags, BGP_FLAG_MED_CONFED) && confed_as_route)
-	    || aspath_cmp_left(new_for_modifiable_attrs->attr->aspath, exist_for_modifiable_attrs->attr->aspath)
-	    || aspath_cmp_left_confed(new_for_modifiable_attrs->attr->aspath, exist_for_modifiable_attrs->attr->aspath)
+	    || aspath_cmp_left(new_path_for_modifiable_attr->attr->aspath, exist_path_for_modifiable_attr->attr->aspath)
+	    || aspath_cmp_left_confed(new_path_for_modifiable_attr->attr->aspath, exist_path_for_modifiable_attr->attr->aspath)
 	    || internal_as_route) {
-		new_med = bgp_med_value(new_for_modifiable_attrs->attr, bgp);
-		exist_med = bgp_med_value(exist_for_modifiable_attrs->attr, bgp);
+		new_med = bgp_med_value(new_path_for_modifiable_attr->attr, bgp);
+		exist_med = bgp_med_value(exist_path_for_modifiable_attr->attr, bgp);
 
 		if (new_med < exist_med) {
 			*reason = bgp_path_selection_med;
@@ -1724,12 +1728,12 @@ int bgp_path_info_cmp(struct bgp *bgp, struct bgp_path_info *new,
 	 * be 0 and would always win over the other path. If originator id is
 	 * used for the comparison, it will decide which path is better.
 	 */
-	if (new_for_modifiable_attrs->attr->flag & ATTR_FLAG_BIT(BGP_ATTR_ORIGINATOR_ID))
-		new_id.s_addr = new_for_modifiable_attrs->attr->originator_id.s_addr;
+	if (new_path_for_modifiable_attr->attr->flag & ATTR_FLAG_BIT(BGP_ATTR_ORIGINATOR_ID))
+		new_id.s_addr = new_path_for_modifiable_attr->attr->originator_id.s_addr;
 	else
 		new_id.s_addr = peer_new->remote_id.s_addr;
-	if (exist_for_modifiable_attrs->attr->flag & ATTR_FLAG_BIT(BGP_ATTR_ORIGINATOR_ID))
-		exist_id.s_addr = exist_for_modifiable_attrs->attr->originator_id.s_addr;
+	if (exist_path_for_modifiable_attr->attr->flag & ATTR_FLAG_BIT(BGP_ATTR_ORIGINATOR_ID))
+		exist_id.s_addr = exist_path_for_modifiable_attr->attr->originator_id.s_addr;
 	else
 		exist_id.s_addr = peer_exist->remote_id.s_addr;
 
