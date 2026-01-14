@@ -2852,6 +2852,28 @@ int nb_notify_subscriptions(void)
 	nb_current_subcr_cache->sample_time = nb_current_subcr_cache->sample_time +
 					      (nb_current_subcr_cache->timer_wheel->period / 1000);
 	DEBUGD(&nb_dbg_events, "Sample time set to %d", nb_current_subcr_cache->sample_time);
+
+	/*
+	 * If we are in the one-shot alignment phase (wheel->period differs from
+	 * steady_period_ms), switch to the steady period for subsequent ticks.
+	 *
+	 * This keeps sample_time monotonic and ensures the next notification
+	 * after an interval change lands on the next multiple of the new interval.
+	 */
+	if (nb_current_subcr_cache->steady_period_ms &&
+	    nb_current_subcr_cache->timer_wheel->period != nb_current_subcr_cache->steady_period_ms) {
+		nb_current_subcr_cache->timer_wheel->period = nb_current_subcr_cache->steady_period_ms;
+		/*
+		 * The timer wheel schedules using wheel->nexttime (not wheel->period),
+		 * so keep nexttime in sync when switching from the one-shot alignment
+		 * delay to the steady interval.
+		 */
+		nb_current_subcr_cache->timer_wheel->nexttime =
+			nb_current_subcr_cache->timer_wheel->period / nb_current_subcr_cache->timer_wheel->slots;
+		DEBUGD(&nb_dbg_events, "Wheel switched to steady period %u ms",
+		       nb_current_subcr_cache->steady_period_ms);
+	}
+
 	struct subscr_cache_entry entry;
 	/* Walk the subscription cache */
 	hash_walk(nb_current_subcr_cache->subscr_cache_entries, hash_walk_dump, &entry);
@@ -3021,19 +3043,37 @@ static void nb_wheel_init_or_reset(struct event_loop *master, const char *xpath,
 	if (!master) {
 		return;
 	}
-	int sampletime = interval ? interval * 1000 : SUBSCRIPTION_SAMPLE_TIMER;
-	DEBUGD(&nb_dbg_events, "Wheel sample %d", sampletime);
+	uint32_t steady_period_ms = interval ? (uint32_t)interval * 1000 : SUBSCRIPTION_SAMPLE_TIMER;
+	uint32_t steady_period_sec = steady_period_ms / 1000;
+	uint32_t sample_time_sec = nb_current_subcr_cache->sample_time;
+
+	/* Align the next tick to the next multiple of the new interval. */
+	uint32_t seconds_elapsed_into_interval = (steady_period_sec != 0) ? (sample_time_sec % steady_period_sec) : 0;
+	uint32_t align_delay_sec = (seconds_elapsed_into_interval == 0) ? steady_period_sec : (steady_period_sec - seconds_elapsed_into_interval);
+	uint32_t align_period_ms = align_delay_sec * 1000;
+
+	DEBUGD(&nb_dbg_events,
+	       "Wheel steady %u ms (interval=%d sec), sample_time=%u sec, align_delay=%u sec",
+	       steady_period_ms, interval, sample_time_sec, align_delay_sec);
+
 	if (nb_current_subcr_cache->timer_wheel) {
-		if ((uint32_t)sampletime != nb_current_subcr_cache->timer_wheel->period)
-			/* Timer is running and interval has changed, stop timer wheel */
-			wheel_delete(nb_current_subcr_cache->timer_wheel);
-		else
-			/* Timer is running, nothing has changed */
+		/*
+		 * If the steady interval hasn't changed, keep the existing wheel:
+		 * it may already be running at steady_period_ms, or may be in the
+		 * one-shot alignment phase (wheel->period != steady_period_ms).
+		 */
+		if (nb_current_subcr_cache->steady_period_ms == steady_period_ms)
 			return;
+
+		/* Interval changed: stop the existing wheel and create a new one. */
+		wheel_delete(nb_current_subcr_cache->timer_wheel);
+		nb_current_subcr_cache->timer_wheel = NULL;
 	}
-	DEBUGD(&nb_dbg_events, "Initing the timer wheel");
+
+	nb_current_subcr_cache->steady_period_ms = steady_period_ms;
+	DEBUGD(&nb_dbg_events, "Initing the timer wheel with align_period_ms %u ms", align_period_ms);
 	nb_current_subcr_cache->timer_wheel =
-		wheel_init(master, sampletime, 1, nb_xpath_hash_key_make,
+		wheel_init(master, align_period_ms, 1, nb_xpath_hash_key_make,
 			   (void *)nb_notify_subscriptions, "subscription thread");
 	xpath = XCALLOC(MTYPE_NB_CONFIG_ENTRY, XPATH_MAXLEN);
 	wheel_add_item(nb_current_subcr_cache->timer_wheel, (void *)xpath);

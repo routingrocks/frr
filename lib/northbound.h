@@ -785,6 +785,16 @@ struct nb_subscription_cache {
 	bool init_cache_requested;
 	/* sample time */
 	uint32_t sample_time;
+	/*
+	 * Steady-state period (in milliseconds) for subscription notifications.
+	 *
+	 * When a new subscription interval is applied while subscriptions are
+	 * already active, we may run the wheel once with a shorter "alignment"
+	 * period so that the next notification lands on the next multiple of the
+	 * new interval (while keeping sample_time monotonic). After that first
+	 * aligned tick, the wheel switches to this steady-state period.
+	 */
+	uint32_t steady_period_ms;
 };
 
 /* create a hash key for a xpath */
