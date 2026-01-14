@@ -1012,7 +1012,7 @@ void add_vnc_route(struct rfapi_descriptor *rfd, /* cookie, VPN UN addr, peer */
 		}
 	}
 
-	new = info_make(type, sub_type, 0, rfd->peer, new_attr, NULL);
+	new = info_make(type, sub_type, 0, rfd->peer, new_attr, bn);
 	SET_FLAG(new->flags, BGP_PATH_VALID);
 
 	/* save backref to rfapi handle */

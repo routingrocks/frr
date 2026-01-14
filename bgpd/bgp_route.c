@@ -30,6 +30,7 @@
 #include "zclient.h"
 #include "frrdistance.h"
 #include "lib/if.h"
+#include "jhash.h"
 
 #include "bgpd/bgpd.h"
 #include "bgpd/bgp_table.h"
@@ -125,6 +126,55 @@ static const struct message bgp_pmsi_tnltype_str[] = {
 #define SOFT_RECONFIG_TASK_MAX_PREFIX 25000
 
 static int clear_batch_rib_helper(struct bgp_clearing_info *cinfo);
+
+/*
+ * Typesafe Hash Functions for bgp_path_info
+ * hash key: prefix, peer, type, sub_type, addpath_rx_id
+ */
+int bgp_pi_hash_cmp(const struct bgp_path_info *p1, const struct bgp_path_info *p2)
+{
+	int ret;
+
+	/* Get the prefix from pi->net and compare */
+	const struct prefix *pfx1 = bgp_dest_get_prefix(p1->net);
+	const struct prefix *pfx2 = bgp_dest_get_prefix(p2->net);
+
+	ret = prefix_cmp(pfx1, pfx2);
+	if (ret != 0)
+		return ret;
+
+	if (p1->peer != p2->peer) {
+		uintptr_t ptr1 = (uintptr_t)p1->peer;
+		uintptr_t ptr2 = (uintptr_t)p2->peer;
+		return (ptr1 < ptr2) ? -1 : 1;
+	}
+
+	if (p1->type != p2->type)
+		return (p1->type < p2->type) ? -1 : 1;
+
+	if (p1->sub_type != p2->sub_type)
+		return (p1->sub_type < p2->sub_type) ? -1 : 1;
+
+	if (p1->addpath_rx_id != p2->addpath_rx_id)
+		return (p1->addpath_rx_id < p2->addpath_rx_id) ? -1 : 1;
+
+	/* All fields are equal */
+	return 0;
+}
+
+uint32_t bgp_pi_hash_hashfn(const struct bgp_path_info *pi)
+{
+	uint32_t h = 0;
+	const struct prefix *pfx = bgp_dest_get_prefix(pi->net);
+
+	h = prefix_hash_key(pfx);
+	h = jhash_1word((uint32_t)(uintptr_t)pi->peer, h);
+	h = jhash_1word(pi->addpath_rx_id, h);
+	h = jhash_1word((uint32_t)pi->type, h);
+	h = jhash_1word((uint32_t)pi->sub_type, h);
+
+	return h;
+}
 
 static inline char *bgp_route_dump_path_info_flags(struct bgp_path_info *pi,
 						   char *buf, size_t len)
@@ -590,6 +640,7 @@ void bgp_path_info_add_with_caller(const char *name, struct bgp_dest *dest,
 				   struct bgp_path_info *pi)
 {
 	struct bgp_path_info *top;
+	struct bgp_table *table;
 
 	top = bgp_dest_get_bgp_path_info(dest);
 
@@ -598,6 +649,11 @@ void bgp_path_info_add_with_caller(const char *name, struct bgp_dest *dest,
 	if (top)
 		top->prev = pi;
 	bgp_dest_set_bgp_path_info(dest, pi);
+
+	/* Add this path info to global hash (per AFI/SAFI table) */
+	table = bgp_dest_table(dest);
+	if (table)
+		bgp_pi_hash_add(&table->pi_hash, pi);
 
 	SET_FLAG(pi->flags, BGP_PATH_UNSORTED);
 	bgp_path_info_lock(pi);
@@ -638,6 +694,9 @@ struct bgp_dest *bgp_path_info_reap(struct bgp_dest *dest,
 		bgp_process_route_soo_attr(table->bgp, table->afi, table->safi, dest, pi, false,
 					   __func__);
 
+	/* Remove this path from global hash (per AFI/SAFI table) */
+	bgp_pi_hash_del(&table->pi_hash, pi);
+
 	hook_call(bgp_snmp_update_stats, dest, pi, false);
 
 	bgp_path_info_unlock(pi);
@@ -665,6 +724,9 @@ static struct bgp_dest *bgp_path_info_reap_unsorted(struct bgp_dest *dest,
 	    !is_evpn)
 		bgp_process_route_soo_attr(table->bgp, table->afi, table->safi, dest, pi, false,
 					   __func__);
+
+	/* Remove this path from global hash (per AFI/SAFI table) */
+	bgp_pi_hash_del(&table->pi_hash, pi);
 
 	hook_call(bgp_snmp_update_stats, dest, pi, false);
 	bgp_path_info_unlock(pi);
@@ -5490,6 +5552,7 @@ void bgp_update(struct peer *peer, const struct prefix *p, uint32_t addpath_id,
 	int ret;
 	int aspath_loop_count = 0;
 	struct bgp_dest *dest;
+	struct bgp_table *rib_table;
 	struct bgp *bgp;
 	struct attr new_attr = {};
 	struct attr *attr_new;
@@ -5518,6 +5581,11 @@ void bgp_update(struct peer *peer, const struct prefix *p, uint32_t addpath_id,
 
 	bgp = peer->bgp;
 	dest = bgp_afi_node_get(bgp->rib[afi][safi], afi, safi, p, prd);
+	rib_table = bgp_dest_table(dest);
+	if (!rib_table) {
+		bgp_dest_unlock_node(dest);
+		return;
+	}
 	/* TODO: Check to see if we can get rid of "is_valid_label" */
 	if (afi == AFI_L2VPN && safi == SAFI_EVPN)
 		has_valid_label = (num_labels > 0) ? 1 : 0;
@@ -5604,12 +5672,14 @@ void bgp_update(struct peer *peer, const struct prefix *p, uint32_t addpath_id,
 		/* Else: filter configured but not found - strict check */
 	}
 
-	/* Check previously received route. */
-	for (pi = bgp_dest_get_bgp_path_info(dest); pi; pi = pi->next)
-		if (pi->peer == peer && pi->type == type
-		    && pi->sub_type == sub_type
-		    && pi->addpath_rx_id == addpath_id)
-			break;
+	/* Check previously received route using pi_hash */
+	struct bgp_path_info pi_lookup = { .net = dest,
+					   .peer = peer,
+					   .type = type,
+					   .sub_type = sub_type,
+					   .addpath_rx_id = addpath_id };
+
+	pi = bgp_pi_hash_find(&rib_table->pi_hash, &pi_lookup);
 
 	/* AS path local-as loop check. */
 	if (peer->change_local_as) {
@@ -6444,9 +6514,6 @@ void bgp_update(struct peer *peer, const struct prefix *p, uint32_t addpath_id,
 	/* Register new BGP information. */
 	bgp_path_info_add(dest, new);
 
-	/* route_node_get lock */
-	bgp_dest_unlock_node(dest);
-
 #ifdef ENABLE_BGP_VNC
 	if (safi == SAFI_MPLS_VPN) {
 		struct bgp_dest *pdest = NULL;
@@ -6494,6 +6561,7 @@ void bgp_update(struct peer *peer, const struct prefix *p, uint32_t addpath_id,
 	}
 #endif
 
+	bgp_dest_unlock_node(dest);
 	return;
 
 /* This BGP update is filtered.  Log the reason then update BGP
