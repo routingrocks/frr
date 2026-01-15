@@ -910,6 +910,10 @@ extern void bgp_aggregate_increment(struct bgp *bgp, const struct prefix *p,
 extern void bgp_aggregate_decrement(struct bgp *bgp, const struct prefix *p,
 				    struct bgp_path_info *path, afi_t afi,
 				    safi_t safi);
+/* Aggregate suppression functions - exposed for conditional disaggregation */
+extern bool aggr_suppress_path(struct bgp_aggregate *aggregate, struct bgp_path_info *pi);
+extern bool aggr_suppress_map_test(struct bgp *bgp, struct bgp_aggregate *aggregate,
+				   struct bgp_path_info *pi);
 
 extern uint8_t bgp_distance_apply(const struct prefix *p,
 				  struct bgp_path_info *path, afi_t afi,

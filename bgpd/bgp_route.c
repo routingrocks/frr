@@ -6511,6 +6511,48 @@ void bgp_update(struct peer *peer, const struct prefix *p, uint32_t addpath_id,
 	/* Increment prefix */
 	bgp_aggregate_increment(bgp, p, new, afi, safi);
 
+	/* If conditional disaggregation is enabled and this is a UNICAST route,
+	 * check if: (1) there's an aggregate covering this prefix, AND
+	 * (2) there's a matching UNREACH entry. If both conditions are met,
+	 * mark this NEW route with conditional disagg flag before adding to RIB.
+	 * This handles external routes received after UNREACH exists. */
+	if (safi == SAFI_UNICAST &&
+	    CHECK_FLAG(bgp->per_src_nhg_flags[afi][safi], BGP_FLAG_CONDITIONAL_DISAGG)) {
+		struct bgp_table *aggregate_table = bgp->aggregate[afi][safi];
+
+		/* Check if there's an aggregate covering this prefix */
+		if (aggregate_table && bgp_table_top_nolock(aggregate_table)) {
+			struct bgp_dest *aggr_dest;
+			struct bgp_dest *child = bgp_node_get(aggregate_table, p);
+			bool aggregate_exists = false;
+
+			/* Walk up to find if any aggregate covers this prefix */
+			for (aggr_dest = child; aggr_dest;
+			     aggr_dest = bgp_dest_parent_nolock(aggr_dest)) {
+				const struct prefix *aggr_p = bgp_dest_get_prefix(aggr_dest);
+				struct bgp_aggregate *aggregate =
+					bgp_dest_get_bgp_aggregate_info(aggr_dest);
+
+				if (aggregate && aggr_p->prefixlen < p->prefixlen) {
+					aggregate_exists = true;
+					break;
+				}
+			}
+			bgp_dest_unlock_node(child);
+
+			/* Only proceed if aggregate exists AND UNREACH entry exists */
+			if (aggregate_exists && bgp->rib[afi][SAFI_UNREACH]) {
+				struct bgp_dest *unreach_dest =
+					bgp_node_lookup(bgp->rib[afi][SAFI_UNREACH], p);
+				if (unreach_dest) {
+					/* Found matching UNREACH entry - mark this new route */
+					SET_FLAG(new->flags, BGP_PATH_CONDITIONAL_DISAGG);
+					bgp_dest_unlock_node(unreach_dest);
+				}
+			}
+		}
+	}
+
 	/* Register new BGP information. */
 	bgp_path_info_add(dest, new);
 
@@ -9271,9 +9313,8 @@ void bgp_aggregate_free(struct bgp_aggregate *aggregate)
  *
  * \returns `true` on route map match, otherwise `false`.
  */
-static bool aggr_suppress_map_test(struct bgp *bgp,
-				   struct bgp_aggregate *aggregate,
-				   struct bgp_path_info *pi)
+bool aggr_suppress_map_test(struct bgp *bgp, struct bgp_aggregate *aggregate,
+			    struct bgp_path_info *pi)
 {
 	const struct prefix *p = bgp_dest_get_prefix(pi->net);
 	route_map_result_t rmr = RMAP_DENYMATCH;
@@ -9314,8 +9355,7 @@ static bool aggr_suppress_exists(struct bgp_aggregate *aggregate,
  *
  * \returns `true` if needs processing otherwise `false`.
  */
-static bool aggr_suppress_path(struct bgp_aggregate *aggregate,
-			       struct bgp_path_info *pi)
+bool aggr_suppress_path(struct bgp_aggregate *aggregate, struct bgp_path_info *pi)
 {
 	struct bgp_path_info_extra *pie;
 
@@ -9922,6 +9962,14 @@ void bgp_aggregate_delete(struct bgp *bgp, const struct prefix *p, afi_t afi,
 					bgp_process(bgp, dest, pi, afi, safi);
 			}
 
+			/* Clear conditional disaggregation flag when aggregate is removed.
+			 * Routes with this flag were never added to aggr_suppressors list
+			 * (aggr_suppress_path returns early). Clearing the flag ensures that
+			 * if the aggregate is re-added, suppression will work correctly.
+			 * No need to trigger bgp_process - route is already being advertised. */
+			if (CHECK_FLAG(pi->flags, BGP_PATH_CONDITIONAL_DISAGG))
+				UNSET_FLAG(pi->flags, BGP_PATH_CONDITIONAL_DISAGG);
+
 			if (aggregate->count > 0)
 				aggregate->count--;
 
@@ -10470,6 +10518,34 @@ static int bgp_aggregate_set(struct vty *vty, const char *prefix_str, afi_t afi,
 	if (!bgp_aggregate_route(bgp, &p, afi, safi, aggregate)) {
 		bgp_aggregate_free(aggregate);
 		bgp_dest_unlock_node(dest);
+	} else {
+		/* If conditional disaggregation is enabled, check for existing UNREACH entries.
+		 * Routes may have just been suppressed by the aggregate, but if matching UNREACH
+		 * entries exist, they should be conditionally disaggregated. */
+		if (CHECK_FLAG(bgp->per_src_nhg_flags[afi][safi], BGP_FLAG_CONDITIONAL_DISAGG)) {
+			if (bgp->rib[afi][SAFI_UNREACH]) {
+				struct bgp_dest *unreach_dest;
+				struct bgp_path_info *pi;
+
+				for (unreach_dest = bgp_table_top(bgp->rib[afi][SAFI_UNREACH]);
+				     unreach_dest; unreach_dest = bgp_route_next(unreach_dest)) {
+					const struct prefix *unreach_p =
+						bgp_dest_get_prefix(unreach_dest);
+
+					/* Check if this UNREACH prefix is covered by the new aggregate */
+					if (unreach_p->prefixlen > p.prefixlen &&
+					    prefix_match(&p, unreach_p)) {
+						/* Found UNREACH entry under this aggregate, apply conditional disagg */
+						for (pi = bgp_dest_get_bgp_path_info(unreach_dest);
+						     pi; pi = pi->next) {
+							bgp_conditional_disagg_add(bgp, unreach_p,
+										   pi, afi,
+										   pi->peer);
+						}
+					}
+				}
+			}
+		}
 	}
 
 	return CMD_SUCCESS;

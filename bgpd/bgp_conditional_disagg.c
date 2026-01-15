@@ -171,7 +171,6 @@ void bgp_conditional_disagg_withdraw(struct bgp *bgp, const struct prefix *p,
 	     pi_unicast = pi_unicast->next) {
 		if (CHECK_FLAG(pi_unicast->flags, BGP_PATH_CONDITIONAL_DISAGG)) {
 			UNSET_FLAG(pi_unicast->flags, BGP_PATH_CONDITIONAL_DISAGG);
-			SET_FLAG(pi_unicast->flags, BGP_PATH_ATTR_CHANGED);
 			cleared_count++;
 			if (BGP_DEBUG(update, UPDATE_IN))
 				zlog_debug("CONDITIONAL DISAGG WITHDRAW: Cleared BGP_PATH_CONDITIONAL_DISAGG flag from %pFX (path %d, peer %s, origin %d)",
@@ -179,7 +178,52 @@ void bgp_conditional_disagg_withdraw(struct bgp *bgp, const struct prefix *p,
 					   pi_unicast->peer ? pi_unicast->peer->host : "NULL",
 					   pi_unicast->attr ? pi_unicast->attr->origin : -1);
 
-			/* Trigger re-processing to re-suppress and withdraw */
+			/* Now that the conditional disagg flag is cleared, we need to re-apply
+			 * aggregate suppression. The route was never added to aggr_suppressors
+			 * list because aggr_suppress_path() returned early when the flag was set.
+			 * Walk the aggregate table to find covering aggregates and add route
+			 * to their suppressor lists. This is a surgical operation that only
+			 * modifies suppression state without touching aggregate counts/attributes. */
+			struct bgp_table *aggregate_table = bgp->aggregate[afi][SAFI_UNICAST];
+			if (aggregate_table && bgp_table_top_nolock(aggregate_table)) {
+				struct bgp_dest *aggr_dest;
+				struct bgp_dest *child = bgp_node_get(aggregate_table, p);
+
+				/* Walk up the aggregate tree to find covering aggregates */
+				for (aggr_dest = child; aggr_dest;
+				     aggr_dest = bgp_dest_parent_nolock(aggr_dest)) {
+					const struct prefix *aggr_p = bgp_dest_get_prefix(aggr_dest);
+					struct bgp_aggregate *aggregate =
+						bgp_dest_get_bgp_aggregate_info(aggr_dest);
+
+					/* Found an aggregate that covers this prefix */
+					if (aggregate && aggr_p->prefixlen < p->prefixlen) {
+						/* Check if route should be suppressed by this aggregate.
+						 * Note: aggr_suppress_path only adds to suppressors list,
+						 * it does NOT modify aggregate counts or attributes. */
+						if (aggregate->summary_only &&
+						    AGGREGATE_MED_VALID(aggregate)) {
+							aggr_suppress_path(aggregate, pi_unicast);
+						}
+
+						/* Also check suppress-map if configured */
+						if (aggregate->suppress_map_name &&
+						    AGGREGATE_MED_VALID(aggregate) &&
+						    aggr_suppress_map_test(bgp, aggregate,
+									   pi_unicast)) {
+							aggr_suppress_path(aggregate, pi_unicast);
+						}
+					}
+				}
+				bgp_dest_unlock_node(child);
+			}
+
+			if (BGP_DEBUG(update, UPDATE_IN))
+				zlog_debug("CONDITIONAL DISAGG WITHDRAW: Re-applied aggregate suppression for %pFX",
+					   p);
+
+			/* Now set attr changed and trigger re-processing to withdraw the route */
+			SET_FLAG(pi_unicast->flags, BGP_PATH_ATTR_CHANGED);
 			bgp_process(bgp, dest_unicast, pi_unicast, afi, SAFI_UNICAST);
 			if (BGP_DEBUG(update, UPDATE_OUT))
 				zlog_debug("CONDITIONAL DISAGG WITHDRAW: Triggered bgp_process for %pFX",
