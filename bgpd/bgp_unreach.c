@@ -352,7 +352,7 @@ int bgp_nlri_parse_unreach(struct peer *peer, struct attr *attr, struct bgp_nlri
 
 	addpath_capable = bgp_addpath_encode_rx(peer, afi, safi);
 
-	for (; pnt < lim; pnt += psize) {
+	while (pnt < lim) {
 		/* Clear structures */
 		memset(&p, 0, sizeof(p));
 		memset(&unreach, 0, sizeof(unreach));
@@ -393,16 +393,16 @@ int bgp_nlri_parse_unreach(struct peer *peer, struct attr *attr, struct bgp_nlri
 			return BGP_NLRI_PARSE_ERROR_PACKET_OVERFLOW;
 		}
 
-		/* Copy prefix */
+		/* Copy prefix and advance pointer */
 		if (psize > 0)
 			memcpy(&p.u.prefix, pnt, psize);
 		pnt += psize;
 
 		/* Parse TLVs for this NLRI.
 		 * Each NLRI has: [prefix][Reporter TLV(s)]
-		 * We need to consume only THIS NLRI's TLVs, not all remaining data.
+		 * Withdrawals do NOT include TLVs - only parse for updates.
 		 */
-		if (pnt < lim) {
+		if (!withdraw && pnt < lim) {
 			uint16_t remaining_in_packet = lim - pnt;
 
 			/* Read Reporter TLV header to determine its length */
@@ -442,7 +442,6 @@ int bgp_nlri_parse_unreach(struct peer *peer, struct attr *attr, struct bgp_nlri
 			}
 
 			/* Advance pointer past THIS NLRI's Reporter TLV to next NLRI.
-		 * psize set to 0 prevents double-advance in loop header.
 		 *
 		 * Implementation note: We expect 1 Reporter TLV per NLRI. If sender
 		 * includes multiple Reporter TLVs without capability negotiation,
@@ -450,7 +449,6 @@ int bgp_nlri_parse_unreach(struct peer *peer, struct attr *attr, struct bgp_nlri
 		 * UPDATE rejection. This enforces proper capability negotiation.
 		 */
 			pnt += reporter_tlv_total;
-			psize = 0;
 		}
 
 		/* Store prefix in unreach structure */
