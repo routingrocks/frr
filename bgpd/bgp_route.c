@@ -2515,20 +2515,6 @@ bool subgroup_announce_check(struct bgp_dest *dest, struct bgp_path_info *pi,
 	if (bgp_path_suppressed(pi) && !UNSUPPRESS_MAP_NAME(filter))
 		return false;
 
-	/* For SAFI_UNREACH, only advertise self-originated routes that match
-	 * the configured advertisement filter. This filters out routes during
-	 * announcement, causing them to be withdrawn when filter doesn't match.
-	 */
-	if (safi == SAFI_UNREACH && pi->peer == bgp->peer_self) {
-		if (!bgp_prefix_matches_unreach_filter(bgp, afi, p)) {
-			if (bgp_debug_update(NULL, p, subgrp->update_group, 0))
-				zlog_debug("u%" PRIu64 ":s%" PRIu64
-					   " %pFX is filtered - UNREACH does not match advertisement filter",
-					   subgrp->update_group->id, subgrp->id, p);
-			return false;
-		}
-	}
-
 	/*
 	 * If we are doing VRF 2 VRF leaking via the import
 	 * statement, we want to prevent the route going
