@@ -3800,6 +3800,27 @@ int bgp_lookup_by_as_name_type(struct bgp **bgp_val, as_t *as, const char *as_pr
 					UNSET_FLAG(bgp->flags, BGP_FLAG_INSTANCE_HIDDEN);
 				} else {
 					bgp->as = *as;
+					/* Update as_pretty when AS changes
+					   for auto-created VRF */
+					XFREE(MTYPE_BGP_NAME, bgp->as_pretty);
+					if (as_pretty)
+						bgp->as_pretty = XSTRDUP(
+							MTYPE_BGP_NAME,
+							as_pretty);
+					else
+						bgp->as_pretty = XSTRDUP(
+							MTYPE_BGP_NAME,
+							asn_asn2asplain(*as));
+					/* Update asnotation if provided and
+					   not already configured */
+					if (!CHECK_FLAG(bgp->config,
+					    BGP_CONFIG_ASNOTATION) &&
+					    asnotation !=
+					    ASNOTATION_UNDEFINED) {
+						bgp->asnotation = asnotation;
+						SET_FLAG(bgp->config,
+							BGP_CONFIG_ASNOTATION);
+					}
 					UNSET_FLAG(bgp->vrf_flags, BGP_VRF_AUTO);
 				}
 
