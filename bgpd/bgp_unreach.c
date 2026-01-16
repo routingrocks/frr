@@ -65,7 +65,6 @@
 #include "bgpd/bgp_advertise.h"
 #include "bgpd/bgp_updgrp.h"
 #include "bgpd/bgp_ecommunity.h"
-#include "bgpd/bgp_conditional_disagg.h"
 
 DEFINE_MTYPE_STATIC(BGPD, BGP_UNREACH_INFO, "BGP Unreachability Information");
 
@@ -623,7 +622,11 @@ int bgp_unreach_info_add(struct bgp *bgp, afi_t afi, struct bgp_unreach_nlri *nl
 	return 0;
 }
 
-/* Delete unreachability information */
+/* Delete locally originated unreachability route for a prefix.
+ * This only removes self-originated (peer_self) UNREACH routes.
+ * Other UNREACH routes (received from peers) are cleaned up via
+ * bgp_rib_withdraw when the originator sends a withdrawal.
+ */
 void bgp_unreach_info_delete(struct bgp *bgp, afi_t afi, const struct prefix *prefix)
 {
 	struct bgp_dest *dest;
@@ -638,12 +641,6 @@ void bgp_unreach_info_delete(struct bgp *bgp, afi_t afi, const struct prefix *pr
 
 	for (bpi = bgp_dest_get_bgp_path_info(dest); bpi; bpi = bpi->next) {
 		if (bpi->peer == bgp->peer_self) {
-			/* Conditional Disaggregation: Withdraw generated SAFI_UNICAST route if needed */
-			if (CHECK_FLAG(bgp->per_src_nhg_flags[afi][SAFI_UNICAST],
-				       BGP_FLAG_CONDITIONAL_DISAGG))
-				bgp_conditional_disagg_withdraw(bgp, prefix, bpi, afi,
-								bgp->peer_self);
-
 			bgp_rib_remove(dest, bpi, bgp->peer_self, afi, SAFI_UNREACH);
 			break;
 		}
