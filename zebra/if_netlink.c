@@ -1187,17 +1187,48 @@ int netlink_interface_addr_dplane(struct nlmsghdr *h, ns_id_t ns_id,
 		/* Only consider valid addresses; we'll not get a kernel
 		 * notification till IPv6 DAD has completed, but at init
 		 * time, FRR does query for and will receive all addresses.
+		 *
+		 * Exception: If the interface is operationally down, we still
+		 * want to process tentative addresses so BGP can generate
+		 * UNREACH NLRIs for conditional disaggregation. DAD can't
+		 * complete on a down link anyway, so the address will remain
+		 * tentative until the link comes up.
 		 */
 		if (h->nlmsg_type == RTM_NEWADDR
-		    && (kernel_flags & (IFA_F_DADFAILED | IFA_F_TENTATIVE))) {
+		    && (kernel_flags & IFA_F_DADFAILED)) {
+			/* DAD failed - always skip these addresses */
 			if (IS_ZEBRA_DEBUG_KERNEL)
-				zlog_debug("%s: %s: Invalid/tentative addr",
+				zlog_debug("%s: %s: DAD failed addr",
 					   __func__,
 					   nl_msg_type_to_str(h->nlmsg_type));
 
 			frrtrace(3, frr_zebra, netlink_msg_err, nl_msg_type_to_str(h->nlmsg_type),
 				 0, 5);
 			return 0;
+		}
+
+		if (h->nlmsg_type == RTM_NEWADDR
+		    && (kernel_flags & IFA_F_TENTATIVE)) {
+			/* Tentative address - check if interface is down */
+			struct interface *ifp = if_lookup_by_index_per_ns(
+				zebra_ns_lookup(ns_id), ifa->ifa_index);
+
+			if (ifp && if_is_operative(ifp)) {
+				/* Interface is UP - skip tentative (DAD in progress) */
+				if (IS_ZEBRA_DEBUG_KERNEL)
+					zlog_debug("%s: %s: Tentative addr on UP interface, skipping",
+						   __func__,
+						   nl_msg_type_to_str(h->nlmsg_type));
+
+				frrtrace(3, frr_zebra, netlink_msg_err,
+					 nl_msg_type_to_str(h->nlmsg_type), 0, 5);
+				return 0;
+			}
+			/* Interface is DOWN - process tentative address for UNREACH */
+			if (IS_ZEBRA_DEBUG_KERNEL)
+				zlog_debug("%s: %s: Tentative addr on DOWN interface, processing for UNREACH",
+					   __func__,
+					   nl_msg_type_to_str(h->nlmsg_type));
 		}
 	}
 

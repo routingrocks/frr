@@ -64,6 +64,7 @@
 #include "bgpd/bgp_aspath.h"
 #include "bgpd/bgp_advertise.h"
 #include "bgpd/bgp_updgrp.h"
+#include "bgpd/bgp_zebra.h"
 #include "bgpd/bgp_ecommunity.h"
 #include "bgpd/bgp_conditional_disagg.h"
 
@@ -1482,6 +1483,65 @@ bool bgp_prefix_matches_unreach_filter(struct bgp *bgp, afi_t afi, const struct 
 
 	/* Check if prefix matches the configured filter */
 	return prefix_match(bgp->unreach_adv_prefix[afi], p);
+}
+
+/*
+ * Cache an address in the interface's cached_addresses list.
+ * returns true if added, false if duplicate
+ */
+bool bgp_unreach_cache_address(struct interface *ifp, const struct prefix *addr)
+{
+	struct bgp_interface *iifp;
+	struct listnode *node;
+	struct prefix *cached_pfx;
+
+	if (!ifp || !addr)
+		return false;
+
+	iifp = ifp->info;
+	if (!iifp || !iifp->cached_addresses)
+		return false;
+
+	/* coverity[non_const_printf_format_string] - list iteration macro is safe */
+	for (ALL_LIST_ELEMENTS_RO(iifp->cached_addresses, node, cached_pfx)) {
+		if (prefix_same(cached_pfx, addr))
+			return false;
+	}
+
+	struct prefix *pfx = prefix_new();
+	prefix_copy(pfx, addr);
+	listnode_add(iifp->cached_addresses, pfx);
+
+	return true;
+}
+
+/*
+ * Remove an address from the interface's cached_addresses list.
+ * Returns true if the address was found and removed, false otherwise.
+ */
+bool bgp_unreach_uncache_address(struct interface *ifp, const struct prefix *addr)
+{
+	struct bgp_interface *iifp;
+	struct listnode *node, *nnode;
+	struct prefix *cached_pfx;
+
+	if (!ifp || !addr)
+		return false;
+
+	iifp = ifp->info;
+	if (!iifp || !iifp->cached_addresses)
+		return false;
+
+	/* coverity[non_const_printf_format_string] - list iteration macro is safe */
+	for (ALL_LIST_ELEMENTS(iifp->cached_addresses, node, nnode, cached_pfx)) {
+		if (prefix_same(cached_pfx, addr)) {
+			listnode_delete(iifp->cached_addresses, cached_pfx);
+			prefix_free(&cached_pfx);
+			return true;
+		}
+	}
+
+	return false;
 }
 
 void bgp_unreach_zebra_announce(struct bgp *bgp, struct interface *ifp,

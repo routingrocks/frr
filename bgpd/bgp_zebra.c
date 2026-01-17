@@ -304,8 +304,10 @@ static int bgp_ifp_down(struct interface *ifp)
 		frr_each (if_connected, ifp->connected, c) {
 			if (c->address) {
 				if (!has_addresses) {
-					/* First address found - clear old cache */
+					/* First address found - clear old caches */
 					list_delete_all_node(iifp->cached_addresses);
+					if (iifp->pending_ifp_down_deletes)
+						list_delete_all_node(iifp->pending_ifp_down_deletes);
 					has_addresses = true;
 				}
 
@@ -313,6 +315,16 @@ static int bgp_ifp_down(struct interface *ifp)
 				struct prefix *pfx = prefix_new();
 				prefix_copy(pfx, c->address);
 				listnode_add(iifp->cached_addresses, pfx);
+
+				/* Mark as pending delete - bgp_interface_address_delete
+				 * will check this list to know that bgp_ifp_down already
+				 * handled UNREACH injection for this address.
+				 */
+				if (iifp->pending_ifp_down_deletes) {
+					struct prefix *pfx2 = prefix_new();
+					prefix_copy(pfx2, c->address);
+					listnode_add(iifp->pending_ifp_down_deletes, pfx2);
+				}
 
 				/* Generate unreachability NLRI immediately */
 				bgp_unreach_zebra_announce(bgp, ifp, c->address, false);
@@ -382,14 +394,15 @@ static int bgp_interface_address_add(ZAPI_CALLBACK_ARGS)
 
 	frrtrace(4, frr_bgp, interface_address_oper_zrecv, vrf_id, ifc->ifp->name, ifc->address, 1);
 
-	if (!bgp)
-		return 0;
+    if (!bgp)
+        return 0;
 
 	/* coverity[forward_null:SUPPRESS] */
 	if (!ifc->address)
 		return 0;
 
 	if (if_is_operative(ifc->ifp)) {
+
 		bgp_connected_add(bgp, ifc);
 
 		/* Withdraw unreachability for this address if it was previously injected */
@@ -448,6 +461,21 @@ static int bgp_interface_address_add(ZAPI_CALLBACK_ARGS)
 				}
 			}
 		}
+	} else {
+		/* Interface is down - cache address for UNREACH replay and generate UNREACH.
+		 * This handles the case where addresses are received for a down interface
+		 * during startup (before config is loaded).
+		 * Yes, this is possible, bgpd starts -> zclient_init() -> zebra and
+		 *  Zebra sends ALL interface info immediately.
+		 */
+		if (bgp_unreach_cache_address(ifc->ifp, ifc->address)) {
+			if (bgp)
+				bgp_unreach_zebra_announce(bgp, ifc->ifp, ifc->address, false);
+
+			if (BGP_DEBUG(zebra, ZEBRA))
+				zlog_debug("  Cached address %pFX on %s for unreachability (address added while interface down)",
+					   ifc->address, ifc->ifp->name);
+		}
 	}
 
 	return 0;
@@ -478,12 +506,62 @@ static int bgp_interface_address_delete(ZAPI_CALLBACK_ARGS)
 	addr = ifc->address;
 
 	if (addr && bgp) {
-		/* Inject unreachability when address is deleted from interface */
-		if (if_is_operative(ifc->ifp))
-			bgp_unreach_zebra_announce(bgp, ifc->ifp, addr, false);
-
-		if (if_is_operative(ifc->ifp))
+		if (if_is_operative(ifc->ifp)) {
+			/* Interface is UP but address is being deleted - delete connected route */
 			bgp_connected_delete(bgp, ifc);
+		} else {
+			/* Interface is DOWN */
+			struct bgp_interface *iifp = ifc->ifp->info;
+			bool pending_from_ifp_down = false;
+
+			/* Check if this address is pending from bgp_ifp_down.
+			 * If so, bgp_ifp_down already handled UNREACH injection.
+			 */
+			if (iifp && iifp->pending_ifp_down_deletes) {
+				struct listnode *node, *nnode;
+				struct prefix *pfx;
+
+				/* coverity[non_const_printf_format_string] - list iteration macro is safe */
+				for (ALL_LIST_ELEMENTS(iifp->pending_ifp_down_deletes,
+						       node, nnode, pfx)) {
+					if (prefix_same(pfx, addr)) {
+						listnode_delete(iifp->pending_ifp_down_deletes, pfx);
+						prefix_free(&pfx);
+						pending_from_ifp_down = true;
+						break;
+					}
+				}
+			}
+
+			if (pending_from_ifp_down) {
+				/* This ADDRESS_DELETE is from bgp_ifp_down.
+				 * UNREACH was already injected there - skip.
+				 */
+				if (BGP_DEBUG(zebra, ZEBRA))
+					zlog_debug("  Skipping address %pFX on %s (pending from ifp_down)",
+						   addr, ifc->ifp->name);
+			} else if (bgp_unreach_cache_address(ifc->ifp, addr)) {
+				/* Newly cached - startup case or address on already-down interface.
+				 * Inject UNREACH.
+				 */
+				bgp_unreach_zebra_announce(bgp, ifc->ifp, addr, false);
+
+				if (BGP_DEBUG(zebra, ZEBRA))
+					zlog_debug("  Cached address %pFX on %s for unreachability",
+						   addr, ifc->ifp->name);
+			} else {
+				/* Address was in cache but NOT pending from ifp_down.
+				 * This means address is being administratively removed.
+				 * Withdraw UNREACH.
+				 */
+				bgp_unreach_uncache_address(ifc->ifp, addr);
+				bgp_unreach_zebra_announce(bgp, ifc->ifp, addr, true);
+
+				if (BGP_DEBUG(zebra, ZEBRA))
+					zlog_debug("  Withdrawing unreachability for %pFX on %s (address removed)",
+						   addr, ifc->ifp->name);
+			}
+		}
 
 		/*
 		 * When we are using the v6 global as part of the peering
@@ -3818,6 +3896,8 @@ static int bgp_if_new_hook(struct interface *ifp)
 	iifp = XCALLOC(MTYPE_BGP_IF_INFO, sizeof(struct bgp_interface));
 	iifp->cached_addresses = list_new();
 	iifp->cached_addresses->del = prefix_free_lists;
+	iifp->pending_ifp_down_deletes = list_new();
+	iifp->pending_ifp_down_deletes->del = prefix_free_lists;
 	ifp->info = iifp;
 
 	return 0;
@@ -3827,8 +3907,11 @@ static int bgp_if_delete_hook(struct interface *ifp)
 {
 	struct bgp_interface *iifp = ifp->info;
 
-	if (iifp && iifp->cached_addresses) {
-		list_delete(&iifp->cached_addresses);
+	if (iifp) {
+		if (iifp->cached_addresses)
+			list_delete(&iifp->cached_addresses);
+		if (iifp->pending_ifp_down_deletes)
+			list_delete(&iifp->pending_ifp_down_deletes);
 	}
 	XFREE(MTYPE_BGP_IF_INFO, ifp->info);
 	return 0;
