@@ -1098,14 +1098,6 @@ struct bgp_interface {
 	 * generate unreachability info for the prefixes
 	 */
 	struct list *cached_addresses; /* list of struct prefix */
-
-	/* Addresses pending ADDRESS_DELETE from bgp_ifp_down.
-	 * When bgp_ifp_down() injects UNREACH, addresses are added here.
-	 * When bgp_interface_address_delete() sees an address in this list,
-	 * it removes it and skips (bgp_ifp_down already handled UNREACH).
-	 * This avoids timing-dependent logic.
-	 */
-	struct list *pending_ifp_down_deletes; /* list of struct prefix */
 };
 
 DECLARE_HOOK(bgp_inst_delete, (struct bgp *bgp), (bgp));
