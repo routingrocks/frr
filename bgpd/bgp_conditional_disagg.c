@@ -34,7 +34,7 @@ void bgp_conditional_disagg_add(struct bgp *bgp, const struct prefix *p, struct 
 		zlog_debug("CONDITIONAL DISAGG ADD: Called for prefix %pFX from peer %s", p,
 			   peer->host);
 
-	/* Only process UNREACH routes received from external peers, not locally originated */
+	/* Skip locally originated UNREACH - only process received routes */
 	if (peer == bgp->peer_self) {
 		if (BGP_DEBUG(update, UPDATE_IN))
 			zlog_debug("CONDITIONAL DISAGG ADD: Ignoring locally originated UNREACH route for %pFX",
@@ -143,17 +143,13 @@ void bgp_conditional_disagg_withdraw(struct bgp *bgp, const struct prefix *p,
 		zlog_debug("CONDITIONAL DISAGG WITHDRAW: Called for prefix %pFX from peer %s", p,
 			   peer->host);
 
-	/* Only process UNREACH routes received from external peers, not locally originated */
+	/* Skip locally originated UNREACH - only process received routes */
 	if (peer == bgp->peer_self) {
 		if (BGP_DEBUG(update, UPDATE_IN))
 			zlog_debug("CONDITIONAL DISAGG WITHDRAW: Ignoring locally originated UNREACH route for %pFX",
 				   p);
 		return;
 	}
-
-	/* Check basic prerequisites - just verify this is SAFI_UNREACH withdrawal */
-	if (!pi->extra || !pi->extra->unreach)
-		return;
 
 	/* Look up the prefix in SAFI_UNICAST table */
 	struct bgp_dest *dest_unicast = bgp_node_lookup(bgp->rib[afi][SAFI_UNICAST], p);

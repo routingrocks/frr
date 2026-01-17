@@ -275,7 +275,8 @@ DEFPY(no_bgp_unreach_advertise_match, no_bgp_unreach_advertise_match_cmd,
 					if (bgp_debug_zebra(dest_p))
 						zlog_debug("BGP: Deleting self-originated UNREACH %pFX (filter removed)",
 							   dest_p);
-					bgp_unreach_info_delete(bgp, afi, dest_p);
+
+					bgp_rib_remove(dest, pi, bgp->peer_self, afi, SAFI_UNREACH);
 					break;
 				}
 			}

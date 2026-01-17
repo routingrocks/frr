@@ -4277,11 +4277,16 @@ void bgp_packet_mpattr_prefix(struct stream *s, afi_t afi, safi_t safi, const st
 			/* Encode TLVs as part of NLRI (not as BGP attributes) */
 			bgp_unreach_tlv_encode(s, &nlri);
 		} else if (path == NULL) {
-			zlog_warn("UNREACH ENCODE: path=NULL for prefix=%pFX - TLVs will NOT be encoded!",
+			/* path=NULL indicates this is a withdrawal - TLVs are not
+			 * included in withdrawals per protocol spec, this is expected. */
+			if (BGP_DEBUG(update, UPDATE_OUT))
+				zlog_debug("UNREACH ENCODE: withdrawal for prefix=%pFX (no TLVs)",
 				  p);
 		} else if (!path->extra) {
+			/* path exists but no extra data - this is unexpected for updates */
 			zlog_warn("UNREACH ENCODE: path->extra=NULL for prefix=%pFX", p);
 		} else if (!path->extra->unreach) {
+			/* path exists but no unreach data - this is unexpected for updates */
 			zlog_warn("UNREACH ENCODE: path->extra->unreach=NULL for prefix=%pFX", p);
 		}
 		break;
