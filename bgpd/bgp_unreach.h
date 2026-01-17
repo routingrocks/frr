@@ -131,4 +131,7 @@ extern int bgp_unreach_reason_str2code(const char *str, uint16_t *code);
 extern void bgp_unreach_zebra_announce(struct bgp *bgp, struct interface *ifp,
 				       struct prefix *prefix, bool withdraw);
 
+extern bool bgp_unreach_cache_address(struct interface *ifp, const struct prefix *addr);
+extern bool bgp_unreach_uncache_address(struct interface *ifp, const struct prefix *addr);
+
 #endif /* _QUAGGA_BGP_UNREACH_H */

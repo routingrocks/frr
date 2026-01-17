@@ -523,6 +523,18 @@ static void connected_delete_helper(struct connected *ifc, struct prefix *p)
 		return;
 	ifp = ifc->ifp;
 
+	/* When address is actually being deleted (not just interface going down),
+	 * ensure we notify clients even if ZEBRA_IFC_REAL was already cleared.
+	 * This handles the case where interface went down (which clears the flag),
+	 * and then the address is administratively removed.
+	 */
+	if (!CHECK_FLAG(ifc->conf, ZEBRA_IFC_REAL)) {
+		/* Flag was cleared (e.g., interface went down previously).
+		 * But this is an actual address deletion, so notify clients.
+		 */
+		zebra_interface_address_delete_update(ifp, ifc);
+	}
+
 	connected_withdraw(ifc);
 
 	/* Schedule LSP forwarding entries for processing, if appropriate. */
@@ -558,10 +570,24 @@ void connected_delete_ipv4(struct interface *ifp, int flags,
 	} else
 		ifc = connected_check_ptp(ifp, &p, NULL);
 
-	if (ifc)
+	if (ifc) {
 		frrtrace(3, frr_zebra, if_ip_addr_add_del, ifp->name, ifc->address, 1);
+		connected_delete_helper(ifc, &p);
+	} else {
+		/* Connected not found - it was already deleted when interface went down.
+		 * But the address is now being actually removed from the kernel.
+		 * Notify clients so they can update their state.
+		 */
+		struct connected tmp_ifc;
+		struct prefix tmp_addr;
 
-	connected_delete_helper(ifc, &p);
+		memset(&tmp_ifc, 0, sizeof(tmp_ifc));
+		tmp_ifc.ifp = ifp;
+		prefix_copy(&tmp_addr, &p);
+		tmp_ifc.address = &tmp_addr;
+
+		zebra_interface_address_delete_update(ifp, &tmp_ifc);
+	}
 }
 
 /* Add connected IPv6 route to the interface. */
@@ -656,9 +682,24 @@ void connected_delete_ipv6(struct interface *ifp,
 	} else
 		ifc = connected_check_ptp(ifp, &p, NULL);
 
-	if (ifc)
+	if (ifc) {
 		frrtrace(3, frr_zebra, if_ip_addr_add_del, ifp->name, ifc->address, 3);
-	connected_delete_helper(ifc, &p);
+		connected_delete_helper(ifc, &p);
+	} else {
+		/* Connected not found - it was already deleted when interface went down.
+		 * But the address is now being actually removed from the kernel.
+		 * Notify clients (like bgpd) so they can withdraw UNREACH.
+		 */
+		struct connected tmp_ifc;
+		struct prefix tmp_addr;
+
+		memset(&tmp_ifc, 0, sizeof(tmp_ifc));
+		tmp_ifc.ifp = ifp;
+		prefix_copy(&tmp_addr, &p);
+		tmp_ifc.address = &tmp_addr;
+
+		zebra_interface_address_delete_update(ifp, &tmp_ifc);
+	}
 }
 
 int connected_is_unnumbered(struct interface *ifp)
