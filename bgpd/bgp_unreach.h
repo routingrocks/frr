@@ -57,6 +57,50 @@
 /* Maximum reasonable TLV sizes (sanity checks) */
 #define BGP_UNREACH_TLV_MAX_LEN 255 /* Reasonable upper bound for single TLV */
 
+/* TLV parse error codes (1-100) - must match ctf_enum_value in bgp_trace.h */
+enum bgp_unreach_tlv_error {
+	UNREACH_TLV_ERR_NLRI_TOO_SHORT = 1,
+	UNREACH_TLV_ERR_TRUNCATED_TLV_HEADER = 2,
+	UNREACH_TLV_ERR_INVALID_TLV_TYPE = 3,
+	UNREACH_TLV_ERR_REPORTER_TLV_TOO_SHORT = 4,
+	UNREACH_TLV_ERR_REPORTER_TLV_OVERFLOW = 5,
+	UNREACH_TLV_ERR_TRUNCATED_REPORTER_ID = 6,
+	UNREACH_TLV_ERR_TRUNCATED_REPORTER_AS = 7,
+	UNREACH_TLV_ERR_TRUNCATED_SUBTLV_HEADER = 8,
+	UNREACH_TLV_ERR_SUBTLV_LENGTH_OVERFLOW = 9,
+	UNREACH_TLV_ERR_ZERO_LENGTH_SUBTLV = 10,
+	UNREACH_TLV_ERR_INVALID_REASON_CODE_LEN = 11,
+	UNREACH_TLV_ERR_INVALID_TIMESTAMP_LEN = 12,
+	/* 13-100 reserved for future TLV errors */
+};
+
+/* NLRI parse error codes (101-200) - must match ctf_enum_value in bgp_trace.h */
+enum bgp_unreach_nlri_error {
+	UNREACH_NLRI_ERR_ADDPATH_OVERFLOW = 101,
+	UNREACH_NLRI_ERR_PREMATURE_END = 102,
+	UNREACH_NLRI_ERR_INVALID_PREFIX_LEN = 103,
+	UNREACH_NLRI_ERR_PREFIX_OVERFLOW = 104,
+	UNREACH_NLRI_ERR_INSUFFICIENT_TLV_DATA = 105,
+	UNREACH_NLRI_ERR_REPORTER_TLV_TOO_SHORT = 106,
+	UNREACH_NLRI_ERR_REPORTER_TLV_EXCEEDS_PKT = 107,
+	UNREACH_NLRI_ERR_REPORTER_TLV_PARSE_FAIL = 108,
+	/* 109-200 reserved for future NLRI errors */
+};
+
+/* Source of bgp_unreach_zebra_announce() call - for LTTng tracing */
+enum bgp_unreach_zebra_source {
+	UNREACH_SRC_VTY = 1,		    /* VTY inject/delete command */
+	UNREACH_SRC_IFP_UP_CACHED = 2,	    /* Withdraw cached addresses on ifp up */
+	UNREACH_SRC_IFP_UP_CONNECTED = 3,   /* Withdraw connected addresses on ifp up */
+	UNREACH_SRC_IFP_DOWN_CACHE = 4,	    /* Inject + cache addresses on ifp down */
+	UNREACH_SRC_IFP_DOWN_NOCACHE = 5,   /* Inject without cache on ifp down */
+	UNREACH_SRC_ADDR_ADD = 6,	    /* Withdraw on addr add (ifp operative) */
+	UNREACH_SRC_ADDR_DELETE = 7,	    /* Inject on addr delete (ifp operative) */
+	UNREACH_SRC_IFP_CREATE_CACHE = 8,   /* Inject + cache on ifp create (already down) */
+	UNREACH_SRC_IFP_CREATE_NOCACHE = 9, /* Inject without cache on ifp create */
+	UNREACH_SRC_ADDR_ADD_IFP_DOWN = 10, /* Inject + cache on addr add (ifp down at startup) */
+};
+
 /* Unreachability Reason Code values (Sub-TLV Type 1) */
 enum bgp_unreach_reason_code {
 	BGP_UNREACH_REASON_UNSPECIFIED = 0,
@@ -128,7 +172,7 @@ extern const char *bgp_unreach_reason_str(uint16_t code);
 extern int bgp_unreach_reason_str2code(const char *str, uint16_t *code);
 
 /* Zebra interface down/up notification handler */
-extern void bgp_unreach_zebra_announce(struct bgp *bgp, struct interface *ifp,
-				       struct prefix *prefix, bool withdraw);
+extern void bgp_unreach_zebra_announce(struct bgp *bgp, struct interface *ifp, struct prefix *prefix,
+				       bool withdraw, enum bgp_unreach_zebra_source source);
 
 #endif /* _QUAGGA_BGP_UNREACH_H */

@@ -127,7 +127,7 @@ def print_safi_string(field_val):
 
 def print_prefix_addr(field_val):
     """
-    pretty print "struct prefix"
+    pretty print "struct prefix" - address only (for backwards compatibility)
     """
     if field_val[0] == socket.AF_INET:
         addr = [str(fv) for fv in field_val[8:12]]
@@ -141,6 +141,35 @@ def print_prefix_addr(field_val):
             tmp = tmp[4:]
         addr = ":".join(addr)
         return str(ipaddress.IPv6Address(addr))
+
+    if not field_val[0]:
+        return ""
+
+    return field_val
+
+
+def print_prefix_with_len(field_val):
+    """
+    pretty print "struct prefix" with prefix length (e.g., 2001:1:1:1::/127)
+    struct prefix layout: [0]=family, [1]=padding, [2]=prefixlen, [8:24]=address
+    Note: prefixlen is at offset 2 due to struct alignment
+    """
+    prefixlen = field_val[2]
+
+    if field_val[0] == socket.AF_INET:
+        addr = [str(fv) for fv in field_val[8:12]]
+        ip_str = str(ipaddress.IPv4Address(".".join(addr)))
+        return f"{ip_str}/{prefixlen}"
+
+    if field_val[0] == socket.AF_INET6:
+        tmp = "".join("%02x" % fb for fb in field_val[8:24])
+        addr = []
+        while tmp:
+            addr.append(tmp[:4])
+            tmp = tmp[4:]
+        addr = ":".join(addr)
+        ip_str = str(ipaddress.IPv6Address(addr))
+        return f"{ip_str}/{prefixlen}"
 
     if not field_val[0]:
         return ""
@@ -1332,6 +1361,130 @@ def parse_frr_bgp_per_src_nhg_peer_clear_route(event):
     parse_event(event, field_parsers)
 ############################ bgp per src nhg - end #############################
 
+########################### SAFI_UNREACH parsers - start ############################
+def print_reporter_id(field_val):
+    """
+    pretty print reporter ID (struct in_addr as 4 bytes)
+    """
+    return str(ipaddress.IPv4Address(bytes(field_val)))
+
+
+def print_unreach_timestamp(field_val):
+    """
+    pretty print unreachability timestamp (epoch seconds to local time)
+    Matches the format used by the main trace event timestamp
+    """
+    if field_val:
+        return datetime.datetime.fromtimestamp(field_val).strftime('%Y-%m-%dT%H:%M:%S')
+    return "0"
+
+
+def print_unreach_intent(field_val):
+    """
+    pretty print unreach zebra_announce intent (1=INJECT, 0=WITHDRAW_IF_SENT)
+    INJECT = announce unreachability (prefix is unreachable)
+    WITHDRAW_IF_SENT = cancel previously announced unreachability (if any was sent)
+    """
+    return "INJECT" if field_val else "WITHDRAW_IF_SENT"
+
+
+def print_unreach_info_oper(field_val):
+    """
+    pretty print unreach_info_add oper (1=ADD, 0=UPD)
+    """
+    return "ADD" if field_val else "UPD"
+
+
+def print_up_down(field_val):
+    """
+    pretty print interface oper/admin state (1=UP, 0=DOWN)
+    """
+    return "UP" if field_val else "DOWN"
+
+
+def parse_frr_bgp_unreach_info_add(event):
+    field_parsers = {
+        "prefix": print_prefix_with_len,
+        "reporter_id": print_reporter_id,
+        "timestamp": print_unreach_timestamp,
+        "oper": print_unreach_info_oper
+    }
+    parse_event(event, field_parsers)
+
+
+def parse_frr_bgp_unreach_info_delete(event):
+    field_parsers = {
+        "prefix": print_prefix_with_len
+    }
+    parse_event(event, field_parsers)
+
+
+def parse_frr_bgp_unreach_zebra_announce(event):
+    field_parsers = {
+        "prefix": print_prefix_with_len,
+        "oper": print_up_down,
+        "admin": print_up_down,
+        "intent": print_unreach_intent
+    }
+    parse_event(event, field_parsers)
+
+
+def parse_frr_bgp_unreach_nlri_received(event):
+    field_parsers = {
+        "prefix": print_prefix_with_len,
+        "reporter_id": print_reporter_id,
+        "timestamp": print_unreach_timestamp
+    }
+    parse_event(event, field_parsers)
+
+
+def parse_frr_bgp_unreach_nlri_withdraw_received(event):
+    field_parsers = {
+        "prefix": print_prefix_with_len
+    }
+    parse_event(event, field_parsers)
+
+
+def parse_frr_bgp_unreach_vty_inject(event):
+    field_parsers = {
+        "prefix": print_prefix_with_len,
+        "reporter_id": print_reporter_id,
+        "timestamp": print_unreach_timestamp
+    }
+    parse_event(event, field_parsers)
+
+
+def parse_frr_bgp_unreach_vty_delete(event):
+    field_parsers = {
+        "prefix": print_prefix_with_len
+    }
+    parse_event(event, field_parsers)
+
+
+def parse_frr_bgp_unreach_filter_add(event):
+    field_parsers = {
+        "filter_prefix": print_prefix_with_len
+    }
+    parse_event(event, field_parsers)
+
+
+def parse_frr_bgp_unreach_filter_remove(event):
+    field_parsers = {}
+    parse_event(event, field_parsers)
+
+
+def parse_frr_bgp_unreach_tlv_parse_error(event):
+    field_parsers = {}
+    parse_event(event, field_parsers)
+
+
+def parse_frr_bgp_unreach_nlri_parse_error(event):
+    field_parsers = {
+        "prefix": print_prefix_with_len
+    }
+    parse_event(event, field_parsers)
+########################### SAFI_UNREACH parsers - end ##############################
+
 ############################ Misc parsers start #############################
 def bytes_to_ipv6(byte_list):
     if len(byte_list) != 16:
@@ -1835,6 +1988,28 @@ def main():
                      parse_frr_bgp_per_src_nhg_rt_with_soo_use_nhgid,
                      "frr_bgp:per_src_nhg_peer_clear_route":
                      parse_frr_bgp_per_src_nhg_peer_clear_route,
+                     "frr_bgp:unreach_info_add":
+                     parse_frr_bgp_unreach_info_add,
+                     "frr_bgp:unreach_info_delete":
+                     parse_frr_bgp_unreach_info_delete,
+                     "frr_bgp:unreach_zebra_announce":
+                     parse_frr_bgp_unreach_zebra_announce,
+                     "frr_bgp:unreach_nlri_received":
+                     parse_frr_bgp_unreach_nlri_received,
+                     "frr_bgp:unreach_nlri_withdraw_received":
+                     parse_frr_bgp_unreach_nlri_withdraw_received,
+                     "frr_bgp:unreach_vty_inject":
+                     parse_frr_bgp_unreach_vty_inject,
+                     "frr_bgp:unreach_vty_delete":
+                     parse_frr_bgp_unreach_vty_delete,
+                     "frr_bgp:unreach_filter_add":
+                     parse_frr_bgp_unreach_filter_add,
+                     "frr_bgp:unreach_filter_remove":
+                     parse_frr_bgp_unreach_filter_remove,
+                     "frr_bgp:unreach_tlv_parse_error":
+                     parse_frr_bgp_unreach_tlv_parse_error,
+                     "frr_bgp:unreach_nlri_parse_error":
+                     parse_frr_bgp_unreach_nlri_parse_error,
                      "frr_bgp:session_state_change":
                      parse_frr_bgp_session_state_change,
                      "frr_bgp:connection_attempt":

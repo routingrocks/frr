@@ -21,6 +21,7 @@
 #include "bgpd/bgp_vty.h"
 #include "bgpd/bgp_debug.h"
 #include "bgpd/bgp_zebra.h"
+#include "bgpd/bgp_trace.h"
 
 /* Forward declaration */
 extern void bgp_unreach_vty_init(void);
@@ -117,6 +118,9 @@ DEFPY_HIDDEN(
 	zlog_info("Injected unreachability for %pFX (reason: %u - %s)", prefix_str,
 		  unreach.reason_code, reason_name);
 
+	frrtrace(6, frr_bgp, unreach_vty_inject, bgp->name_pretty, &unreach.prefix,
+		 &unreach.reporter, unreach.reporter_as, unreach.reason_code, unreach.timestamp);
+
 	return CMD_SUCCESS;
 }
 
@@ -148,6 +152,8 @@ DEFPY_HIDDEN(no_bgp_inject_unreachability, no_bgp_inject_unreachability_cmd,
 	bgp_unreach_info_delete(bgp, afi, prefix_str);
 
 	vty_out(vty, "Removed unreachability for %pFX\n", prefix_str);
+
+	frrtrace(2, frr_bgp, unreach_vty_delete, bgp->name_pretty, prefix_str);
 
 	return CMD_SUCCESS;
 }
@@ -195,6 +201,8 @@ DEFPY(bgp_unreach_advertise_match, bgp_unreach_advertise_match_cmd,
 		zlog_debug("BGP: Set UNREACH advertisement filter for %s to %pFX",
 			   afi == AFI_IP ? "IPv4" : "IPv6", prefix);
 
+	frrtrace(2, frr_bgp, unreach_filter_add, bgp->name_pretty, prefix);
+
 	/* Walk BGP interface cache and create UNREACH for matching cached addresses */
 	struct vrf *vrf = bgp_vrf_lookup_by_instance_type(bgp);
 	if (vrf) {
@@ -210,7 +218,7 @@ DEFPY(bgp_unreach_advertise_match, bgp_unreach_advertise_match_cmd,
 					if (cached_pfx->family == prefix->family &&
 					    prefix_match(prefix, cached_pfx)) {
 						bgp_unreach_zebra_announce(bgp, ifp, cached_pfx,
-									   false);
+									   false, UNREACH_SRC_VTY);
 						if (bgp_debug_zebra(cached_pfx))
 							zlog_debug("BGP: Created UNREACH for cached address %pFX on %s (matches new filter)",
 								   cached_pfx, ifp->name);
@@ -258,6 +266,8 @@ DEFPY(no_bgp_unreach_advertise_match, no_bgp_unreach_advertise_match_cmd,
 		zlog_debug("BGP: Removed UNREACH advertisement filter for %s",
 			   afi == AFI_IP ? "IPv4" : "IPv6");
 
+	frrtrace(1, frr_bgp, unreach_filter_remove, bgp->name_pretty);
+
 	/* Delete all self-originated UNREACH routes from local RIB */
 	struct bgp_table *table = bgp->rib[afi][SAFI_UNREACH];
 	if (table) {
@@ -276,6 +286,8 @@ DEFPY(no_bgp_unreach_advertise_match, no_bgp_unreach_advertise_match_cmd,
 						zlog_debug("BGP: Deleting self-originated UNREACH %pFX (filter removed)",
 							   dest_p);
 
+					frrtrace(2, frr_bgp, unreach_info_delete, bgp->name_pretty,
+						 dest_p);
 					bgp_rib_remove(dest, pi, bgp->peer_self, afi, SAFI_UNREACH);
 					break;
 				}
