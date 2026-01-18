@@ -738,7 +738,7 @@ struct interface *if_lookup_by_ipv4(struct in_addr *addr, vrf_id_t vrf_id)
 	return NULL;
 }
 
-struct interface *if_lookup_by_ipv4_exact(struct in_addr *addr, vrf_id_t vrf_id)
+struct interface *if_lookup_by_ipv4_exact(const struct in_addr *addr, vrf_id_t vrf_id)
 {
 	struct vrf *vrf;
 	struct interface *ifp;
@@ -796,8 +796,8 @@ struct interface *if_lookup_by_ipv6(struct in6_addr *addr, ifindex_t ifindex,
 	return NULL;
 }
 
-struct interface *if_lookup_by_ipv6_exact(struct in6_addr *addr,
-					  ifindex_t ifindex, vrf_id_t vrf_id)
+struct interface *if_lookup_by_ipv6_exact(const struct in6_addr *addr, ifindex_t ifindex,
+					  vrf_id_t vrf_id)
 {
 	struct vrf *vrf;
 	struct interface *ifp;

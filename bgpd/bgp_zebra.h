@@ -70,12 +70,10 @@ extern int bgp_redistribute_unreg(struct bgp *bgp, afi_t afi, int type,
 
 extern struct interface *if_lookup_by_ipv4(struct in_addr *addr,
 					   vrf_id_t vrf_id);
-extern struct interface *if_lookup_by_ipv4_exact(struct in_addr *addr,
-						 vrf_id_t vrf_id);
+extern struct interface *if_lookup_by_ipv4_exact(const struct in_addr *addr, vrf_id_t vrf_id);
 extern struct interface *if_lookup_by_ipv6(struct in6_addr *addr,
 					   ifindex_t ifindex, vrf_id_t vrf_id);
-extern struct interface *if_lookup_by_ipv6_exact(struct in6_addr *addr,
-						 ifindex_t ifindex,
+extern struct interface *if_lookup_by_ipv6_exact(const struct in6_addr *addr, ifindex_t ifindex,
 						 vrf_id_t vrf_id);
 extern int bgp_zebra_advertise_subnet(struct bgp *bgp, int advertise,
 				      vni_t vni);

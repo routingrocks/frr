@@ -65,6 +65,7 @@
 #include "bgpd/bgp_mac.h"
 #include "bgpd/bgp_flowspec.h"
 #include "bgpd/bgp_conditional_adv.h"
+#include "bgpd/bgp_conditional_disagg.h"
 #include "bgpd/bgp_per_src_nhg.h"
 #include "bgpd/bgp_unreach.h"
 #ifdef ENABLE_BGP_VNC
