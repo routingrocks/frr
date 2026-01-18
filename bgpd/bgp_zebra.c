@@ -85,6 +85,39 @@ static inline bool bgp_install_info_to_zebra(struct bgp *bgp)
 	return true;
 }
 
+/* Add an address to the interface's down-state cache.
+ * Returns true if added, false if already cached.
+ * Cache is populated when interface is operationally DOWN to track
+ * addresses for replay when interface comes UP or config changes.
+ */
+static bool bgp_ifp_address_cache_add(struct interface *ifp, const struct prefix *addr)
+{
+	struct bgp_interface *iifp;
+	struct listnode *node;
+	struct prefix *cached_pfx;
+
+	if (!ifp || !addr)
+		return false;
+
+	iifp = ifp->info;
+	if (!iifp || !iifp->cached_addresses)
+		return false;
+
+	/* Check for duplicate */
+	/* coverity[non_const_printf_format_string] - list iteration macro is safe */
+	for (ALL_LIST_ELEMENTS_RO(iifp->cached_addresses, node, cached_pfx)) {
+		if (prefix_same(cached_pfx, addr))
+			return false;
+	}
+
+	/* Add to cache */
+	struct prefix *pfx = prefix_new();
+	prefix_copy(pfx, addr);
+	listnode_add(iifp->cached_addresses, pfx);
+
+	return true;
+}
+
 int zclient_num_connects;
 
 /* Router-id update message from zebra. */
@@ -448,8 +481,19 @@ static int bgp_interface_address_add(ZAPI_CALLBACK_ARGS)
 				}
 			}
 		}
-	}
+	} else {
+        /* Interface is down - cache address for UNREACH replay and generate UNREACH.
+         * This handles the case where addresses are received for a down interface
+         * during startup.
+         */
+	if (bgp_ifp_address_cache_add(ifc->ifp, ifc->address)) {
+		bgp_unreach_zebra_announce(bgp, ifc->ifp, ifc->address, false);
 
+            if (BGP_DEBUG(zebra, ZEBRA))
+                zlog_debug("  Cached address %pFX on %s for unreachability (address added while interface down)",
+                        ifc->address, ifc->ifp->name);
+	}
+    }
 	return 0;
 }
 
