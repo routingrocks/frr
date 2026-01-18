@@ -278,7 +278,8 @@ static int bgp_ifp_up(struct interface *ifp)
 		/* coverity[non_const_printf_format_string] - listcount macro is safe */
 		for (ALL_LIST_ELEMENTS_RO(iifp->cached_addresses, addr_node, cached_pfx)) {
 			if (bgp)
-				bgp_unreach_zebra_announce(bgp, ifp, cached_pfx, true);
+				bgp_unreach_zebra_announce(bgp, ifp, cached_pfx, true,
+							   UNREACH_SRC_IFP_UP_CACHED);
 		}
 
 		/* Clear the cache */
@@ -292,7 +293,7 @@ static int bgp_ifp_up(struct interface *ifp)
 		if (!c->address)
 			continue;
 		bgp_connected_add(bgp, c);
-		bgp_unreach_zebra_announce(bgp, ifp, c->address, true);
+		bgp_unreach_zebra_announce(bgp, ifp, c->address, true, UNREACH_SRC_IFP_UP_CONNECTED);
 	}
 
 	for (ALL_LIST_ELEMENTS(ifp->nbr_connected, node, nnode, nc))
@@ -348,7 +349,8 @@ static int bgp_ifp_down(struct interface *ifp)
 				listnode_add(iifp->cached_addresses, pfx);
 
 				/* Generate unreachability NLRI immediately */
-				bgp_unreach_zebra_announce(bgp, ifp, c->address, false);
+				bgp_unreach_zebra_announce(bgp, ifp, c->address, false,
+							   UNREACH_SRC_IFP_DOWN_CACHE);
 
 				if (BGP_DEBUG(zebra, ZEBRA))
 					zlog_debug("  Cached address %pFX on %s for unreachability tracking (interface down)",
@@ -359,7 +361,8 @@ static int bgp_ifp_down(struct interface *ifp)
 		/* No cache structure, but still generate unreachability NLRI */
 		frr_each (if_connected, ifp->connected, c) {
 			if (c->address)
-				bgp_unreach_zebra_announce(bgp, ifp, c->address, false);
+				bgp_unreach_zebra_announce(bgp, ifp, c->address, false,
+							   UNREACH_SRC_IFP_DOWN_NOCACHE);
 		}
 	}
 
@@ -426,7 +429,7 @@ static int bgp_interface_address_add(ZAPI_CALLBACK_ARGS)
 		bgp_connected_add(bgp, ifc);
 
 		/* Withdraw unreachability for this address if it was previously injected */
-		bgp_unreach_zebra_announce(bgp, ifc->ifp, ifc->address, true);
+		bgp_unreach_zebra_announce(bgp, ifc->ifp, ifc->address, true, UNREACH_SRC_ADDR_ADD);
 
 		/* If we have learnt of any neighbors on this interface,
 		 * check to kick off any BGP interface-based neighbors,
@@ -482,18 +485,19 @@ static int bgp_interface_address_add(ZAPI_CALLBACK_ARGS)
 			}
 		}
 	} else {
-        /* Interface is down - cache address for UNREACH replay and generate UNREACH.
-         * This handles the case where addresses are received for a down interface
-         * during startup.
-         */
-	if (bgp_ifp_address_cache_add(ifc->ifp, ifc->address)) {
-		bgp_unreach_zebra_announce(bgp, ifc->ifp, ifc->address, false);
+		/* Interface is down - cache address for UNREACH replay and generate UNREACH.
+		 * This handles the case where addresses are received for a down interface
+		 * during startup.
+		 */
+		if (bgp_ifp_address_cache_add(ifc->ifp, ifc->address)) {
+			bgp_unreach_zebra_announce(bgp, ifc->ifp, ifc->address, false,
+						   UNREACH_SRC_ADDR_ADD_IFP_DOWN);
 
-            if (BGP_DEBUG(zebra, ZEBRA))
-                zlog_debug("  Cached address %pFX on %s for unreachability (address added while interface down)",
-                        ifc->address, ifc->ifp->name);
+			if (BGP_DEBUG(zebra, ZEBRA))
+				zlog_debug("  Cached address %pFX on %s for unreachability (address added while interface down)",
+					   ifc->address, ifc->ifp->name);
+		}
 	}
-    }
 	return 0;
 }
 
@@ -524,7 +528,8 @@ static int bgp_interface_address_delete(ZAPI_CALLBACK_ARGS)
 	if (addr && bgp) {
 		/* Inject unreachability when address is deleted from interface */
 		if (if_is_operative(ifc->ifp))
-			bgp_unreach_zebra_announce(bgp, ifc->ifp, addr, false);
+			bgp_unreach_zebra_announce(bgp, ifc->ifp, addr, false,
+						   UNREACH_SRC_ADDR_DELETE);
 
 		if (if_is_operative(ifc->ifp))
 			bgp_connected_delete(bgp, ifc);
@@ -3614,7 +3619,8 @@ static int bgp_ifp_create(struct interface *ifp)
 					listnode_add(iifp->cached_addresses, pfx);
 
 					/* Generate unreachability NLRI */
-					bgp_unreach_zebra_announce(bgp, ifp, c->address, false);
+					bgp_unreach_zebra_announce(bgp, ifp, c->address, false,
+								   UNREACH_SRC_IFP_CREATE_CACHE);
 
 					if (BGP_DEBUG(zebra, ZEBRA))
 						zlog_debug("  Cached address %pFX on %s (interface already down at startup)",
@@ -3625,7 +3631,8 @@ static int bgp_ifp_create(struct interface *ifp)
 			/* No cache structure, but still generate unreachability */
 			frr_each (if_connected, ifp->connected, c) {
 				if (c->address)
-					bgp_unreach_zebra_announce(bgp, ifp, c->address, false);
+					bgp_unreach_zebra_announce(bgp, ifp, c->address, false,
+								   UNREACH_SRC_IFP_CREATE_NOCACHE);
 			}
 		}
 	}
