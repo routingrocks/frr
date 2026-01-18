@@ -4668,16 +4668,12 @@ void bgp_do_deferred_path_selection(struct bgp *bgp, afi_t afi, safi_t safi)
 		}
 	} else if (safi == SAFI_UNREACH && (afi == AFI_IP || afi == AFI_IP6)) {
 		/*
-		 * SAFI_UNREACH (Unreachability Information) has no forwarding state.
-		 * No deferred path selection is needed, but we still need to:
-		 * 1. Clear stale routes after EOR/timeout
-		 * 2. Send EOR to peers
-		 * The gr_deferred count should be 0 for SAFI_UNREACH since we don't
-		 * defer path selection. Just proceed to send EOR.
+		 * Process deferred path selection for SAFI_UNREACH routes.
+		 * Even though SAFI_UNREACH has no forwarding state, best path
+		 * selection should still be deferred during GR until EOR is
+		 * received from all helpers.
 		 */
-		if (BGP_DEBUG(graceful_restart, GRACEFUL_RESTART))
-			zlog_debug("%s: SAFI_UNREACH GR timer expired for %s, proceeding to EOR",
-				   bgp->name_pretty, get_afi_safi_str(afi, safi, false));
+		bgp_deferred_path_selection(bgp, afi, safi, bgp->rib[afi][safi], cnt, NULL, false);
 	}
 
 	/*
