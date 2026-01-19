@@ -2444,6 +2444,8 @@ static bool zapi_nexthop_update_decode(struct stream *s, struct prefix *match,
 	STREAM_GETW(s, nhr->instance);
 	STREAM_GETC(s, nhr->distance);
 	STREAM_GETL(s, nhr->metric);
+	if (CHECK_FLAG(nhr->message, ZAPI_MESSAGE_NHG))
+	    STREAM_GETL(s, nhr->nhgid);
 	STREAM_GETW(s, nhr->nexthop_num);
 
 	for (i = 0; i < nhr->nexthop_num; i++) {
