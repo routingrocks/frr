@@ -24,82 +24,56 @@
  *
  * This allows a leaf to automatically disaggregate specific prefixes when it
  * receives unreachability notifications for prefixes within its own anycast group.
+ *
+ * Note on silent returns: UNREACH routes are received by all peers in the fabric.
+ * Only peers in the same anycast group (matching SoO) should act on them.
+ * SoO mismatch is expected for most receivers and would cause excessive logging.
  */
 void bgp_conditional_disagg_add(struct bgp *bgp, const struct prefix *p, struct bgp_path_info *pi,
-				afi_t afi, struct peer *peer)
+				afi_t afi, safi_t safi, struct peer *peer)
 {
-	struct ecommunity *ecom;
+	/* Only process SAFI_UNREACH routes */
+	if (safi != SAFI_UNREACH)
+		return;
 
-	if (BGP_DEBUG(update, UPDATE_IN))
-		zlog_debug("CONDITIONAL DISAGG ADD: Called for prefix %pFX from peer %s", p,
-			   peer->host);
+	/* peer must be valid */
+	if (!peer)
+		return;
 
 	/* Skip locally originated UNREACH - only process received routes */
-	if (peer == bgp->peer_self) {
+	if (peer == bgp->peer_self)
+		return;
+
+	/* Local SoO must be configured */
+	if (!bgp->soo_source_ip_set || !bgp->per_source_nhg_soo || !pi->attr) {
 		if (BGP_DEBUG(update, UPDATE_IN))
-			zlog_debug("CONDITIONAL DISAGG ADD: Ignoring locally originated UNREACH route for %pFX",
+			zlog_debug("CONDITIONAL DISAGG ADD: Local SoO not configured for %pFX",
 				   p);
 		return;
 	}
 
-	/* Verify NLRI parsing succeeded - pi->extra->unreach should exist */
-	if (!pi->extra || !pi->extra->unreach) {
+	/* UNREACH route must carry SoO extended community */
+	if (!route_has_soo_attr(pi)) {
 		if (BGP_DEBUG(update, UPDATE_IN))
-			zlog_debug(
-				"CONDITIONAL DISAGG ADD: NLRI parsing failed or unreach data missing");
+			zlog_debug("CONDITIONAL DISAGG ADD: UNREACH %pFX from %s has no SoO",
+				   p, peer->host);
 		return;
 	}
 
-	/* Check prerequisites */
-	if (!bgp->soo_source_ip_set || !bgp->per_source_nhg_soo || !pi->attr) {
-		if (BGP_DEBUG(update, UPDATE_IN))
-			zlog_debug("CONDITIONAL DISAGG ADD: Prerequisites not met (soo_source_ip_set=%d, per_source_nhg_soo=%p, attr=%p)",
-				   bgp->soo_source_ip_set, bgp->per_source_nhg_soo, pi->attr);
+	/* SoO mismatch means different anycast group - skip silently (expected, not an error) */
+	if (!route_matches_soo(pi, bgp->per_source_nhg_soo))
 		return;
-	}
-
-	ecom = bgp_attr_get_ecommunity(pi->attr);
-
-	/* No extended community present - don't originate */
-	if (!ecom) {
-		if (BGP_DEBUG(update, UPDATE_IN))
-			zlog_debug("CONDITIONAL DISAGG ADD: No extended community present");
-		return;
-	}
-
-	/* Check if SAFI_UNREACH route has SoO matching our local soo-source */
-	if (!soo_in_ecom(ecom, bgp->per_source_nhg_soo)) {
-		if (BGP_DEBUG(update, UPDATE_IN)) {
-			char *ecom_str = ecommunity_ecom2str(ecom, ECOMMUNITY_FORMAT_COMMUNITY_LIST,
-							     0);
-			char *local_soo_str = ecommunity_ecom2str(bgp->per_source_nhg_soo,
-								  ECOMMUNITY_FORMAT_COMMUNITY_LIST,
-								  0);
-			zlog_debug("CONDITIONAL DISAGG ADD: SoO does not match. Received ecomm=%s, local soo=%s",
-				   ecom_str, local_soo_str);
-			XFREE(MTYPE_ECOMMUNITY_STR, ecom_str);
-			XFREE(MTYPE_ECOMMUNITY_STR, local_soo_str);
-		}
-		return;
-	}
-
-	if (BGP_DEBUG(update, UPDATE_IN))
-		zlog_debug("CONDITIONAL DISAGG ADD: All checks passed, SoO match confirmed");
 
 	/* Look up the EXACT prefix in SAFI_UNICAST table (exact match, not longest-prefix-match).
 	 * The route must already exist (e.g., connected, static, or from aggregate).
-	 * We don't create routes - we only mark existing ones to bypass suppression. */
-	if (BGP_DEBUG(update, UPDATE_IN))
-		zlog_debug("CONDITIONAL DISAGG ADD: Looking up EXACT match for UNREACH prefix %pFX in UNICAST table",
-			   p);
+	 * We don't create routes - we only mark existing ones to bypass suppression.
+	 * No match is expected if this peer doesn't have the prefix - skip silently. */
+	if (!bgp->rib[afi][SAFI_UNICAST])
+		return;
 
 	struct bgp_dest *dest_unicast = bgp_node_lookup(bgp->rib[afi][SAFI_UNICAST], p);
-	if (!dest_unicast) {
-		if (BGP_DEBUG(update, UPDATE_IN))
-			zlog_debug("CONDITIONAL DISAGG ADD: No existing SAFI_UNICAST route for %pFX - cannot disaggregate non-existent route",
-				   p);
+	if (!dest_unicast)
 		return;
-	}
 
 	/* Mark all path_info entries with BGP_PATH_CONDITIONAL_DISAGG flag.
 	 * This flag bypasses aggregate summary-only suppression. */
@@ -111,19 +85,13 @@ void bgp_conditional_disagg_add(struct bgp *bgp, const struct prefix *p, struct 
 			SET_FLAG(pi_unicast->flags, BGP_PATH_CONDITIONAL_DISAGG);
 			SET_FLAG(pi_unicast->flags, BGP_PATH_ATTR_CHANGED);
 			marked_count++;
-			if (BGP_DEBUG(update, UPDATE_IN))
-				zlog_debug("CONDITIONAL DISAGG ADD: Marked %pFX (path %d, peer %s, origin %d) with BGP_PATH_CONDITIONAL_DISAGG and BGP_PATH_ATTR_CHANGED flags",
-					   p, marked_count,
-					   pi_unicast->peer ? pi_unicast->peer->host : "NULL",
-					   pi_unicast->attr ? pi_unicast->attr->origin : -1);
-
-			/* Trigger BGP decision process to re-evaluate and advertise this route */
 			bgp_process(bgp, dest_unicast, pi_unicast, afi, SAFI_UNICAST);
-			if (BGP_DEBUG(update, UPDATE_OUT))
-				zlog_debug("CONDITIONAL DISAGG ADD: Triggered bgp_process to advertise %pFX",
-					   p);
 		}
 	}
+
+	if (BGP_DEBUG(update, UPDATE_IN) && marked_count)
+		zlog_debug("CONDITIONAL DISAGG ADD: Marked %d paths for %pFX from peer %s",
+			   marked_count, p, peer->host);
 
 	bgp_dest_unlock_node(dest_unicast);
 }
@@ -132,33 +100,35 @@ void bgp_conditional_disagg_add(struct bgp *bgp, const struct prefix *p, struct 
  * Conditional Disaggregation: Clear BGP_PATH_CONDITIONAL_DISAGG flag when
  * SAFI_UNREACH route is withdrawn.
  *
- * Note: UNREACH NLRI withdrawals do NOT carry SoO extended community.
- * We simply clear the BGP_PATH_CONDITIONAL_DISAGG flag from any matching
- * SAFI_UNICAST route, allowing it to be suppressed again by aggregates.
+ * Note: UNREACH withdrawal NLRIs do NOT carry SoO extended community (BGP constraint).
+ * We look up matching SAFI_UNICAST routes that have BGP_PATH_CONDITIONAL_DISAGG flag
+ * set and clear it, allowing aggregate suppression to take effect again.
+ * No SoO matching is needed here - we simply undo any previous disaggregation.
  */
 void bgp_conditional_disagg_withdraw(struct bgp *bgp, const struct prefix *p,
-				     struct bgp_path_info *pi, afi_t afi, struct peer *peer)
+				     struct bgp_path_info *pi, afi_t afi, safi_t safi,
+				     struct peer *peer)
 {
-	if (BGP_DEBUG(update, UPDATE_IN))
-		zlog_debug("CONDITIONAL DISAGG WITHDRAW: Called for prefix %pFX from peer %s", p,
-			   peer->host);
+	/* Only process SAFI_UNREACH routes */
+	if (safi != SAFI_UNREACH)
+		return;
+
+	/* peer must be valid */
+	if (!peer)
+		return;
 
 	/* Skip locally originated UNREACH - only process received routes */
-	if (peer == bgp->peer_self) {
-		if (BGP_DEBUG(update, UPDATE_IN))
-			zlog_debug("CONDITIONAL DISAGG WITHDRAW: Ignoring locally originated UNREACH route for %pFX",
-				   p);
+	if (peer == bgp->peer_self)
 		return;
-	}
 
-	/* Look up the prefix in SAFI_UNICAST table */
-	struct bgp_dest *dest_unicast = bgp_node_lookup(bgp->rib[afi][SAFI_UNICAST], p);
-	if (!dest_unicast) {
-		if (BGP_DEBUG(update, UPDATE_IN))
-			zlog_debug("CONDITIONAL DISAGG WITHDRAW: No existing SAFI_UNICAST route found for %pFX",
-				   p);
+	/* Look up the prefix in SAFI_UNICAST table. No match is expected if
+	 * this peer doesn't have the prefix or never disaggregated it - skip silently. */
+	if (!bgp->rib[afi][SAFI_UNICAST])
 		return;
-	}
+
+	struct bgp_dest *dest_unicast = bgp_node_lookup(bgp->rib[afi][SAFI_UNICAST], p);
+	if (!dest_unicast)
+		return;
 
 	/* Find path_info entries and clear BGP_PATH_CONDITIONAL_DISAGG flag */
 	struct bgp_path_info *pi_unicast;
@@ -168,11 +138,6 @@ void bgp_conditional_disagg_withdraw(struct bgp *bgp, const struct prefix *p,
 		if (CHECK_FLAG(pi_unicast->flags, BGP_PATH_CONDITIONAL_DISAGG)) {
 			UNSET_FLAG(pi_unicast->flags, BGP_PATH_CONDITIONAL_DISAGG);
 			cleared_count++;
-			if (BGP_DEBUG(update, UPDATE_IN))
-				zlog_debug("CONDITIONAL DISAGG WITHDRAW: Cleared BGP_PATH_CONDITIONAL_DISAGG flag from %pFX (path %d, peer %s, origin %d)",
-					   p, cleared_count,
-					   pi_unicast->peer ? pi_unicast->peer->host : "NULL",
-					   pi_unicast->attr ? pi_unicast->attr->origin : -1);
 
 			/* Now that the conditional disagg flag is cleared, we need to re-apply
 			 * aggregate suppression. The route was never added to aggr_suppressors
@@ -214,18 +179,15 @@ void bgp_conditional_disagg_withdraw(struct bgp *bgp, const struct prefix *p,
 				bgp_dest_unlock_node(child);
 			}
 
-			if (BGP_DEBUG(update, UPDATE_IN))
-				zlog_debug("CONDITIONAL DISAGG WITHDRAW: Re-applied aggregate suppression for %pFX",
-					   p);
-
 			/* Now set attr changed and trigger re-processing to withdraw the route */
 			SET_FLAG(pi_unicast->flags, BGP_PATH_ATTR_CHANGED);
 			bgp_process(bgp, dest_unicast, pi_unicast, afi, SAFI_UNICAST);
-			if (BGP_DEBUG(update, UPDATE_OUT))
-				zlog_debug("CONDITIONAL DISAGG WITHDRAW: Triggered bgp_process for %pFX",
-					   p);
 		}
 	}
+
+	if (BGP_DEBUG(update, UPDATE_IN) && cleared_count)
+		zlog_debug("CONDITIONAL DISAGG WITHDRAW: Cleared %d paths for %pFX from peer %s",
+			   cleared_count, p, peer->host);
 
 	bgp_dest_unlock_node(dest_unicast);
 }

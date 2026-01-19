@@ -4226,9 +4226,9 @@ DEFPY(bgp_conditional_disaggregation, bgp_conditional_disaggregation_cmd,
 					const struct prefix *p = bgp_dest_get_prefix(dest);
 					for (pi = bgp_dest_get_bgp_path_info(dest); pi;
 					     pi = pi->next) {
-						if (pi->peer)
-							bgp_conditional_disagg_withdraw(bgp, p, pi, afi,
-											pi->peer);
+						bgp_conditional_disagg_withdraw(bgp, p, pi, afi,
+										SAFI_UNREACH,
+										pi->peer);
 					}
 				}
 			}
@@ -4249,7 +4249,7 @@ DEFPY(bgp_conditional_disaggregation, bgp_conditional_disaggregation_cmd,
 					for (pi = bgp_dest_get_bgp_path_info(dest); pi;
 					     pi = pi->next) {
 						bgp_conditional_disagg_add(bgp, p, pi, afi,
-									   pi->peer);
+									   SAFI_UNREACH, pi->peer);
 					}
 				}
 			}

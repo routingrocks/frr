@@ -28,10 +28,12 @@
  * @param p Prefix from SAFI_UNREACH route
  * @param pi Path info for SAFI_UNREACH route
  * @param afi Address family
- * @param peer Peer that sent the SAFI_UNREACH route
+ * @param safi Sub-address family (must be SAFI_UNREACH, silently returns otherwise)
+ * @param peer Peer that sent the SAFI_UNREACH route (NULL safely ignored)
  */
 extern void bgp_conditional_disagg_add(struct bgp *bgp, const struct prefix *p,
-				       struct bgp_path_info *pi, afi_t afi, struct peer *peer);
+				       struct bgp_path_info *pi, afi_t afi, safi_t safi,
+				       struct peer *peer);
 
 /*
  * Withdraw generated SAFI_UNICAST route when SAFI_UNREACH route is withdrawn.
@@ -40,9 +42,11 @@ extern void bgp_conditional_disagg_add(struct bgp *bgp, const struct prefix *p,
  * @param p Prefix from SAFI_UNREACH route
  * @param pi Path info for SAFI_UNREACH route
  * @param afi Address family
- * @param peer Peer that withdrew the SAFI_UNREACH route
+ * @param safi Sub-address family (must be SAFI_UNREACH, silently returns otherwise)
+ * @param peer Peer that withdrew the SAFI_UNREACH route (NULL safely ignored)
  */
 extern void bgp_conditional_disagg_withdraw(struct bgp *bgp, const struct prefix *p,
-					    struct bgp_path_info *pi, afi_t afi, struct peer *peer);
+					    struct bgp_path_info *pi, afi_t afi, safi_t safi,
+					    struct peer *peer);
 
 #endif /* _QUAGGA_BGP_CONDITIONAL_DISAGG_H */
