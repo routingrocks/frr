@@ -5350,7 +5350,7 @@ static void bgp_rib_withdraw(struct bgp_dest *dest, struct bgp_path_info *pi,
 	/* Conditional Disaggregation: Withdraw generated SAFI_UNICAST route if needed */
 	if (safi == SAFI_UNREACH && CHECK_FLAG(peer->bgp->per_src_nhg_flags[afi][SAFI_UNICAST],
 					       BGP_FLAG_CONDITIONAL_DISAGG))
-		bgp_conditional_disagg_withdraw(peer->bgp, p, pi, afi, peer);
+		bgp_conditional_disagg_withdraw(peer->bgp, p, pi, afi, safi, peer);
 
 	bgp_rib_remove(dest, pi, peer, afi, safi);
 }
@@ -6206,7 +6206,7 @@ void bgp_update(struct peer *peer, const struct prefix *p, uint32_t addpath_id,
 		 * new_attr.unreach_nlri check since that pointer is cleared after parsing. */
 		if (safi == SAFI_UNREACH && CHECK_FLAG(bgp->per_src_nhg_flags[afi][SAFI_UNICAST],
 						       BGP_FLAG_CONDITIONAL_DISAGG)) {
-			bgp_conditional_disagg_add(bgp, p, pi, afi, peer);
+			bgp_conditional_disagg_add(bgp, p, pi, afi, safi, peer);
 		}
 
 #ifdef ENABLE_BGP_VNC
@@ -6441,7 +6441,7 @@ void bgp_update(struct peer *peer, const struct prefix *p, uint32_t addpath_id,
 	/* Conditional Disaggregation: Generate SAFI_UNICAST route if needed (NEW route path) */
 	if (safi == SAFI_UNREACH &&
 	    CHECK_FLAG(bgp->per_src_nhg_flags[afi][SAFI_UNICAST], BGP_FLAG_CONDITIONAL_DISAGG)) {
-		bgp_conditional_disagg_add(bgp, p, new, afi, peer);
+		bgp_conditional_disagg_add(bgp, p, new, afi, safi, peer);
 	}
 
 	/* Nexthop reachability check. */
@@ -10523,6 +10523,7 @@ static int bgp_aggregate_set(struct vty *vty, const char *prefix_str, afi_t afi,
 						     pi; pi = pi->next) {
 							bgp_conditional_disagg_add(bgp, unreach_p,
 										   pi, afi,
+										   SAFI_UNREACH,
 										   pi->peer);
 						}
 					}
