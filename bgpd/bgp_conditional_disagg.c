@@ -17,6 +17,7 @@
 #include "bgpd/bgp_debug.h"
 #include "bgpd/bgp_ecommunity.h"
 #include "bgpd/bgp_conditional_disagg.h"
+#include "bgpd/bgp_trace.h"
 
 /*
  * Conditional Disaggregation: Generate SAFI_UNICAST route when SAFI_UNREACH
@@ -46,6 +47,8 @@ void bgp_conditional_disagg_add(struct bgp *bgp, const struct prefix *p, struct 
 
 	/* Local SoO must be configured */
 	if (!bgp->soo_source_ip_set || !bgp->per_source_nhg_soo || !pi->attr) {
+		frrtrace(4, frr_bgp, cond_disagg_error, bgp->name_pretty, p, peer->host,
+			 COND_DISAGG_LOCAL_SOO_NOT_SET);
 		if (BGP_DEBUG(update, UPDATE_IN))
 			zlog_debug("CONDITIONAL DISAGG ADD: Local SoO not configured for %pFX",
 				   p);
@@ -54,6 +57,8 @@ void bgp_conditional_disagg_add(struct bgp *bgp, const struct prefix *p, struct 
 
 	/* UNREACH route must carry SoO extended community */
 	if (!route_has_soo_attr(pi)) {
+		frrtrace(4, frr_bgp, cond_disagg_error, bgp->name_pretty, p, peer->host,
+			 COND_DISAGG_UNREACH_NO_SOO);
 		if (BGP_DEBUG(update, UPDATE_IN))
 			zlog_debug("CONDITIONAL DISAGG ADD: UNREACH %pFX from %s has no SoO",
 				   p, peer->host);
@@ -89,9 +94,12 @@ void bgp_conditional_disagg_add(struct bgp *bgp, const struct prefix *p, struct 
 		}
 	}
 
-	if (BGP_DEBUG(update, UPDATE_IN) && marked_count)
-		zlog_debug("CONDITIONAL DISAGG ADD: Marked %d paths for %pFX from peer %s",
-			   marked_count, p, peer->host);
+	if (marked_count) {
+		frrtrace(4, frr_bgp, cond_disagg_add, bgp->name_pretty, p, peer->host, marked_count);
+		if (BGP_DEBUG(update, UPDATE_IN))
+			zlog_debug("CONDITIONAL DISAGG ADD: Marked %d paths for %pFX from peer %s",
+				   marked_count, p, peer->host);
+	}
 
 	bgp_dest_unlock_node(dest_unicast);
 }
@@ -185,9 +193,13 @@ void bgp_conditional_disagg_withdraw(struct bgp *bgp, const struct prefix *p,
 		}
 	}
 
-	if (BGP_DEBUG(update, UPDATE_IN) && cleared_count)
-		zlog_debug("CONDITIONAL DISAGG WITHDRAW: Cleared %d paths for %pFX from peer %s",
-			   cleared_count, p, peer->host);
+	if (cleared_count) {
+		frrtrace(4, frr_bgp, cond_disagg_withdraw, bgp->name_pretty, p, peer->host,
+			 cleared_count);
+		if (BGP_DEBUG(update, UPDATE_IN))
+			zlog_debug("CONDITIONAL DISAGG WITHDRAW: Cleared %d paths for %pFX from peer %s",
+				   cleared_count, p, peer->host);
+	}
 
 	bgp_dest_unlock_node(dest_unicast);
 }

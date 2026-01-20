@@ -1485,6 +1485,29 @@ def parse_frr_bgp_unreach_nlri_parse_error(event):
     parse_event(event, field_parsers)
 ########################### SAFI_UNREACH parsers - end ##############################
 
+
+########################### Conditional Disaggregation parsers - start ##############
+def parse_frr_bgp_cond_disagg_add(event):
+    field_parsers = {
+        "prefix": print_prefix_with_len
+    }
+    parse_event(event, field_parsers)
+
+
+def parse_frr_bgp_cond_disagg_withdraw(event):
+    field_parsers = {
+        "prefix": print_prefix_with_len
+    }
+    parse_event(event, field_parsers)
+
+
+def parse_frr_bgp_cond_disagg_error(event):
+    field_parsers = {
+        "prefix": print_prefix_with_len
+    }
+    parse_event(event, field_parsers)
+########################### Conditional Disaggregation parsers - end ################
+
 ############################ Misc parsers start #############################
 def bytes_to_ipv6(byte_list):
     if len(byte_list) != 16:
@@ -2010,6 +2033,12 @@ def main():
                      parse_frr_bgp_unreach_tlv_parse_error,
                      "frr_bgp:unreach_nlri_parse_error":
                      parse_frr_bgp_unreach_nlri_parse_error,
+                     "frr_bgp:cond_disagg_add":
+                     parse_frr_bgp_cond_disagg_add,
+                     "frr_bgp:cond_disagg_withdraw":
+                     parse_frr_bgp_cond_disagg_withdraw,
+                     "frr_bgp:cond_disagg_error":
+                     parse_frr_bgp_cond_disagg_error,
                      "frr_bgp:session_state_change":
                      parse_frr_bgp_session_state_change,
                      "frr_bgp:connection_attempt":
