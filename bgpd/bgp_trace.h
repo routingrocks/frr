@@ -2084,6 +2084,72 @@ TRACEPOINT_EVENT(
 )
 TRACEPOINT_LOGLEVEL(frr_bgp, unreach_nlri_withdraw_received, TRACE_INFO)
 
+/*
+ * Conditional Disaggregation error codes
+ */
+TRACEPOINT_ENUM(
+	frr_bgp,
+	cond_disagg_error,
+	TP_ENUM_VALUES(
+		ctf_enum_value("LOCAL_SOO_NOT_SET", 1)
+		ctf_enum_value("UNREACH_NO_SOO", 2)
+	)
+)
+
+/*
+ * Conditional Disaggregation: SAFI_UNICAST paths marked for disaggregation
+ * Traced after successfully marking paths with BGP_PATH_CONDITIONAL_DISAGG flag
+ */
+TRACEPOINT_EVENT(
+	frr_bgp,
+	cond_disagg_add,
+	TP_ARGS(const char *, vrf_name, const struct prefix *, prefix,
+		const char *, peer_host, int, marked_count),
+	TP_FIELDS(
+		ctf_string(vrf, vrf_name)
+		ctf_array(unsigned char, prefix, prefix, sizeof(struct prefix))
+		ctf_string(peer, peer_host)
+		ctf_integer(int, marked_count, marked_count)
+	)
+)
+TRACEPOINT_LOGLEVEL(frr_bgp, cond_disagg_add, TRACE_INFO)
+
+/*
+ * Conditional Disaggregation: SAFI_UNICAST paths cleared from disaggregation
+ * Traced after successfully clearing BGP_PATH_CONDITIONAL_DISAGG flag
+ */
+TRACEPOINT_EVENT(
+	frr_bgp,
+	cond_disagg_withdraw,
+	TP_ARGS(const char *, vrf_name, const struct prefix *, prefix,
+		const char *, peer_host, int, cleared_count),
+	TP_FIELDS(
+		ctf_string(vrf, vrf_name)
+		ctf_array(unsigned char, prefix, prefix, sizeof(struct prefix))
+		ctf_string(peer, peer_host)
+		ctf_integer(int, cleared_count, cleared_count)
+	)
+)
+TRACEPOINT_LOGLEVEL(frr_bgp, cond_disagg_withdraw, TRACE_INFO)
+
+/*
+ * Conditional Disaggregation error
+ * error_code decoded via cond_disagg_error enum
+ */
+TRACEPOINT_EVENT(
+	frr_bgp,
+	cond_disagg_error,
+	TP_ARGS(const char *, vrf_name, const struct prefix *, prefix,
+		const char *, peer_host, uint8_t, error_code),
+	TP_FIELDS(
+		ctf_string(vrf, vrf_name)
+		ctf_array(unsigned char, prefix, prefix, sizeof(struct prefix))
+		ctf_string(peer, peer_host)
+		ctf_enum(frr_bgp, cond_disagg_error, uint8_t, error, error_code)
+	)
+)
+TRACEPOINT_LOGLEVEL(frr_bgp, cond_disagg_error, TRACE_WARNING)
+
 /* clang-format on */
 
 #include <lttng/tracepoint-event.h>

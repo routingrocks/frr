@@ -20,6 +20,12 @@
  * when unreachability is detected, enabling traffic to route around failures.
  */
 
+/* Error codes for conditional disaggregation LTTng traces (range 1-10) */
+enum cond_disagg_error_code {
+	COND_DISAGG_LOCAL_SOO_NOT_SET = 1,
+	COND_DISAGG_UNREACH_NO_SOO = 2,
+};
+
 /*
  * Generate SAFI_UNICAST route when SAFI_UNREACH route is received with
  * matching SoO extended community.
