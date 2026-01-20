@@ -1247,6 +1247,7 @@ rt_with_soo_flag_descriptions = {
     0: "use soo nhg",
     1: "del pending",
     2: "soo attr del",
+    3: "wait for fib ack",
 }
 
 def print_soo_nhg_flags(flags):
@@ -1359,6 +1360,43 @@ def parse_frr_bgp_per_src_nhg_peer_clear_route(event):
                      "safi": print_safi_string,
                      "soo_nhg_flags": print_soo_nhg_flags,
                      "soo_rt_flags": print_soo_rt_flags}
+    parse_event(event, field_parsers)
+
+def parse_frr_bgp_dest_soo_nht_update_process(event):
+    field_parsers = {"soo_rt": print_ip_addr,
+                     "afi": print_afi_string,
+                     "safi": print_safi_string,
+                     "soo_nhg_flags": print_soo_nhg_flags,
+                     "soo_rt_flags": print_soo_rt_flags,
+                     "rt_with_soo_flags": print_rt_with_soo_flags,
+                     "rt_with_soo": print_prefix_addr,
+                     "loc": lambda x: {
+                        1: "rt with soo moved to zebra nhg fib ack received",
+                        2: "rt with soo does not have expected nexthops",
+                     }.get(x, f"Unknown rt with soo fib ack location {x}")}
+    parse_event(event, field_parsers)
+
+def parse_frr_bgp_per_src_nhg_add_dest_soo_pending_ack_refcount_zero(event):
+    field_parsers = {"soo_rt": print_ip_addr,
+                     "afi": print_afi_string,
+                     "safi": print_safi_string,
+                     "soo_nhg_flags": print_soo_nhg_flags,
+                     "soo_rt_flags": print_soo_rt_flags,
+                     "loc": lambda x: {
+                        1: "rt with soo pending fib install ack is zero, installing soo nhg",
+                     }.get(x, f"Unknown rt with soo pending fib install ack refcount zero location {x}")}
+    parse_event(event, field_parsers)
+
+def parse_frr_bgp_register_dest_soo_for_fib_ack(event):
+    field_parsers = {"rt_with_soo": print_prefix_addr,
+                     "soo_rt": print_ip_addr,
+                     "afi": print_afi_string,
+                     "safi": print_safi_string,
+                     "rt_with_soo_flags": print_rt_with_soo_flags,
+                     "loc": lambda x: {
+                        1: "register rt with soo for fib ack",
+                        2: "unregister rt with soo for fib ack"
+                     }.get(x, f"Unknown rt with soo register for fib ack location {x}")}
     parse_event(event, field_parsers)
 ############################ bgp per src nhg - end #############################
 
@@ -2012,6 +2050,12 @@ def main():
                      parse_frr_bgp_per_src_nhg_rt_with_soo_use_nhgid,
                      "frr_bgp:per_src_nhg_peer_clear_route":
                      parse_frr_bgp_per_src_nhg_peer_clear_route,
+                     "frr_bgp:bgp_dest_soo_nht_update_process":
+                     parse_frr_bgp_dest_soo_nht_update_process,
+                     "frr_bgp:bgp_per_src_nhg_add_dest_soo_pending_ack_refcount_zero":
+                     parse_frr_bgp_per_src_nhg_add_dest_soo_pending_ack_refcount_zero,
+                     "frr_bgp:bgp_register_dest_soo_for_fib_ack":
+                     parse_frr_bgp_register_dest_soo_for_fib_ack,
                      "frr_bgp:unreach_info_add":
                      parse_frr_bgp_unreach_info_add,
                      "frr_bgp:unreach_info_delete":
