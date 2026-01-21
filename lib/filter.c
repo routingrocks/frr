@@ -21,6 +21,12 @@ DEFINE_MTYPE_STATIC(LIB, ACCESS_LIST, "Access List");
 DEFINE_MTYPE_STATIC(LIB, ACCESS_LIST_STR, "Access List Str");
 DEFINE_MTYPE_STATIC(LIB, ACCESS_FILTER, "Access Filter");
 
+/*
+ * Flag to skip prefix-list/access-list CLI processing.
+ * Used by daemons that don't need filter functionality.
+ */
+bool filter_cli_skip_processing = false;
+
 /* Static structure for mac access_list's master. */
 static struct access_master access_master_mac = {
 	{NULL, NULL},
