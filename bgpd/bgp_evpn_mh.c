@@ -423,6 +423,26 @@ static void bgp_evpn_es_route_del_all(struct bgp *bgp, struct bgp_evpn_es *es)
 	}
 }
 
+/* Purge all routes from the per-ES routing table without ES state changes. */
+static void bgp_evpn_es_route_purge(struct bgp_evpn_es *es)
+{
+	struct bgp_dest *dest;
+	struct bgp_path_info *pi, *nextpi;
+
+	if (!es->route_table)
+		return;
+
+	for (dest = bgp_table_top(es->route_table); dest; dest = bgp_route_next(dest)) {
+		for (pi = bgp_dest_get_bgp_path_info(dest); (pi != NULL) && (nextpi = pi->next, 1);
+		     pi = nextpi) {
+			bgp_path_info_delete(dest, pi);
+			dest = bgp_path_info_reap(dest, pi);
+
+			assert(dest);
+		}
+	}
+}
+
 /*****************************************************************************
  * Base APIs for creating MH routes (Type-1 or Type-4) on local ethernet
  * segment updates.
@@ -5220,6 +5240,18 @@ void bgp_evpn_mh_finish(void)
 	list_delete(&bgp_mh_info->ead_es_export_rtl);
 
 	XFREE(MTYPE_BGP_EVPN_MH_INFO, bgp_mh_info);
+}
+
+void bgp_evpn_mh_cleanup_es_tables(struct bgp *bgp)
+{
+	struct bgp_evpn_es *es;
+	struct bgp_evpn_es *es_next;
+
+	if (!bgp || !bgp_mh_info)
+		return;
+
+	RB_FOREACH_SAFE (es, bgp_es_rb_head, &bgp_mh_info->es_rb_tree, es_next)
+		bgp_evpn_es_route_purge(es);
 }
 
 /* This function is called when disable-ead-evi-tx knob flaps */

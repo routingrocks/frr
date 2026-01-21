@@ -208,6 +208,12 @@ static __attribute__((__noreturn__)) void bgp_exit(int status)
 	bgp_default = bgp_get_default();
 	bgp_evpn = bgp_get_evpn();
 
+	/*
+	 * Purge per-ES route tables while EVPN BGP instance still exists.
+	 * This avoids dereferencing freed ES RB-tree entries during cleanup.
+	 */
+	bgp_evpn_mh_cleanup_es_tables(bgp_evpn);
+
 	/* reverse bgp_master_init */
 	for (ALL_LIST_ELEMENTS(bm->bgp, node, nnode, bgp)) {
 		if (bgp_default == bgp || bgp_evpn == bgp)
