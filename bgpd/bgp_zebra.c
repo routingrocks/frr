@@ -526,10 +526,6 @@ static int bgp_interface_address_delete(ZAPI_CALLBACK_ARGS)
 	addr = ifc->address;
 
 	if (addr && bgp) {
-		/* Inject unreachability when address is deleted from interface */
-		if (if_is_operative(ifc->ifp))
-			bgp_unreach_zebra_announce(bgp, ifc->ifp, addr, false,
-						   UNREACH_SRC_ADDR_DELETE);
 
 		if (if_is_operative(ifc->ifp))
 			bgp_connected_delete(bgp, ifc);
