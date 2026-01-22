@@ -8531,8 +8531,13 @@ void bgp_static_update(struct bgp *bgp, const struct prefix *p, struct bgp_stati
 			if (pi->extra && pi->extra->vrfleak && pi->extra->vrfleak->bgp_orig)
 				bgp_nexthop = pi->extra->vrfleak->bgp_orig;
 
-			bgp_nexthop_reachability_check(afi, safi, pi, p, dest, bgp, bgp_nexthop,
+			/* skip nht resolution for SOO routes */
+			if (bgp_static->user_configured) {
+				bgp_nexthop_reachability_check(afi, safi, pi, p, dest, bgp, bgp_nexthop,
 						       skip_import_check);
+			} else {
+				bgp_nexthop_reachability_check(afi, safi, pi, p, dest, bgp, bgp_nexthop, true);
+			}
 
 			/* Process change. */
 			bgp_aggregate_increment(bgp, p, pi, afi, safi);
@@ -8581,7 +8586,13 @@ void bgp_static_update(struct bgp *bgp, const struct prefix *p, struct bgp_stati
 #endif
 	}
 
-	bgp_nexthop_reachability_check(afi, safi, new, p, dest, bgp, bgp, skip_import_check);
+	/* If the route is not user configured, it is a SOO route
+	 * and we need to skip registering the SOO route for NHT resolution.
+	 */
+	if (bgp_static->user_configured)
+		bgp_nexthop_reachability_check(afi, safi, new, p, dest, bgp, bgp, skip_import_check);
+	else
+		bgp_nexthop_reachability_check(afi, safi, new, p, dest, bgp, bgp, true);
 
 	/* Aggregate address increment. */
 	bgp_aggregate_increment(bgp, p, new, afi, safi);
