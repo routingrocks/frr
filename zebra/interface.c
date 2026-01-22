@@ -651,7 +651,15 @@ static void if_uninstall_connected(struct interface *ifp)
 	struct connected *ifc;
 
 	frr_each_safe (if_connected, ifp->connected, ifc) {
+		/*
+		 * Set ZEBRA_IFA_IFDOWN flag to indicate this address delete
+		 * is due to interface going down, not actual address removal.
+		 * Protocol daemons (e.g., BGP) can use this to distinguish
+		 * between the two cases.
+		 */
+		SET_FLAG(ifc->flags, ZEBRA_IFA_IFDOWN);
 		zebra_interface_address_delete_update(ifp, ifc);
+		UNSET_FLAG(ifc->flags, ZEBRA_IFA_IFDOWN);
 		connected_down(ifp, ifc);
 	}
 }
