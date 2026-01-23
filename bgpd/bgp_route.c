@@ -16694,6 +16694,20 @@ static int peer_adj_routes_brief(struct vty *vty, struct peer *peer, afi_t afi, 
 	    json_object_free(json);
 	    return CMD_WARNING;
     }
+
+    /* received-routes and filtered-routes are not supported for SAFI_UNREACH
+     * since soft-reconfiguration is not available for this SAFI
+     */
+    if (safi == SAFI_UNREACH &&
+        (type == bgp_show_adj_route_received || type == bgp_show_adj_route_filtered)) {
+        json = json_object_new_object();
+        json_object_string_add(json, "warning",
+            "Inbound soft reconfiguration is not supported for unreachability SAFI");
+        vty_out(vty, "%s\n", json_object_to_json_string(json));
+        json_object_free(json);
+        return CMD_WARNING;
+    }
+
     if ((type == bgp_show_adj_route_received ||
          type == bgp_show_adj_route_filtered) &&
         !CHECK_FLAG(peer->af_flags[afi][safi], PEER_FLAG_SOFT_RECONFIG)) {
@@ -16873,6 +16887,24 @@ static int peer_adj_routes(struct vty *vty, struct peer *peer, afi_t afi,
 			json_object_free(json_ar);
 		} else
 			vty_out(vty, "%% No such neighbor or address family\n");
+
+		return CMD_WARNING;
+	}
+
+	/* received-routes and filtered-routes are not supported for SAFI_UNREACH
+	 * since soft-reconfiguration is not available for this SAFI
+	 */
+	if (safi == SAFI_UNREACH &&
+	    (type == bgp_show_adj_route_received || type == bgp_show_adj_route_filtered)) {
+		if (use_json) {
+			json_object_string_add(json, "warning",
+				"Inbound soft reconfiguration is not supported for unreachability SAFI");
+			vty_out(vty, "%s\n", json_object_to_json_string(json));
+			json_object_free(json);
+			json_object_free(json_ar);
+		} else
+			vty_out(vty,
+				"%% Inbound soft reconfiguration is not supported for unreachability SAFI\n");
 
 		return CMD_WARNING;
 	}
