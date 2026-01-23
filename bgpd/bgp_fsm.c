@@ -1547,8 +1547,18 @@ void bgp_gr_check_path_select(struct bgp *bgp, afi_t afi, safi_t safi)
 	 */
 	if (bgp_gr_check_all_eors(bgp, afi, safi, &multihop_eors_pending)) {
 		gr_info = &(bgp->gr_info[afi][safi]);
-		if (!BGP_SUPPRESS_FIB_ENABLED(bgp)) {
-			/* Turn off t_select_deferral if BGP_SUPPRESS_FIB_ENABLED is not set */
+		if (BGP_DEBUG(graceful_restart, GRACEFUL_RESTART))
+			zlog_debug("%s: GR check path select for %s, gr_deferred=%u",
+				   bgp->name_pretty, get_afi_safi_str(afi, safi, false),
+				   bgp->gr_info[afi][safi].gr_deferred);
+		/*
+		 * Turn off t_select_deferral if wfi feature is not enabled or
+		 * if there are no routes for deferred calculation or if these
+		 * are l2vpn evpn routes.
+		 */
+		if (!BGP_SUPPRESS_FIB_ENABLED(bgp) ||
+		    !bgp->gr_info[afi][safi].gr_deferred ||
+		    (afi == AFI_L2VPN && safi == SAFI_EVPN)) {
 			EVENT_OFF(gr_info->t_select_deferral);
 		}
 
