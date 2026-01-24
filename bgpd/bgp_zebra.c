@@ -2553,6 +2553,7 @@ void bgp_zebra_instance_register(struct bgp *bgp)
 		bgp_zebra_advertise_all_vni(bgp, 1);
 
 	bgp_nht_register_nexthops(bgp);
+
 }
 
 /* Deregister this instance with Zebra. Invoked upon the instance

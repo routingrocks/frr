@@ -1587,6 +1587,73 @@ TRACEPOINT_LOGLEVEL(frr_bgp, per_src_nhg_peer_clear_route, TRACE_INFO)
 
 TRACEPOINT_EVENT(
 	frr_bgp,
+	bgp_dest_soo_nht_update_process,
+	TP_ARGS(struct bgp_per_src_nhg_hash_entry *, nhe, struct bgp_dest_soo_hash_entry *, dest_he, uint32_t, nhr_nhgid, uint32_t, location),
+	TP_FIELDS(
+		ctf_array(unsigned char, soo_rt, &nhe->ip, sizeof(struct ipaddr))
+		ctf_integer(afi_t, afi, nhe->afi)
+		ctf_integer(safi_t, safi, nhe->safi)
+		ctf_integer(uint32_t, soo_nhg_id, nhe->nhg_id)
+		ctf_integer(uint32_t, soo_rt_flags, nhe->flags)
+		ctf_integer(uint32_t, soo_nhg_flags, nhe->flags)
+		ctf_integer(uint32_t, nhg_flags, nhe->flags)
+		ctf_integer(uint32_t, num_soo_paths, nhe->refcnt)
+		ctf_integer(uint32_t, num_rts_with_soo, nhe->route_with_soo_table->count)
+		ctf_integer(uint32_t, num_rts_use_soo_nhg, nhe->route_with_soo_use_nhid_cnt)
+		ctf_integer(uint32_t, dest_soo_fib_install_pending_ack_cnt, nhe->dest_soo_fib_install_pending_ack_cnt)
+		ctf_array(unsigned char, rt_with_soo, &dest_he->p, sizeof(struct prefix))
+		ctf_integer(uint32_t, num_rt_with_soo_paths, dest_he->refcnt)
+		ctf_integer(uint32_t, rt_with_soo_flags, dest_he->flags)
+		ctf_integer(uint32_t, dest_flags, dest_he->flags)
+		ctf_integer(uint32_t, nhr_nhgid, nhr_nhgid)
+		ctf_integer(uint32_t, loc, location)
+	)
+)
+
+TRACEPOINT_LOGLEVEL(frr_bgp, bgp_dest_soo_nht_update_process, TRACE_INFO)
+
+TRACEPOINT_EVENT(
+	frr_bgp,
+	bgp_per_src_nhg_add_dest_soo_pending_ack_refcount_zero,
+	TP_ARGS(struct bgp_per_src_nhg_hash_entry *, nhe, uint32_t, location),
+	TP_FIELDS(
+		ctf_array(unsigned char, soo_rt, &nhe->ip, sizeof(struct ipaddr))
+		ctf_integer(afi_t, afi, nhe->afi)
+		ctf_integer(safi_t, safi, nhe->safi)
+		ctf_integer(uint32_t, soo_nhg_id, nhe->nhg_id)
+		ctf_integer(uint32_t, soo_nhg_flags, nhe->flags)
+		ctf_integer(uint32_t, soo_rt_flags, nhe->flags)
+		ctf_integer(uint32_t, nhg_flags, nhe->flags)
+		ctf_integer(uint32_t, num_soo_paths, nhe->refcnt)
+		ctf_integer(uint32_t, num_rts_with_soo, nhe->route_with_soo_table->count)
+		ctf_integer(uint32_t, num_rts_use_soo_nhg, nhe->route_with_soo_use_nhid_cnt)
+		ctf_integer(uint32_t, dest_soo_fib_install_pending_ack_cnt, nhe->dest_soo_fib_install_pending_ack_cnt)
+		ctf_integer(uint32_t, loc, location)
+	)
+)
+
+TRACEPOINT_LOGLEVEL(frr_bgp, bgp_per_src_nhg_add_dest_soo_pending_ack_refcount_zero, TRACE_INFO)
+
+TRACEPOINT_EVENT(
+	frr_bgp,
+	bgp_register_dest_soo_for_fib_ack,
+	TP_ARGS(struct bgp_dest_soo_hash_entry *, dest_he, struct bgp_per_src_nhg_hash_entry *, nhe, uint32_t, location),
+	TP_FIELDS(
+		ctf_array(unsigned char, rt_with_soo, &dest_he->p, sizeof(struct prefix))
+		ctf_array(unsigned char, soo_rt, &nhe->ip, sizeof(struct ipaddr))
+		ctf_integer(afi_t, afi, nhe->afi)
+		ctf_integer(safi_t, safi, nhe->safi)
+		ctf_integer(uint32_t, num_rt_with_soo_paths, dest_he->refcnt)
+		ctf_integer(uint32_t, rt_with_soo_flags, dest_he->flags)
+		ctf_integer(uint32_t, dest_flags, dest_he->flags)
+		ctf_integer(uint32_t, loc, location)
+	)
+)
+
+TRACEPOINT_LOGLEVEL(frr_bgp, bgp_register_dest_soo_for_fib_ack, TRACE_INFO)
+
+TRACEPOINT_EVENT(
+	frr_bgp,
 	session_state_change,
 	TP_ARGS(struct peer *, peer, uint8_t, location),
 	TP_FIELDS(

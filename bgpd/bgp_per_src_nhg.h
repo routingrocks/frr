@@ -19,6 +19,7 @@
  */
 
 #include "typesafe.h"
+#include "bgp_nexthop.h"
 
 #ifndef _BGP_PER_SRC_NHG_H
 #define _BGP_PER_SRC_NHG_H
@@ -60,6 +61,9 @@ struct bgp_dest_soo_hash_entry {
 #define DEST_USING_SOO_NHGID	(1 << 0)
 #define DEST_SOO_DEL_PENDING	(1 << 1)
 #define DEST_SOO_ROUTE_ATTR_DEL (1 << 2)
+#define DEST_SOO_WAITING_FOR_ZEBRA_NHG_MOVE_FIB_ACK (1 << 3)
+
+	struct bgp_nexthop_cache *bnc;
 };
 
 /*
@@ -91,6 +95,8 @@ struct bgp_per_src_nhg_hash_entry {
 
 	bool soo_timer_running;
 
+	time_t soo_entry_time_start;
+
 	uint32_t flags;
 
 #define PER_SRC_NEXTHOP_GROUP_VALID		   (1 << 0)
@@ -101,11 +107,27 @@ struct bgp_per_src_nhg_hash_entry {
 #define PER_SRC_NEXTHOP_GROUP_SOO_ROUTE_DO_WECMP   (1 << 5)
 #define PER_SRC_NEXTHOP_GROUP_SOO_ROUTE_CLEAR_ONLY (1 << 6)
 #define PER_SRC_NEXTHOP_GROUP_SOO_ROUTE_ATTR_DEL   (1 << 7)
+
+	struct bgp_nexthop_cache_head rt_pending_fib_ack_table;
+
+	uint32_t dest_soo_fib_install_pending_ack_cnt;
 };
 
 #define BGP_PER_SRC_NHG_SOO_TIMER_WHEEL_SLOTS 10
 /* in milli seconds, total timer wheel period */
 #define BGP_PER_SRC_NHG_SOO_TIMER_WHEEL_PERIOD 50
+/* stop soo timer if all routes with soo have not converged within 20 seconds
+ * The 20-second value is based on convergence testing at high scale:
+ * 1. 80k routes with 16-way ECMP
+ * 2. 8k routes with 128-way ECMP
+ * In these scenarios, ECMP expansion during "all links up" events can take
+ * several seconds as BGP DC PIC processes routes. The 20-second timer provides
+ * sufficient buffer beyond the worst-case convergence time observed in empirical testing,
+ * ensuring SOO logic completes ECMP expansion before forcing a move to zebra NHG.
+ * The specific value (20 seconds) has no special significance beyond being comfortably
+ * higher than measured worst-case convergence times in our test scenarios.
+ */
+#define BGP_PER_SRC_NHG_SOO_TIMER_TIMEOUT 20
 
 /* SOO Hash Table APIs */
 void bgp_per_src_nhg_init(struct bgp *bgp, afi_t afi, safi_t safi);
@@ -145,5 +167,9 @@ bool is_path_using_soo_nhg(const struct prefix *p, struct bgp_path_info *path, u
 bool is_nhg_per_origin_configured(struct bgp *bgp);
 bool is_adv_origin_configured(struct bgp *bgp);
 char *inaddr_afi_to_str(const struct in_addr *id, char *buf, int size, afi_t afi);
+void bgp_dest_soo_nht_update_process(struct bgp *bgp, struct prefix *match, struct zapi_route *nhr);
+struct bgp_nexthop_cache *
+bgp_per_src_nhg_prefix_exists_in_fib_ack_table(struct bgp_nexthop_cache *bnc);
+
 
 #endif /* _BGP_PER_SRC_NHG_H */

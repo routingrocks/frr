@@ -863,6 +863,7 @@ static void copy_state(struct rnh *rnh, const struct route_entry *re,
 	state->metric = re->metric;
 	state->vrf_id = re->vrf_id;
 	state->status = re->status;
+	state->nhe_id = re->nhe_id;
 
 	state->nhe = zebra_nhe_copy(re->nhe, 0);
 
@@ -1147,6 +1148,9 @@ static bool compare_state(struct route_entry *r1,
 	if (!compare_valid_nexthops(r1, r2))
 		return true;
 
+	if (r1->nhe_id != r2->nhe_id)
+	    return true;
+
 	return false;
 }
 
@@ -1173,6 +1177,8 @@ int zebra_send_rnh_update(struct rnh *rnh, struct zserv *client,
 	/* Message flags. */
 	if (srte_color)
 		SET_FLAG(message, ZAPI_MESSAGE_SRTE);
+	if (re && re->nhe_id)
+	    SET_FLAG(message, ZAPI_MESSAGE_NHG);
 	stream_putl(s, message);
 
 	/*
@@ -1225,6 +1231,11 @@ int zebra_send_rnh_update(struct rnh *rnh, struct zserv *client,
 		stream_putw(s, re->instance);
 		stream_putc(s, re->distance);
 		stream_putl(s, re->metric);
+
+		if (CHECK_FLAG(message, ZAPI_MESSAGE_NHG))
+		    stream_putl(s, re->nhe_id);
+
+
 		num = 0;
 		nump = stream_get_endp(s);
 		stream_putw(s, 0);

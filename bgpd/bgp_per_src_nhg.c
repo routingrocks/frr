@@ -55,6 +55,7 @@
 #include "bgpd/bgp_mpath.h"
 #include "bgpd/bgp_vty.h"
 #include "bgpd/bgp_evpn.h"
+#include "bgpd/bgp_nht.h"
 
 extern struct zclient *zclient;
 #define PER_SRC_NHG_TABLE_SIZE 8
@@ -76,10 +77,22 @@ static void bgp_per_src_nhg_nc_del_nh_ll_and_global(struct bgp_per_src_nhg_hash_
 						     struct bgp_path_info *pi);
 static void bgp_soo_zebra_route_install(struct bgp_per_src_nhg_hash_entry *nhe,
 					struct bgp_dest *dest);
-
+static void register_dest_for_fib_ack(struct bgp_dest_soo_hash_entry *dest_he,
+				      struct bgp_path_info *pi);
+static void bgp_per_src_nhg_add_send(struct bgp_per_src_nhg_hash_entry *nhe);
+static void bgp_per_src_nhg_move_to_soo_nhid_cb(struct hash_bucket *bucket, void *ctx);
+static char *print_bitfield(const bitfield_t *bf, char *out);
 struct bgp_peer_clear_route_ctx {
 	struct peer *peer;
 	struct bgp_table *table;
+};
+
+/* Context structure for hash walk */
+struct per_src_nhg_prefix_check_ctx {
+	struct prefix *prefix;
+	uint32_t srte_color;
+	ifindex_t ifindex;
+	struct bgp_nexthop_cache *bnc;
 };
 
 /* SOO timer wheel APIs */
@@ -112,6 +125,7 @@ static void bgp_start_soo_timer(struct bgp *bgp, struct bgp_per_src_nhg_hash_ent
 		frrtrace(1, frr_bgp, per_src_nhg_soo_timer_start, soo_entry);
 		wheel_add_item(bgp->per_src_nhg_soo_timer_wheel, soo_entry);
 		soo_entry->soo_timer_running = true;
+		soo_entry->soo_entry_time_start = monotime(NULL);
 	}
 }
 
@@ -128,6 +142,7 @@ static void bgp_stop_soo_timer(struct bgp *bgp, struct bgp_per_src_nhg_hash_entr
 		frrtrace(1, frr_bgp, per_src_nhg_soo_timer_stop, soo_entry);
 		wheel_remove_item(bgp->per_src_nhg_soo_timer_wheel, soo_entry);
 		soo_entry->soo_timer_running = false;
+		soo_entry->soo_entry_time_start = 0;
 	}
 }
 
@@ -388,9 +403,148 @@ static void bgp_per_src_nhe_free(struct bgp_per_src_nhg_hash_entry *nhe)
 	XFREE(MTYPE_BGP_PER_SRC_NHG, nhe);
 }
 
+static void bgp_nhg_fib_ack_table_init(struct bgp_nexthop_cache_head *table)
+{
+	bgp_nexthop_cache_init(table);
+}
+
+static void register_dest_for_fib_ack(struct bgp_dest_soo_hash_entry *dest_he,
+				      struct bgp_path_info *pi)
+{
+	struct bgp_per_src_nhg_hash_entry *nhe = dest_he->nhe;
+	struct bgp_nexthop_cache *bnc;
+	struct bgp_nexthop_cache_head *tree;
+	struct prefix p;
+
+	prefix_copy(&p, &dest_he->p);
+	tree = &nhe->rt_pending_fib_ack_table;
+	bnc = bnc_find(tree, &dest_he->p, 0, 0);
+	if (!bnc) {
+		bnc = bnc_new(tree, &dest_he->p, 0, 0);
+		bnc->afi = nhe->afi;
+		bnc->bgp = nhe->bgp;
+		dest_he->bnc = bnc;
+		SET_FLAG(dest_he->flags, DEST_SOO_WAITING_FOR_ZEBRA_NHG_MOVE_FIB_ACK);
+		nhe->dest_soo_fib_install_pending_ack_cnt++;
+		if (BGP_DEBUG(per_src_nhg, PER_SRC_NHG) || BGP_DEBUG(nht, NHT))
+			zlog_debug("Allocated bnc %pFX(%d)(%u)(%s) (soo rt %pFX)", &bnc->prefix,
+				   bnc->ifindex_ipv6_ll, bnc->srte_color, bnc->bgp->name_pretty,
+				   &nhe->ip);
+	} else {
+		if (BGP_DEBUG(per_src_nhg, PER_SRC_NHG) || BGP_DEBUG(nht, NHT))
+			zlog_debug("Bnc %pFX(%d)(%u)(%s) (soo rt %pFX) already exists",
+				   &bnc->prefix, bnc->ifindex_ipv6_ll, bnc->srte_color,
+				   bnc->bgp->name_pretty, &nhe->ip);
+	}
+	UNSET_FLAG(bnc->flags, BGP_NEXTHOP_REGISTERED);
+	UNSET_FLAG(bnc->flags, BGP_NEXTHOP_CONNECTED);
+	UNSET_FLAG(bnc->flags, BGP_NEXTHOP_VALID);
+	frrtrace(2, frr_bgp, bgp_register_dest_soo_for_fib_ack, dest_he, nhe, 1);
+	register_zebra_rnh(bnc);
+}
+
+static void
+bgp_per_src_nhg_add_dest_soo_pending_ack_refcount_zero(struct bgp_per_src_nhg_hash_entry *nhe)
+{
+	struct bgp_dest *dest;
+	if (!nhe->dest_soo_fib_install_pending_ack_cnt && nhe->refcnt &&
+	    CHECK_FLAG(nhe->flags, PER_SRC_NEXTHOP_GROUP_INSTALL_PENDING) &&
+	    !nhe->soo_timer_running) {
+		if (BGP_DEBUG(per_src_nhg, PER_SRC_NHG))
+			zlog_debug("bgp vrf %s per src nhg soo %pIA updating nhg %u",
+				   nhe->bgp->name_pretty, &nhe->ip, nhe->nhg_id);
+		frrtrace(2, frr_bgp, bgp_per_src_nhg_add_dest_soo_pending_ack_refcount_zero, nhe, 1);
+		bgp_per_src_nhg_add_send(nhe);
+		dest = nhe->dest;
+		/* 'SOO route' dest */
+		if (!CHECK_FLAG(nhe->flags, PER_SRC_NEXTHOP_GROUP_SOO_ROUTE_INSTALL)) {
+			bgp_soo_zebra_route_install(nhe, dest);
+			SET_FLAG(nhe->flags, PER_SRC_NEXTHOP_GROUP_SOO_ROUTE_INSTALL);
+		}
+		hash_iterate(nhe->route_with_soo_table,
+			     (void (*)(struct hash_bucket *,
+				       void *))bgp_per_src_nhg_move_to_soo_nhid_cb,
+			     NULL);
+	}
+}
+
+/* Unregister the dest_he for the FIB ACK table
+ *and decrement the pending ack count for the NHG.
+ */
+static void unregister_dest_for_fib_ack(struct bgp_dest_soo_hash_entry *dest_he,
+					bool install_nhg_on_refcount_zero)
+{
+	struct bgp_per_src_nhg_hash_entry *nhe = dest_he->nhe;
+
+	if (!dest_he->bnc) {
+		if (BGP_DEBUG(per_src_nhg, PER_SRC_NHG) || BGP_DEBUG(nht, NHT))
+			zlog_debug("Bnc for dest_soo %pFX not found, skipping unregister",
+				   &dest_he->p);
+		return;
+	}
+
+	if (BGP_DEBUG(per_src_nhg, PER_SRC_NHG) || BGP_DEBUG(nht, NHT))
+		zlog_debug("Unregistering bnc %pFX(%s) (soo rt %pFX)", &dest_he->bnc->prefix,
+			   dest_he->bnc->bgp->name_pretty, &nhe->ip);
+
+	unregister_zebra_rnh(dest_he->bnc);
+	frrtrace(2, frr_bgp, bgp_register_dest_soo_for_fib_ack, dest_he, dest_he->nhe, 2);
+	bnc_free(dest_he->bnc);
+	dest_he->bnc = NULL;
+	UNSET_FLAG(dest_he->flags, DEST_SOO_WAITING_FOR_ZEBRA_NHG_MOVE_FIB_ACK);
+	nhe->dest_soo_fib_install_pending_ack_cnt--;
+	if (install_nhg_on_refcount_zero && !nhe->dest_soo_fib_install_pending_ack_cnt) {
+		bgp_per_src_nhg_add_dest_soo_pending_ack_refcount_zero(nhe);
+	}
+}
+
+/* Clear the FIB ACK table for a given NHG.
+ * If unregister_nht is true, unregister the dest_he for the NHT.
+ */
+static void clear_fib_ack_table(struct bgp_per_src_nhg_hash_entry *nhe, bool unregister_nht)
+{
+
+	struct bgp_nexthop_cache_head *table = &nhe->rt_pending_fib_ack_table;
+	struct bgp_nexthop_cache *bnc;
+	struct bgp_dest_soo_hash_entry *dest_he = NULL;
+
+	while (bgp_nexthop_cache_count(table) > 0) {
+		bnc = bgp_nexthop_cache_first(table);
+		dest_he = bgp_dest_soo_find(nhe, &bnc->prefix);
+
+		if (dest_he) {
+			if (unregister_nht) {
+				unregister_dest_for_fib_ack(dest_he, false);
+			} else {
+				if (dest_he->bnc) {
+					bnc_free(dest_he->bnc);
+					dest_he->bnc = NULL;
+				}
+
+				UNSET_FLAG(dest_he->flags,
+					   DEST_SOO_WAITING_FOR_ZEBRA_NHG_MOVE_FIB_ACK);
+
+				if (nhe->dest_soo_fib_install_pending_ack_cnt > 0)
+					nhe->dest_soo_fib_install_pending_ack_cnt--;
+			}
+		} else {
+			if (BGP_DEBUG(per_src_nhg, PER_SRC_NHG))
+				zlog_debug("Bnc for dest_soo %pFX not found, freeing bnc",
+					   &bnc->prefix);
+			bnc_free(bnc);
+		}
+	}
+
+	if (nhe->dest_soo_fib_install_pending_ack_cnt != 0) {
+		zlog_err("bgp vrf %s per src nhg %pIA dest soo fib ack table not cleared pending acks %d",
+			 nhe->bgp->name_pretty, &nhe->ip, nhe->dest_soo_fib_install_pending_ack_cnt);
+	}
+}
+
 static void bgp_per_src_nhg_flush_entry(struct bgp_per_src_nhg_hash_entry *nhe)
 {
 	bgp_nhg_nexthop_cache_reset(&nhe->nhg_nexthop_cache_table);
+	clear_fib_ack_table(nhe, true);
 	bgp_dest_soo_finish(nhe);
 	bgp_stop_soo_timer(nhe->bgp, nhe);
 	if (CHECK_FLAG(nhe->flags, PER_SRC_NEXTHOP_GROUP_VALID))
@@ -415,7 +569,7 @@ static void bgp_per_src_nhg_flush_cb(struct hash_bucket *bucket, void *arg)
 	SET_FLAG(nhe->flags, PER_SRC_NEXTHOP_GROUP_DEL_PENDING);
 	hash_iterate(nhe->route_with_soo_table,
 		     (void (*)(struct hash_bucket *, void *))bgp_per_src_nhg_move_to_zebra_nhid_cb,
-		     NULL);
+		     (void *)false);
 
 	/* 'SOO route' dest */
 	dest = nhe->dest;
@@ -762,6 +916,7 @@ static void bgp_per_src_nhg_del(struct bgp_per_src_nhg_hash_entry *nhe)
 	bgp_stop_soo_timer(nhe->bgp, nhe);
 
 	bgp_nhg_nexthop_cache_reset(&nhe->nhg_nexthop_cache_table);
+	clear_fib_ack_table(nhe, true);
 
 	if (BGP_DEBUG(per_src_nhg, PER_SRC_NHG)) {
 		char buf[INET6_ADDRSTRLEN];
@@ -783,15 +938,20 @@ static void bgp_per_src_nhg_del(struct bgp_per_src_nhg_hash_entry *nhe)
 
 /* Install 'Route with SOO' to Zebra */
 static void bgp_rt_with_soo_zebra_route_install(struct bgp_dest_soo_hash_entry *bgp_dest_soo_entry,
-						struct bgp_per_src_nhg_hash_entry *nhe)
+						struct bgp_per_src_nhg_hash_entry *nhe,
+						bool register_for_fib_ack)
 {
 	struct bgp_path_info *pi;
 	struct bgp_dest *dest = bgp_dest_soo_entry->dest;
 	for (pi = bgp_dest_get_bgp_path_info(dest); pi; pi = pi->next) {
 		if (CHECK_FLAG(pi->flags, BGP_PATH_SELECTED) &&
 		    (pi->type == ZEBRA_ROUTE_BGP && pi->sub_type == BGP_ROUTE_NORMAL) &&
-		    !BGP_PATH_HOLDDOWN(pi))
+		    !BGP_PATH_HOLDDOWN(pi)) {
 			bgp_zebra_route_install(dest, pi, nhe->bgp, true, NULL, false);
+			if (register_for_fib_ack) {
+				register_dest_for_fib_ack(bgp_dest_soo_entry, pi);
+			}
+		}
 	}
 }
 
@@ -899,7 +1059,7 @@ static void bgp_per_src_nhg_move_to_soo_nhid_cb(struct hash_bucket *bucket, void
 		if (!CHECK_FLAG(route_with_soo_entry->flags, DEST_USING_SOO_NHGID) &&
 		    is_soo_rt_installed_pi_subset_of_rt_with_soo_pi(route_with_soo_entry))
 			bgp_rt_with_soo_zebra_route_install(route_with_soo_entry,
-							    route_with_soo_entry->nhe);
+							    route_with_soo_entry->nhe, false);
 	}
 }
 
@@ -907,12 +1067,21 @@ static void bgp_per_src_nhg_move_to_zebra_nhid_cb(struct hash_bucket *bucket, vo
 {
 	struct bgp_dest_soo_hash_entry *route_with_soo_entry =
 		(struct bgp_dest_soo_hash_entry *)bucket->data;
-
+	bool soo_max_time_exceeded = (bool)ctx;
 	if (route_with_soo_entry) {
 		/* only move those which are using soo nhid yet */
-		if (CHECK_FLAG(route_with_soo_entry->flags, DEST_USING_SOO_NHGID))
+		if (!CHECK_FLAG(route_with_soo_entry->flags, DEST_USING_SOO_NHGID)) {
+			return;
+		}
+		if (soo_max_time_exceeded) {
+			if (!is_soo_rt_selected_pi_subset_of_rt_with_soo_pi(route_with_soo_entry)) {
+				bgp_rt_with_soo_zebra_route_install(route_with_soo_entry,
+								    route_with_soo_entry->nhe, true);
+			}
+		} else {
 			bgp_rt_with_soo_zebra_route_install(route_with_soo_entry,
-							    route_with_soo_entry->nhe);
+							    route_with_soo_entry->nhe, false);
+		}
 	}
 }
 
@@ -921,6 +1090,7 @@ static void bgp_per_src_nhg_timer_slot_run(void *item)
 {
 	struct bgp_per_src_nhg_hash_entry *nhe = item;
 	struct bgp_dest *dest;
+	time_t current_time;
 
 	/* If SOO selected NHs match installed SOO NHG AND
 	 * all routes w/ SOO point to SOO NHG done
@@ -943,6 +1113,7 @@ static void bgp_per_src_nhg_timer_slot_run(void *item)
 			   get_afi_safi_str(nhe->afi, nhe->safi, false));
 
 	/* all routes with soo converged to soo route */
+	current_time = monotime(NULL);
 	if (is_soo_rt_selected_pi_subset_of_all_rts_with_soo_using_soo_nhg_pi(nhe)) {
 		/* program the running ecmp and do NHG replace */
 		if (BGP_DEBUG(per_src_nhg, PER_SRC_NHG))
@@ -954,13 +1125,36 @@ static void bgp_per_src_nhg_timer_slot_run(void *item)
 
 		frrtrace(2, frr_bgp, per_src_nhg_soo_timer_slot_run, nhe, 1);
 
-		if (nhe->refcnt)
-			if (CHECK_FLAG(nhe->flags, PER_SRC_NEXTHOP_GROUP_INSTALL_PENDING))
-				bgp_per_src_nhg_add_send(nhe);
+		if (nhe->refcnt && CHECK_FLAG(nhe->flags, PER_SRC_NEXTHOP_GROUP_INSTALL_PENDING))
+			bgp_per_src_nhg_add_send(nhe);
 
 		/* remove the timer from the timer wheel since processing is
 		 * done */
 		bgp_stop_soo_timer(nhe->bgp, nhe);
+
+	} else if (current_time - nhe->soo_entry_time_start > BGP_PER_SRC_NHG_SOO_TIMER_TIMEOUT) {
+		if (BGP_DEBUG(per_src_nhg, PER_SRC_NHG))
+			zlog_debug("bgp vrf %s per src nhg soo route %pIA %s soo max timer exceeded. Moving routes to zebra nhid",
+				   nhe->bgp->name_pretty, &nhe->ip,
+				   get_afi_safi_str(nhe->afi, nhe->safi, false));
+
+		frrtrace(2, frr_bgp, per_src_nhg_soo_timer_slot_run, nhe, 2);
+		if (nhe->refcnt && CHECK_FLAG(nhe->flags, PER_SRC_NEXTHOP_GROUP_INSTALL_PENDING)) {
+			hash_iterate(nhe->route_with_soo_table,
+				     (void (*)(struct hash_bucket *,
+					       void *))bgp_per_src_nhg_move_to_zebra_nhid_cb,
+				     (void *)true);
+			/*skip bgp_per_src_nhg_add_send(nhe); in this workflow.
+			This code is hit only when soo timer crosses 20sec timeout.
+			bgp_per_src_nhg_move_to_zebra_nhid_cb should register for route
+			updates from zebra. Once the routes are actually installed
+			in kernel with zebra nhid, bgp_per_src_nhg_add_send(nhe); should be called.
+			Once per src nhg is updated, All the 'routes with SoO' will be walked
+			and move from zebra nhid to soo nhid.
+			*/
+			bgp_stop_soo_timer(nhe->bgp, nhe);
+			return;
+		}
 	} else {
 		if (BGP_DEBUG(per_src_nhg, PER_SRC_NHG))
 			zlog_debug("bgp vrf %s per src nhg soo route %pIA %s not all route "
@@ -1257,6 +1451,7 @@ static void bgp_dest_soo_del(struct bgp_dest_soo_hash_entry *dest_he,
 		zlog_debug("bgp vrf %s per src nhg %s dest soo %s del dest flags %d dest refcnt %d",
 			   nhe->bgp->name_pretty, buf, pfxprint, dest_he->flags, dest_he->refcnt);
 	bgp_dest_soo_flush_entry(dest_he);
+	unregister_dest_for_fib_ack(dest_he, true);
 	tmp_he = hash_release(nhe->route_with_soo_table, dest_he);
 	bgp_dest_soo_free(tmp_he);
 
@@ -1320,6 +1515,7 @@ static struct bgp_per_src_nhg_hash_entry *bgp_per_src_nhg_add(struct bgp *bgp, s
 	bf_assign_zero_index(nhe->bgp_soo_route_installed_pi_bitmap);
 
 	bgp_nhg_nexthop_cache_init(&nhe->nhg_nexthop_cache_table);
+	bgp_nhg_fib_ack_table_init(&nhe->rt_pending_fib_ack_table);
 
 	if (BGP_DEBUG(per_src_nhg, PER_SRC_NHG)) {
 		char buf[INET6_ADDRSTRLEN];
@@ -1359,7 +1555,7 @@ static void bgp_per_src_nhg_delete(struct bgp_per_src_nhg_hash_entry *nhe)
 			hash_iterate(nhe->route_with_soo_table,
 				     (void (*)(struct hash_bucket *,
 					       void *))bgp_per_src_nhg_move_to_zebra_nhid_cb,
-				     NULL);
+				     (void *)false);
 			/* 'SOO route' dest */
 			dest = nhe->dest;
 			if (dest && CHECK_FLAG(nhe->flags, PER_SRC_NEXTHOP_GROUP_SOO_ROUTE_INSTALL)) {
@@ -1563,6 +1759,35 @@ void bgp_process_route_transition_between_nhid(struct bgp *bgp, struct bgp_dest 
 	}
 }
 
+static bool rt_with_soo_use_soo_nhg(struct bgp_dest_soo_hash_entry *dest_he, struct bgp_per_src_nhg_hash_entry *nhe) {
+	/* A. SOO nhg in ideal state - soo route is installed
+	soo route selected pi - NHG'(a,b)
+	soo route installed pi - NHG(a,b)
+	install-pending flag will not be set for soo nhg.
+
+	B. When soo nhg is in disjoint transition state
+	soo route selected pi - NHG'(c,d)
+	soo route installed pi - NHG(a,b)
+	install-pending flag will be set for soo nhg.
+
+	C. When new path is added to soo nhg
+	soo route selected pi - NHG'(a,b,c)
+	soo route installed pi - NHG(a,b)
+	install-pending flag will be set for soo nhg.
+
+	In cases B and C, the soo timer will be running, and INSTALL_PENDING flag will be set,
+	then route-with-soo pi should be compared with selected pi[NHG'] of soo nhg
+	and not with installed pi[NHG], As soo nhg installed pi[NHG] will no longer be valid.
+	*/
+	if ((is_soo_rt_installed_pi_subset_of_rt_with_soo_pi(dest_he) &&
+		 !CHECK_FLAG(nhe->flags, PER_SRC_NEXTHOP_GROUP_INSTALL_PENDING)) ||
+	    (CHECK_FLAG(nhe->flags, PER_SRC_NEXTHOP_GROUP_INSTALL_PENDING) &&
+		is_soo_rt_selected_pi_subset_of_rt_with_soo_pi(dest_he))) {
+		return true;
+	}
+	return false;
+}
+
 bool bgp_per_src_nhg_use_nhgid(struct bgp *bgp, struct bgp_dest *dest, struct bgp_path_info *pi,
 			       uint32_t *nhg_id)
 {
@@ -1630,7 +1855,7 @@ bool bgp_per_src_nhg_use_nhgid(struct bgp *bgp, struct bgp_dest *dest, struct bg
 				return false;
 
 			prefix2str(&dest_he->p, pfxprint, sizeof(pfxprint));
-			if ((!is_soo_rt_installed_pi_subset_of_rt_with_soo_pi(dest_he) &&
+			if ((!rt_with_soo_use_soo_nhg(dest_he, nhe) &&
 			     (CHECK_FLAG(nhe->flags, PER_SRC_NEXTHOP_GROUP_VALID))) ||
 			    (CHECK_FLAG(bgp->per_src_nhg_flags[table->afi][table->safi],
 					BGP_FLAG_CONFIG_DEL_PENDING)) ||
@@ -1666,6 +1891,7 @@ bool bgp_per_src_nhg_use_nhgid(struct bgp *bgp, struct bgp_dest *dest, struct bg
 						   get_afi_safi_str(nhe->afi, nhe->safi, false),
 						   pfxprint);
 				}
+				unregister_dest_for_fib_ack(dest_he, true);
 				frrtrace(3, frr_bgp, per_src_nhg_rt_with_soo_use_nhgid, nhe,
 					 dest_he, 2);
 			}
@@ -2141,4 +2367,155 @@ void bgp_per_src_nhg_handle_soo_addr_update(struct bgp *bgp, const struct in_add
 			}
 		}
 	}
+}
+
+/* Process the NHT update for route with SOO.
+ * This function is called when a NHT update is received from Zebra.
+ * It checks if rt-with-soo was moved to zebra nhg and
+ * unregisters the rt-wit-soo for NHT if it was moved to zebra nhg.
+ * It also installs per-src-nhg once the number of pending acks
+ * for rt-with-soo reaches zero.
+ */
+void bgp_dest_soo_nht_update_process(struct bgp *bgp, struct prefix *match, struct zapi_route *nhr)
+{
+	struct bgp_per_src_nhg_hash_entry *nhe = NULL;
+	struct ipaddr ip;
+	bool is_soo_route = false;
+	struct in_addr in;
+	struct bgp_dest_soo_hash_entry *dest_he = NULL;
+	afi_t afi = family2afi(match->family);
+	safi_t safi = nhr->safi;
+	struct bgp_path_info *pi = NULL;
+	struct bgp_dest *dest = NULL;
+	bool nhg_updated = false;
+	char pfxprint[PREFIX2STR_BUFFER];
+	char buf[INET6_ADDRSTRLEN];
+
+	if (!bgp->rib[afi][safi])
+		return;
+
+	dest = bgp_afi_node_get(bgp->rib[afi][safi], afi, safi, match, NULL);
+	if (!dest)
+		return;
+
+	struct bgp_table *table = bgp_dest_table(dest);
+	if (!table)
+		return;
+
+	for (pi = bgp_dest_get_bgp_path_info(dest); pi; pi = pi->next) {
+		if (CHECK_FLAG(pi->flags, BGP_PATH_SELECTED) &&
+		    (pi->type == ZEBRA_ROUTE_BGP && pi->sub_type == BGP_ROUTE_NORMAL)) {
+			if (pi && route_has_soo_attr(pi)) {
+				is_soo_route = bgp_is_soo_route(dest, pi, &in);
+				SET_IPADDR_V4(&ip);
+				memcpy(&ip.ipaddr_v4, &in, sizeof(ip.ipaddr_v4));
+
+				nhe = bgp_per_src_nhg_find(bgp, &ip, table->afi, table->safi);
+				if (!nhe)
+					return;
+
+				if (!is_soo_route) {
+					dest_he = bgp_dest_soo_find(nhe, &dest->rn->p);
+					if (dest_he && dest_he->bnc &&
+					    nhe->dest_soo_fib_install_pending_ack_cnt &&
+					    CHECK_FLAG(dest_he->flags,
+						       DEST_SOO_WAITING_FOR_ZEBRA_NHG_MOVE_FIB_ACK)) {
+						if (nhr->nhgid &&
+						    nhr->nhgid < ZEBRA_NHG_PROTO_LOWER) {
+							nhg_updated = true;
+							frrtrace(4, frr_bgp,
+								 bgp_dest_soo_nht_update_process,
+								 nhe, dest_he, nhr->nhgid, 1);
+							unregister_dest_for_fib_ack(dest_he, true);
+							prefix2str(&dest_he->p, pfxprint,
+								   sizeof(pfxprint));
+							ipaddr2str(&nhe->ip, buf, sizeof(buf));
+							if (BGP_DEBUG(per_src_nhg, PER_SRC_NHG))
+								zlog_debug("bgp vrf %s per src nhg route %s zebra nhg"
+									   "move fib ack received soo %s pending acks %d",
+									   nhe->bgp->name_pretty,
+									   pfxprint, buf,
+									   nhe->dest_soo_fib_install_pending_ack_cnt);
+						}
+					}
+				}
+			}
+			if (!nhg_updated && dest_he && nhe) {
+				frrtrace(4, frr_bgp, bgp_dest_soo_nht_update_process, nhe, dest_he,
+					 nhr->nhgid, 2);
+				if (BGP_DEBUG(per_src_nhg, PER_SRC_NHG)) {
+					prefix2str(&dest_he->p, pfxprint, sizeof(pfxprint));
+					ipaddr2str(&nhe->ip, buf, sizeof(buf));
+					zlog_debug("bgp vrf %s per src nhg route %s (soo route %s). Got nhg id %d. "
+						   "Pending acks for soo nhg %d is %d",
+						   nhe->bgp->name_pretty, pfxprint, buf, nhr->nhgid,
+						   nhe->nhg_id,
+						   nhe->dest_soo_fib_install_pending_ack_cnt);
+				}
+			}
+			break;
+		}
+	}
+}
+
+/* Hash walk callback to check if prefix exists in any per-src-nhg entry */
+static void bgp_per_src_nhg_prefix_check_cb(struct hash_bucket *bucket, void *arg)
+{
+	struct bgp_per_src_nhg_hash_entry *nhe = (struct bgp_per_src_nhg_hash_entry *)bucket->data;
+	struct per_src_nhg_prefix_check_ctx *ctx = (struct per_src_nhg_prefix_check_ctx *)arg;
+	struct bgp_nexthop_cache *bnc;
+	afi_t afi;
+
+	if (ctx->bnc || !nhe)
+		return;
+
+	afi = family2afi(ctx->prefix->family);
+	if (afi == AFI_UNSPEC || afi >= AFI_MAX)
+		return;
+
+	/* Check in rt_pending_fib_ack_table */
+	bnc = bnc_find(&nhe->rt_pending_fib_ack_table, ctx->prefix, ctx->srte_color,
+		       ctx->ifindex);
+	if (bnc) {
+		ctx->bnc = bnc;
+		if (BGP_DEBUG(per_src_nhg, PER_SRC_NHG)) {
+			char buf[INET6_ADDRSTRLEN];
+			ipaddr2str(&nhe->ip, buf, sizeof(buf));
+			zlog_debug("bgp vrf %s per src nhg %s %s: prefix %pFX found in fib ack table",
+				   nhe->bgp->name_pretty, buf,
+				   get_afi_safi_str(nhe->afi, nhe->safi, false), ctx->prefix);
+		}
+	}
+}
+
+/* Check if prefix is being tracked in any per-src-nhg entry's rt_pending_fib_ack_table */
+struct bgp_nexthop_cache *
+bgp_per_src_nhg_prefix_exists_in_fib_ack_table(struct bgp_nexthop_cache *bnc)
+{
+	struct per_src_nhg_prefix_check_ctx ctx;
+	safi_t safi;
+
+	if (!bnc || !bnc->bgp)
+		return NULL;
+
+	memset(&ctx, 0, sizeof(ctx));
+	ctx.prefix = &bnc->prefix;
+	ctx.srte_color = bnc->srte_color;
+	ctx.ifindex = bnc->ifindex_ipv6_ll;
+	ctx.bnc = NULL;
+
+	/* Walk through all per_src_nhg tables for this AFI */
+	afi_t afi = bnc->afi;
+	FOREACH_SAFI (safi) {
+		if (ctx.bnc)
+			break;
+
+		if (!bnc->bgp->per_src_nhg_table[afi][safi])
+			continue;
+
+		hash_iterate(bnc->bgp->per_src_nhg_table[afi][safi],
+			     bgp_per_src_nhg_prefix_check_cb, &ctx);
+	}
+
+	return ctx.bnc;
 }

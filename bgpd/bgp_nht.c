@@ -33,11 +33,12 @@
 #include "bgpd/bgp_rd.h"
 #include "bgpd/bgp_mplsvpn.h"
 #include "bgpd/bgp_ecommunity.h"
+#include "bgpd/bgp_per_src_nhg.h"
 
 extern struct zclient *zclient;
 
-static void register_zebra_rnh(struct bgp_nexthop_cache *bnc);
-static void unregister_zebra_rnh(struct bgp_nexthop_cache *bnc);
+void register_zebra_rnh(struct bgp_nexthop_cache *bnc);
+void unregister_zebra_rnh(struct bgp_nexthop_cache *bnc);
 int make_prefix(int afi, struct bgp_path_info *pi, struct prefix *p);
 static void bgp_nht_ifp_initial(struct event *thread);
 
@@ -1017,6 +1018,13 @@ void bgp_nexthop_update(struct vrf *vrf, struct prefix *match,
 			bgp_process_nexthop_update(bnc_iter, nhr, false);
 		}
 	}
+
+	/* Check per_src_nhg table if conditions are met */
+	safi = nhr->safi;
+	if (nhr->srte_color == 0 &&
+	    CHECK_FLAG(bgp->per_src_nhg_flags[afi][safi], BGP_FLAG_NHG_PER_ORIGIN)) {
+		bgp_dest_soo_nht_update_process(bgp, match, nhr);
+	}
 }
 
 /*
@@ -1196,7 +1204,7 @@ static void sendmsg_zebra_rnh(struct bgp_nexthop_cache *bnc, int command)
  * RETURNS:
  *   void.
  */
-static void register_zebra_rnh(struct bgp_nexthop_cache *bnc)
+void register_zebra_rnh(struct bgp_nexthop_cache *bnc)
 {
 	/* Check if we have already registered */
 	if (bnc->flags & BGP_NEXTHOP_REGISTERED)
@@ -1217,10 +1225,11 @@ static void register_zebra_rnh(struct bgp_nexthop_cache *bnc)
  * RETURNS:
  *   void.
  */
-static void unregister_zebra_rnh(struct bgp_nexthop_cache *bnc)
+void unregister_zebra_rnh(struct bgp_nexthop_cache *bnc)
 {
 	struct bgp_nexthop_cache *import;
 	struct bgp_nexthop_cache *nexthop;
+	struct bgp_nexthop_cache *per_src;
 
 	struct bgp *bgp = bnc->bgp;
 
@@ -1237,13 +1246,15 @@ static void unregister_zebra_rnh(struct bgp_nexthop_cache *bnc)
 			  0);
 	nexthop = bnc_find(&bgp->nexthop_cache_table[bnc->afi], &bnc->prefix, 0,
 			   0);
+	per_src = bgp_per_src_nhg_prefix_exists_in_fib_ack_table(bnc);
 
 	/*
-	 * If this entry has both a import and a nexthop entry
-	 * then let's not send the unregister quite as of yet
-	 * wait until we only have 1 left
+	 * If there are two or more entries (import, nexthop, or per-src) present
+	 * for this prefix in the bnc tree, do not send unregister yet.
+	 * Only unregister if there is one entry left(it is the
+	 * same bnc entry for which we are getting this unregister request).
 	 */
-	if (import && nexthop)
+	if ((!!import + !!nexthop + !!per_src) >= 2)
 		return;
 
 	sendmsg_zebra_rnh(bnc, ZEBRA_NEXTHOP_UNREGISTER);

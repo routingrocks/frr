@@ -83,4 +83,8 @@ extern void bgp_nht_ifp_up(struct interface *ifp);
 extern void bgp_nht_ifp_down(struct interface *ifp);
 
 extern void bgp_nht_interface_events(struct peer *peer);
+
+extern void register_zebra_rnh(struct bgp_nexthop_cache *bnc);
+extern void unregister_zebra_rnh(struct bgp_nexthop_cache *bnc);
+
 #endif /* _BGP_NHT_H */
