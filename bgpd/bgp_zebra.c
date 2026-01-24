@@ -118,6 +118,36 @@ static bool bgp_ifp_address_cache_add(struct interface *ifp, const struct prefix
 	return true;
 }
 
+/* Remove an address from the interface's down-state cache.
+ * Returns true if removed, false if not found.
+ * Called when an address is deleted to clean up cached state.
+ */
+static bool bgp_ifp_address_cache_remove(struct interface *ifp, const struct prefix *addr)
+{
+	struct bgp_interface *iifp;
+	struct listnode *node, *nnode;
+	struct prefix *cached_pfx;
+
+	if (!ifp || !addr)
+		return false;
+
+	iifp = ifp->info;
+	if (!iifp || !iifp->cached_addresses)
+		return false;
+
+	/* Find and remove from cache */
+	/* coverity[non_const_printf_format_string] - list iteration macro is safe */
+	for (ALL_LIST_ELEMENTS(iifp->cached_addresses, node, nnode, cached_pfx)) {
+		if (prefix_same(cached_pfx, addr)) {
+			listnode_delete(iifp->cached_addresses, cached_pfx);
+			prefix_free(&cached_pfx);
+			return true;
+		}
+	}
+
+	return false;
+}
+
 int zclient_num_connects;
 
 /* Router-id update message from zebra. */
@@ -508,13 +538,61 @@ static int bgp_interface_address_delete(ZAPI_CALLBACK_ARGS)
 	struct peer *peer;
 	struct bgp *bgp;
 	struct prefix *addr;
+	struct bgp_interface *iifp;
+
+	/* Pre-parse stream to get flags and address before zebra_interface_address_read consumes it */
+	struct stream *s = zclient->ibuf;
+	size_t saved_getp = stream_get_getp(s);
+	ifindex_t ifindex;
+	uint8_t flags;
+	struct prefix parsed_addr;
+	int plen;
+
+	memset(&parsed_addr, 0, sizeof(parsed_addr));
+	STREAM_GETL(s, ifindex);
+	STREAM_GETC(s, flags);
+	STREAM_GETC(s, parsed_addr.family);
+	plen = prefix_blen(&parsed_addr);
+	STREAM_GET(&parsed_addr.u.prefix, s, plen);
+	STREAM_GETC(s, parsed_addr.prefixlen);
+	stream_set_getp(s, saved_getp);
 
 	bgp = bgp_lookup_by_vrf_id(vrf_id);
 
 	ifc = zebra_interface_address_read(cmd, zclient->ibuf, vrf_id);
 
-	if (ifc == NULL)
+	if (ifc == NULL) {
+		/*
+		 * Address not found - already deleted from connected list.
+		 * If IFDOWN flag is NOT set, this is admin removal - withdraw UNREACH.
+		 */
+		if (!CHECK_FLAG(flags, ZEBRA_IFA_IFDOWN) && bgp) {
+			struct interface *ifp = if_lookup_by_index(ifindex, vrf_id);
+
+			if (ifp) {
+				iifp = ifp->info;
+				if (iifp && iifp->cached_addresses) {
+					struct listnode *cnode, *cnnode;
+					struct prefix *cached;
+
+					/* coverity[non_const_printf_format_string] - list iteration macro is safe */
+					for (ALL_LIST_ELEMENTS(iifp->cached_addresses, cnode, cnnode, cached)) {
+						if (prefix_same(cached, &parsed_addr)) {
+							bgp_unreach_zebra_announce(bgp, ifp, cached,
+										   true, UNREACH_SRC_ADDR_DELETE);
+							listnode_delete(iifp->cached_addresses, cached);
+							prefix_free(&cached);
+							break;
+						}
+					}
+				}
+			}
+		}
 		return 0;
+
+stream_failure:
+		return 0;
+	}
 
 	/* coverity[reverse_inull:SUPPRESS] - ifc->address checked for debug only */
 	if (ifc->address && bgp_debug_zebra(ifc->address))
@@ -526,9 +604,23 @@ static int bgp_interface_address_delete(ZAPI_CALLBACK_ARGS)
 	addr = ifc->address;
 
 	if (addr && bgp) {
-
-		if (if_is_operative(ifc->ifp))
+		if (if_is_operative(ifc->ifp)) {
 			bgp_connected_delete(bgp, ifc);
+		} else {
+			/*
+			 * Interface is NOT operative.
+			 * Check ZEBRA_IFA_IFDOWN flag:
+			 * - SET: Interface going down, don't withdraw UNREACH
+			 * - NOT SET: Admin removal, withdraw UNREACH
+			 */
+			bool is_ifdown = CHECK_FLAG(flags, ZEBRA_IFA_IFDOWN);
+
+			if (!is_ifdown) {
+				/* Actual address removal by admin while interface is down */
+				bgp_ifp_address_cache_remove(ifc->ifp, addr);
+				bgp_unreach_zebra_announce(bgp, ifc->ifp, addr, true, UNREACH_SRC_ADDR_DELETE);
+			}
+		}
 
 		/*
 		 * When we are using the v6 global as part of the peering
