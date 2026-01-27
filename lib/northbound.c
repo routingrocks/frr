@@ -2543,7 +2543,29 @@ void nb_empty_notification_send(void)
 
 uint32_t nb_get_sample_time(void)
 {
-	return nb_current_subcr_cache->sample_time;
+	return nb_current_subcr_cache->sample_time.sec;
+}
+
+static inline void nb_sample_time_reset(struct nb_sample_time *t)
+{
+	t->sec = 0;
+	t->msec = 0;
+}
+
+static inline uint64_t nb_sample_time_total_msec(const struct nb_sample_time *t)
+{
+	return (uint64_t)t->sec * 1000ULL + (uint64_t)t->msec;
+}
+
+static inline void nb_sample_time_add_msec(struct nb_sample_time *t, uint32_t add_msec)
+{
+	/* Normalize milliseconds into seconds. */
+	uint32_t sec_add = add_msec / 1000;
+	uint32_t msec_add = add_msec % 1000;
+	uint32_t msec_total = (uint32_t)t->msec + msec_add;
+
+	t->sec += sec_add + (msec_total / 1000);
+	t->msec = (uint16_t)(msec_total % 1000);
 }
 
 DEFINE_HOOK(nb_notification_send, (const char *xpath, struct list *arguments),
@@ -2824,7 +2846,7 @@ void nb_cache_subscriptions(struct event_loop *master, const char *xpath, const 
 			DEBUGD(&nb_dbg_events, "Deleting timer wheel");
 			wheel_delete(nb_current_subcr_cache->timer_wheel);
 			nb_current_subcr_cache->timer_wheel = NULL;
-			nb_current_subcr_cache->sample_time = 0;
+			nb_sample_time_reset(&nb_current_subcr_cache->sample_time);
 			return;
 		}
 	} else
@@ -2848,10 +2870,50 @@ int nb_notify_subscriptions(void)
 {
 	if (!nb_current_subcr_cache->timer_wheel)
 		return NB_OK;
-	/* Increment the sample time by timer wheel period */
-	nb_current_subcr_cache->sample_time = nb_current_subcr_cache->sample_time +
-					      (nb_current_subcr_cache->timer_wheel->period / 1000);
-	DEBUGD(&nb_dbg_events, "Sample time set to %d", nb_current_subcr_cache->sample_time);
+	/*
+	 * When an interval update is received mid-period, nb_wheel_init_or_reset()
+	 * stores update_elapsed_msec and sets in_update_snapshot so the call to
+	 * nb_notify_subscriptions() from nb_cache_subscriptions() can emit a
+	 * snapshot "at update time" (this sample may be ignored by UMF if not
+	 * divisible by the new interval).
+	 */
+	uint32_t add_msec = 0;
+	bool update_snapshot = nb_current_subcr_cache->in_update_snapshot;
+	if (update_snapshot && nb_current_subcr_cache->update_elapsed_msec) {
+		add_msec = nb_current_subcr_cache->update_elapsed_msec;
+		nb_current_subcr_cache->update_elapsed_msec = 0;
+		nb_current_subcr_cache->in_update_snapshot = false;
+	} else {
+		add_msec = nb_current_subcr_cache->timer_wheel->period;
+	}
+
+	nb_sample_time_add_msec(&nb_current_subcr_cache->sample_time, add_msec);
+
+	DEBUGD(&nb_dbg_events, "Sample time set to %u.%03u",
+	       nb_current_subcr_cache->sample_time.sec, nb_current_subcr_cache->sample_time.msec);
+
+	/*
+	 * If we are in the one-shot alignment phase (wheel->period differs from
+	 * steady_period_ms), switch to the steady period for subsequent ticks.
+	 *
+	 * This keeps sample_time monotonic and ensures the next notification
+	 * after an interval change lands on the next multiple of the new interval.
+	 */
+	if (!update_snapshot &&
+	    nb_current_subcr_cache->steady_period_ms &&
+	    nb_current_subcr_cache->timer_wheel->period != nb_current_subcr_cache->steady_period_ms) {
+		nb_current_subcr_cache->timer_wheel->period = nb_current_subcr_cache->steady_period_ms;
+		/*
+		 * The timer wheel schedules using wheel->nexttime (not wheel->period),
+		 * so keep nexttime in sync when switching from the one-shot alignment
+		 * delay to the steady interval.
+		 */
+		nb_current_subcr_cache->timer_wheel->nexttime =
+			nb_current_subcr_cache->timer_wheel->period / nb_current_subcr_cache->timer_wheel->slots;
+		DEBUGD(&nb_dbg_events, "Wheel switched to steady period %u ms",
+		       nb_current_subcr_cache->steady_period_ms);
+	}
+
 	struct subscr_cache_entry entry;
 	/* Walk the subscription cache */
 	hash_walk(nb_current_subcr_cache->subscr_cache_entries, hash_walk_dump, &entry);
@@ -3021,19 +3083,91 @@ static void nb_wheel_init_or_reset(struct event_loop *master, const char *xpath,
 	if (!master) {
 		return;
 	}
-	int sampletime = interval ? interval * 1000 : SUBSCRIPTION_SAMPLE_TIMER;
-	DEBUGD(&nb_dbg_events, "Wheel sample %d", sampletime);
+	uint32_t steady_period_ms = interval ? (uint32_t)interval * 1000 : SUBSCRIPTION_SAMPLE_TIMER;
+	uint32_t elapsed_msec = 0;
 	if (nb_current_subcr_cache->timer_wheel) {
-		if ((uint32_t)sampletime != nb_current_subcr_cache->timer_wheel->period)
-			/* Timer is running and interval has changed, stop timer wheel */
-			wheel_delete(nb_current_subcr_cache->timer_wheel);
-		else
-			/* Timer is running, nothing has changed */
+		if (nb_current_subcr_cache->steady_period_ms == steady_period_ms)
 			return;
+
+		/* Best-effort: derive elapsed since last tick from the existing timer. */
+		if (nb_current_subcr_cache->timer_wheel->timer) {
+			/*
+			 * Example:
+			 *   - Old interval = 10s => wheel->nexttime ~= 10000ms
+			 *   - Last tick happened at t=40.0s (sample_time == 40, remainder == 0)
+			 *   - Update arrives at t=44.6s
+			 *
+			 * At update time, the old 10s timer is still counting down to t=50.0s,
+			 * so the time remaining is about 5.4s.
+			 */
+			unsigned long remain = event_timer_remain_msec(nb_current_subcr_cache->timer_wheel->timer); /* ~= 5400ms */
+			unsigned long next = nb_current_subcr_cache->timer_wheel->nexttime; /* ~= 10000ms */
+			if (remain <= next)
+				elapsed_msec = (uint32_t)(next - remain); /* ~= 10000 - 5400 = 4600ms */
+		}
+
+		/*
+		 * Carry the time since the last tick into the immediate "update-time snapshot"
+		 * emitted by nb_cache_subscriptions()->nb_notify_subscriptions().
+		 *
+		 * Example: update_elapsed_msec ~= 4600ms => snapshot corresponds to 44.6s.
+		 */
+		nb_current_subcr_cache->update_elapsed_msec = elapsed_msec;      /* ~= 4600ms */
+		nb_current_subcr_cache->in_update_snapshot = (elapsed_msec > 0); /* true */
 	}
-	DEBUGD(&nb_dbg_events, "Initing the timer wheel");
+
+	uint32_t interval_ms = steady_period_ms;
+	uint32_t elapsed_into_interval_ms = 0;
+	if (interval_ms) {
+		uint32_t interval_sec = interval_ms / 1000;
+
+		/*
+		 * Compute how far we already are into the NEW interval (in ms):
+		 *   - sample_time.sec % interval_sec gives the whole-second phase
+		 *   - sample_time.msec adds the sub-second carry from prior updates
+		 * Then add elapsed_msec (wall-clock time since last tick) to get the
+		 * phase at the update time.
+		 *
+		 * Example (update at t=44.6, new interval=30s, old interval=10s):
+		 *   interval_ms=30000, sample_time=40.000, elapsed_msec=4600
+		 *   last_sample_time_into_interval_ms=(40%30)*1000+0=10000
+		 *   elapsed_into_interval_ms=(10000+4600)%30000=14600
+		 *   delay_until_next_boundary_ms=30000-14600=15400
+		 * 
+		 * Boundary case: a second update at t=45.6 changes interval back to 10s:
+		 *   - after first update: sample_time ~= 44.600 (sec=44, msec=600)
+		 *   - elapsed_msec since 44.6 to 45.6 ~= 1000
+		 *   - interval_ms=10000, last_sample_time_into_interval_ms=(44%10)*1000+600=4600
+		 *   - elapsed_into_interval_ms=(4600+1000)%10000=5600
+		 *   - delay_until_next_boundary_ms=10000-5600=4400 (next at t=50.0)
+		 * Please note that nb_current_subcr_cache->sample_time.msec helped in calculating the 
+		 * correct value in this scenario.
+		 */
+		uint32_t last_sample_time_into_interval_ms =
+    		((nb_current_subcr_cache->sample_time.sec % interval_sec) * 1000U +
+    		nb_current_subcr_cache->sample_time.msec) % interval_ms; 
+
+		elapsed_into_interval_ms =
+			(last_sample_time_into_interval_ms + elapsed_msec) % interval_ms; 
+	}
+
+	uint32_t delay_until_next_boundary_ms =
+		(elapsed_into_interval_ms == 0) ? interval_ms : (interval_ms - elapsed_into_interval_ms);
+
+	DEBUGD(&nb_dbg_events,
+	       "Wheel steady %u ms (interval=%d sec), elapsed_msec=%u, elapsed_into_interval_ms=%u, delay_until_next_boundary_ms=%u",
+	       steady_period_ms, interval, elapsed_msec, elapsed_into_interval_ms, delay_until_next_boundary_ms);
+
+	if (nb_current_subcr_cache->timer_wheel) {
+		/* Interval changed: stop the existing wheel and create a new one. */
+		wheel_delete(nb_current_subcr_cache->timer_wheel);
+		nb_current_subcr_cache->timer_wheel = NULL;
+	}
+
+	nb_current_subcr_cache->steady_period_ms = steady_period_ms;
+	DEBUGD(&nb_dbg_events, "Initing the timer wheel with one shot timer for %u ms", delay_until_next_boundary_ms);
 	nb_current_subcr_cache->timer_wheel =
-		wheel_init(master, sampletime, 1, nb_xpath_hash_key_make,
+		wheel_init(master, delay_until_next_boundary_ms, 1, nb_xpath_hash_key_make,
 			   (void *)nb_notify_subscriptions, "subscription thread");
 	xpath = XCALLOC(MTYPE_NB_CONFIG_ENTRY, XPATH_MAXLEN);
 	wheel_add_item(nb_current_subcr_cache->timer_wheel, (void *)xpath);
