@@ -5261,6 +5261,12 @@ void bgp_rib_remove(struct bgp_dest *dest, struct bgp_path_info *pi,
 	struct bgp *bgp = NULL;
 	bool delete_route = false;
 
+	/* Conditional Disaggregation: Withdraw generated SAFI_UNICAST route if needed */
+	if (safi == SAFI_UNREACH && CHECK_FLAG(peer->bgp->per_src_nhg_flags[afi][SAFI_UNICAST],
+					       BGP_FLAG_CONDITIONAL_DISAGG))
+		bgp_conditional_disagg_withdraw(peer->bgp, bgp_dest_get_prefix(dest),
+						pi, afi, safi, peer);
+
 	bgp_aggregate_decrement(peer->bgp, bgp_dest_get_prefix(dest), pi, afi,
 				safi);
 
@@ -5342,11 +5348,6 @@ static void bgp_rib_withdraw(struct bgp_dest *dest, struct bgp_path_info *pi,
 	/* If this is an EVPN route, process for un-import. */
 	if (safi == SAFI_EVPN)
 		bgp_evpn_unimport_route(peer->bgp, afi, safi, p, pi);
-
-	/* Conditional Disaggregation: Withdraw generated SAFI_UNICAST route if needed */
-	if (safi == SAFI_UNREACH && CHECK_FLAG(peer->bgp->per_src_nhg_flags[afi][SAFI_UNICAST],
-					       BGP_FLAG_CONDITIONAL_DISAGG))
-		bgp_conditional_disagg_withdraw(peer->bgp, p, pi, afi, safi, peer);
 
 	bgp_rib_remove(dest, pi, peer, afi, safi);
 }
