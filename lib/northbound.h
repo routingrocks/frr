@@ -776,6 +776,12 @@ struct subscr_cache_entry {
 	char xpath[XPATH_MAXLEN];
 };
 
+/* Sample time tracked with sub-second precision for internal alignment logic. */
+struct nb_sample_time {
+	uint32_t sec;
+	uint16_t msec; /* 0..999 */
+};
+
 struct nb_subscription_cache {
 	/* timer wheel for periodic subscription notification */
 	struct timer_wheel *timer_wheel;
@@ -784,7 +790,11 @@ struct nb_subscription_cache {
 	/* cache requested on re-init */
 	bool init_cache_requested;
 	/* sample time */
-	uint32_t sample_time;
+	struct nb_sample_time sample_time;
+	/* milliseconds elapsed since last tick at the moment an interval update was received */
+	uint32_t update_elapsed_msec;
+	/* set when nb_notify_subscriptions() is invoked to send the "update-time" snapshot */
+	bool in_update_snapshot;
 	/*
 	 * Steady-state period (in milliseconds) for subscription notifications.
 	 *
