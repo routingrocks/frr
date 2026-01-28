@@ -51,6 +51,7 @@
 #include "bgpd/bgp_flowspec.h"
 #include "bgpd/bgp_unreach.h"
 #include "bgpd/bgp_trace.h"
+#include "bgpd/bgp_conditional_disagg.h"
 
 DEFINE_HOOK(bgp_packet_dump,
 		(struct peer *peer, uint8_t type, bgp_size_t size,
@@ -211,6 +212,18 @@ void bgp_check_update_delay(struct bgp *bgp)
 {
 	struct listnode *node, *nnode;
 	struct peer *peer = NULL;
+
+	/*
+	 * For multi-plane leaf with conditional disaggregation:
+	 * Never end update-delay early on EOR. Wait for full configured timer
+	 * to give ports time to come up in any restart scenario.
+	 */
+	if (bgp_is_multiplane_leaf_cond_disagg(bgp)) {
+		if (BGP_DEBUG(update, UPDATE_IN))
+			zlog_debug("%s: multi-plane leaf, ignoring EOR for update-delay",
+				   bgp->name_pretty);
+		return;
+	}
 
 	if (bgp_debug_neighbor_events(peer))
 		zlog_debug("Checking update delay, T: %d R: %d I:%d E: %d",

@@ -20,6 +20,13 @@
  * when unreachability is detected, enabling traffic to route around failures.
  */
 
+/*
+ * Check if this BGP instance is a multi-plane leaf with conditional disaggregation.
+ * Returns true if: default VRF + anycast SoO configured + conditional disagg enabled.
+ * Used to gate special handling for external process restart scenarios.
+ */
+extern bool bgp_is_multiplane_leaf_cond_disagg(struct bgp *bgp);
+
 /* Error codes for conditional disaggregation LTTng traces (range 1-10) */
 enum cond_disagg_error_code {
 	COND_DISAGG_LOCAL_SOO_NOT_SET = 1,

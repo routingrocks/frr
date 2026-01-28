@@ -203,3 +203,33 @@ void bgp_conditional_disagg_withdraw(struct bgp *bgp, const struct prefix *p,
 
 	bgp_dest_unlock_node(dest_unicast);
 }
+
+/*
+ * Check if this BGP instance is a multi-plane leaf with conditional disaggregation.
+ * Used to gate special handling for external process restart scenarios where we need
+ * to wait for ports to be operationally up before advertising routes.
+ */
+bool bgp_is_multiplane_leaf_cond_disagg(struct bgp *bgp)
+{
+	if (!bgp)
+		return false;
+
+	/* Only applies to default VRF */
+	if (bgp->vrf_id != VRF_DEFAULT)
+		return false;
+
+	/* Anycast SoO must be configured (bgp soo-source) */
+	if (!bgp->soo_source_ip_set)
+		return false;
+
+	/*
+	 * Conditional disaggregation must be enabled for at least one address family.
+	 * Either IPv4 OR IPv6 conditional-disagg is sufficient to identify this as
+	 * a multi-plane leaf - we don't require both to be configured.
+	 */
+	if (!CHECK_FLAG(bgp->per_src_nhg_flags[AFI_IP][SAFI_UNICAST], BGP_FLAG_CONDITIONAL_DISAGG) &&
+	    !CHECK_FLAG(bgp->per_src_nhg_flags[AFI_IP6][SAFI_UNICAST], BGP_FLAG_CONDITIONAL_DISAGG))
+		return false;
+
+	return true;
+}
