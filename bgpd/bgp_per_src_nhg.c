@@ -739,6 +739,10 @@ bool bgp_per_src_nhg_soo_id_change(struct bgp_dest *dest, struct bgp_path_info *
 	if (!selected_pi)
 		return false;
 
+	/* Validate SOO attr exists on both paths before extracting IPs */
+	if (!route_has_soo_attr(selected_pi) || !route_has_soo_attr(pi))
+		return false;
+
 	/* Get SOO attribute IP from selected path */
 	memset(&selected_soo_ip, 0, sizeof(selected_soo_ip));
 	if (!route_get_ip_from_soo_attr(selected_pi, &selected_soo_ip))
