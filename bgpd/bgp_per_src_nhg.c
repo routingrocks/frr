@@ -1095,6 +1095,7 @@ static void bgp_per_src_nhg_timer_slot_run(void *item)
 	struct bgp_per_src_nhg_hash_entry *nhe = item;
 	struct bgp_dest *dest;
 	time_t current_time;
+	uint32_t max_time_sec;
 
 	/* If SOO selected NHs match installed SOO NHG AND
 	 * all routes w/ SOO point to SOO NHG done
@@ -1118,6 +1119,7 @@ static void bgp_per_src_nhg_timer_slot_run(void *item)
 
 	/* all routes with soo converged to soo route */
 	current_time = monotime(NULL);
+	max_time_sec = nhe->bgp->per_src_nhg_convergence_max_time / 1000;
 	if (is_soo_rt_selected_pi_subset_of_all_rts_with_soo_using_soo_nhg_pi(nhe)) {
 		/* program the running ecmp and do NHG replace */
 		if (BGP_DEBUG(per_src_nhg, PER_SRC_NHG))
@@ -1136,7 +1138,7 @@ static void bgp_per_src_nhg_timer_slot_run(void *item)
 		 * done */
 		bgp_stop_soo_timer(nhe->bgp, nhe);
 
-	} else if (current_time - nhe->soo_entry_time_start > BGP_PER_SRC_NHG_SOO_TIMER_TIMEOUT) {
+	} else if ((current_time - nhe->soo_entry_time_start) > max_time_sec) {
 		if (BGP_DEBUG(per_src_nhg, PER_SRC_NHG))
 			zlog_debug("bgp vrf %s per src nhg soo route %pIA %s soo max timer exceeded. Moving routes to zebra nhid",
 				   nhe->bgp->name_pretty, &nhe->ip,

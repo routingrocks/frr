@@ -124,10 +124,10 @@ struct bgp_per_src_nhg_hash_entry {
  * several seconds as BGP DC PIC processes routes. The 20-second timer provides
  * sufficient buffer beyond the worst-case convergence time observed in empirical testing,
  * ensuring SOO logic completes ECMP expansion before forcing a move to zebra NHG.
- * The specific value (20 seconds) has no special significance beyond being comfortably
+ * The specific value (20 seconds/20000 milliseconds) has no special significance beyond being comfortably
  * higher than measured worst-case convergence times in our test scenarios.
  */
-#define BGP_PER_SRC_NHG_SOO_TIMER_TIMEOUT 20
+#define BGP_PER_SRC_NHG_SOO_TIMER_TIMEOUT 20000
 
 /* SOO Hash Table APIs */
 void bgp_per_src_nhg_init(struct bgp *bgp, afi_t afi, safi_t safi);
