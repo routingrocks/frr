@@ -1035,6 +1035,8 @@ struct bgp {
 	int per_src_nhg_convergence_timer;
 	/* per source nhg advertise bgp routes delay timer*/
 	int per_src_nhg_start_adv_delay_timer;
+	/* per source nhg convergence timeout*/
+	uint32_t per_src_nhg_convergence_max_time;
 
 	/* Custom SOO source IP for per-source NHG */
 	struct in_addr soo_source_ip;

@@ -4086,13 +4086,6 @@ DEFPY(bgp_nhg_per_origin, bgp_nhg_per_origin_cmd, "[no$no] bgp nhg-per-origin",
 	if (no) {
 		if (!is_nhg_per_origin_configured(bgp))
 			return CMD_SUCCESS;
-		else if (bgp->per_src_nhg_convergence_timer !=
-			 BGP_PER_SRC_NHG_SOO_TIMER_WHEEL_PERIOD) {
-			vty_out(vty,
-				"%%  Disable 'bgp per-source-nhg convergence-timer' cli first\n");
-			return CMD_WARNING;
-		}
-
 		if (!bgp->per_src_nhg_table[afi][safi]->count) {
 			UNSET_FLAG(bgp->per_src_nhg_flags[afi][safi], BGP_FLAG_NHG_PER_ORIGIN);
 			bgp_clear_vty(vty, bgp->name, afi, safi, clear_all, BGP_CLEAR_SOFT_IN, NULL);
@@ -4260,51 +4253,128 @@ DEFPY(bgp_conditional_disaggregation, bgp_conditional_disaggregation_cmd,
 }
 
 DEFPY(bgp_per_src_nhg_convergence_timer, bgp_per_src_nhg_convergence_timer_cmd,
-      "bgp per-source-nhg convergence-timer (5-30000)$period",
-      BGP_STR "Per Source NHG settings\n"
-	      "Time in milli secs to wait before processing SOO for per source nexthop group\n"
-	      "Default is 50 msec\n")
+      "bgp per-source-nhg convergence {interval (5-30000)$interval|maxtime (1000-120000)$maxtime}",
+      BGP_STR
+      "Per Source NHG settings\n"
+      "Convergence settings\n"
+      "Interval setting\n"
+      "Interval in milliseconds at which the SOO timer triggers for per-source NHG (Default: 50 msec)\n"
+      "Maxtime setting\n"
+      "Maximum duration in milliseconds after which the SOO timer stops if convergence is not achieved (Default: 20000 msec)\n")
 {
 	VTY_DECLVAR_CONTEXT(bgp, bgp);
+	bool interval_changed = false;
+	int new_interval, new_maxtime;
 
-	if (period == bgp->per_src_nhg_convergence_timer)
-		return CMD_SUCCESS;
-	else if (!is_nhg_per_origin_configured(bgp)) {
-		vty_out(vty, "%% 'bgp nhg-per-origin' not enabled\n");
+	/* Determine the new values */
+	new_interval = interval ? interval : bgp->per_src_nhg_convergence_timer;
+	new_maxtime = maxtime ? maxtime : bgp->per_src_nhg_convergence_max_time;
+
+	if (new_interval >= new_maxtime) {
+		vty_out(vty, "%% Error: interval (%d ms) must be less than maxtime (%d ms)\n",
+			new_interval, new_maxtime);
 		return CMD_WARNING;
 	}
 
-	bgp_per_src_nhg_soo_timer_wheel_delete(bgp);
+	/* Check if values are unchanged */
+	if ((!interval || interval == bgp->per_src_nhg_convergence_timer) &&
+	    (!maxtime || maxtime == bgp->per_src_nhg_convergence_max_time))
+		return CMD_SUCCESS;
 
-	bgp->per_src_nhg_convergence_timer = period;
-	bgp_per_src_nhg_soo_timer_wheel_init(bgp);
+	if (interval && interval != bgp->per_src_nhg_convergence_timer)
+		interval_changed = true;
 
-	bgp_clear_vty(vty, bgp->name, AFI_IP, SAFI_UNICAST, clear_all, BGP_CLEAR_SOFT_NONE, NULL);
-	bgp_clear_vty(vty, bgp->name, AFI_IP6, SAFI_UNICAST, clear_all, BGP_CLEAR_SOFT_NONE, NULL);
+	if (maxtime)
+	    bgp->per_src_nhg_convergence_max_time = maxtime;
+
+	/* reinit timer wheel if nhg per origin is configured */
+	if (interval_changed && is_nhg_per_origin_configured(bgp)) {
+		bgp_per_src_nhg_soo_timer_wheel_delete(bgp);
+		bgp->per_src_nhg_convergence_timer = interval;
+		bgp_per_src_nhg_soo_timer_wheel_init(bgp);
+
+		bgp_clear_vty(vty, bgp->name, AFI_IP, SAFI_UNICAST, clear_all, BGP_CLEAR_SOFT_NONE,
+			      NULL);
+		bgp_clear_vty(vty, bgp->name, AFI_IP6, SAFI_UNICAST, clear_all, BGP_CLEAR_SOFT_NONE,
+			      NULL);
+	} else if (interval_changed)
+		bgp->per_src_nhg_convergence_timer = interval;
 
 	return CMD_SUCCESS;
 }
 
 DEFPY(no_bgp_per_src_nhg_convergence_timer, no_bgp_per_src_nhg_convergence_timer_cmd,
-      "no bgp per-source-nhg convergence-timer [(5-30000)]",
-      NO_STR BGP_STR
-      "Per Source NHG Convergence settings\n"
-      "Time in milli secs to wait before processing SOO for per source nexthop group\n"
-      "Default is 50 msec\n")
+      "no bgp per-source-nhg convergence [interval [(5-30000)]] [maxtime [(1000-120000)]]",
+      NO_STR BGP_STR "Per Source NHG settings\n"
+		     "Convergence settings\n"
+		     "Interval setting\n"
+		     "Interval in milliseconds\n"
+		     "Maxtime setting\n"
+		     "Maxtime in milliseconds\n")
 {
 	VTY_DECLVAR_CONTEXT(bgp, bgp);
+	int idx = 0;
+	bool reset_interval = false;
+	bool reset_maxtime = false;
+	int new_interval, new_maxtime;
 
-	if (!is_nhg_per_origin_configured(bgp) ||
-	    bgp->per_src_nhg_convergence_timer == BGP_PER_SRC_NHG_SOO_TIMER_WHEEL_PERIOD)
-		return CMD_SUCCESS;
+	/* Determine which parameter to reset based on keyword */
+	if (argv_find(argv, argc, "interval", &idx))
+		reset_interval = true;
+	if (argv_find(argv, argc, "maxtime", &idx))
+		reset_maxtime = true;
 
-	bgp_per_src_nhg_soo_timer_wheel_delete(bgp);
+	/* If neither specified, reset both */
+	if (!reset_interval && !reset_maxtime) {
+		reset_interval = true;
+		reset_maxtime = true;
+	}
 
-	bgp->per_src_nhg_convergence_timer = BGP_PER_SRC_NHG_SOO_TIMER_WHEEL_PERIOD;
-	bgp_per_src_nhg_soo_timer_wheel_init(bgp);
+	/* Determine what the new values will be after reset */
+	new_interval = reset_interval ? BGP_PER_SRC_NHG_SOO_TIMER_WHEEL_PERIOD
+				      : bgp->per_src_nhg_convergence_timer;
+	new_maxtime = reset_maxtime ? BGP_PER_SRC_NHG_SOO_TIMER_TIMEOUT
+				    : bgp->per_src_nhg_convergence_max_time;
 
-	bgp_clear_vty(vty, bgp->name, AFI_IP, SAFI_UNICAST, clear_all, BGP_CLEAR_SOFT_NONE, NULL);
-	bgp_clear_vty(vty, bgp->name, AFI_IP6, SAFI_UNICAST, clear_all, BGP_CLEAR_SOFT_NONE, NULL);
+	/* Validate: interval must be less than max_time */
+	if (new_interval >= new_maxtime) {
+		vty_out(vty,
+			"%% Error: Cannot reset - interval (%d ms) must be less than maxtime (%d ms)\n",
+			new_interval, new_maxtime);
+		vty_out(vty, "%% Current: interval=%d ms, maxtime=%d ms\n",
+			bgp->per_src_nhg_convergence_timer, bgp->per_src_nhg_convergence_max_time);
+		return CMD_WARNING;
+	}
+
+	/* Check if already at defaults */
+	if (reset_interval && reset_maxtime) {
+		if (bgp->per_src_nhg_convergence_timer == BGP_PER_SRC_NHG_SOO_TIMER_WHEEL_PERIOD &&
+		    bgp->per_src_nhg_convergence_max_time == BGP_PER_SRC_NHG_SOO_TIMER_TIMEOUT)
+			return CMD_SUCCESS;
+	} else if (reset_interval) {
+		if (bgp->per_src_nhg_convergence_timer == BGP_PER_SRC_NHG_SOO_TIMER_WHEEL_PERIOD)
+			return CMD_SUCCESS;
+	} else if (reset_maxtime) {
+		if (bgp->per_src_nhg_convergence_max_time == BGP_PER_SRC_NHG_SOO_TIMER_TIMEOUT)
+			return CMD_SUCCESS;
+	}
+
+	/* Reset maxtime if requested */
+	if (reset_maxtime)
+		bgp->per_src_nhg_convergence_max_time = BGP_PER_SRC_NHG_SOO_TIMER_TIMEOUT;
+
+	/* reinit timer wheel if nhg per origin is configured */
+	if (reset_interval && is_nhg_per_origin_configured(bgp)) {
+		bgp_per_src_nhg_soo_timer_wheel_delete(bgp);
+		bgp->per_src_nhg_convergence_timer = BGP_PER_SRC_NHG_SOO_TIMER_WHEEL_PERIOD;
+		bgp_per_src_nhg_soo_timer_wheel_init(bgp);
+
+		bgp_clear_vty(vty, bgp->name, AFI_IP, SAFI_UNICAST, clear_all, BGP_CLEAR_SOFT_NONE,
+			      NULL);
+		bgp_clear_vty(vty, bgp->name, AFI_IP6, SAFI_UNICAST, clear_all, BGP_CLEAR_SOFT_NONE,
+			      NULL);
+	} else if (reset_interval)
+		bgp->per_src_nhg_convergence_timer = BGP_PER_SRC_NHG_SOO_TIMER_WHEEL_PERIOD;
 
 	return CMD_SUCCESS;
 }
@@ -20954,10 +21024,26 @@ int bgp_config_write(struct vty *vty)
 			vty_out(vty, " bgp soo-source %pI4\n", &bgp->soo_source_ip);
 
 		/* BGP Per Source NHG Convergence time setting */
-		if (is_nhg_per_origin_configured(bgp) &&
-		    bgp->per_src_nhg_convergence_timer != BGP_PER_SRC_NHG_SOO_TIMER_WHEEL_PERIOD)
-			vty_out(vty, " bgp per-source-nhg convergence-timer %d\n",
-				bgp->per_src_nhg_convergence_timer);
+		if (bgp->per_src_nhg_convergence_timer != BGP_PER_SRC_NHG_SOO_TIMER_WHEEL_PERIOD ||
+		    bgp->per_src_nhg_convergence_max_time != BGP_PER_SRC_NHG_SOO_TIMER_TIMEOUT) {
+			bool show_interval = (bgp->per_src_nhg_convergence_timer !=
+					      BGP_PER_SRC_NHG_SOO_TIMER_WHEEL_PERIOD);
+			bool show_maxtime = (bgp->per_src_nhg_convergence_max_time !=
+					     BGP_PER_SRC_NHG_SOO_TIMER_TIMEOUT);
+
+			if (show_interval && show_maxtime) {
+				vty_out(vty,
+					" bgp per-source-nhg convergence interval %d maxtime %d\n",
+					bgp->per_src_nhg_convergence_timer,
+					bgp->per_src_nhg_convergence_max_time);
+			} else if (show_interval) {
+				vty_out(vty, " bgp per-source-nhg convergence interval %d\n",
+					bgp->per_src_nhg_convergence_timer);
+			} else if (show_maxtime) {
+				vty_out(vty, " bgp per-source-nhg convergence maxtime %d\n",
+					bgp->per_src_nhg_convergence_max_time);
+			}
+		}
 
 		/* BGP Per Source NHG adv delay timer setting */
 		if (is_nhg_per_origin_configured(bgp) &&
