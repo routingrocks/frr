@@ -242,8 +242,7 @@ static struct peer *peer_xfer_conn(struct peer *from_peer)
 		peer->hostname = NULL;
 	}
 	if (from_peer->hostname != NULL) {
-		peer->hostname = from_peer->hostname;
-		from_peer->hostname = NULL;
+		peer->hostname = XSTRDUP(MTYPE_BGP_PEER_HOST, from_peer->hostname);
 	}
 
 	if (peer->domainname) {
@@ -251,8 +250,7 @@ static struct peer *peer_xfer_conn(struct peer *from_peer)
 		peer->domainname = NULL;
 	}
 	if (from_peer->domainname != NULL) {
-		peer->domainname = from_peer->domainname;
-		from_peer->domainname = NULL;
+		peer->domainname = XSTRDUP(MTYPE_BGP_PEER_HOST, from_peer->domainname);
 	}
 
 	if (peer->soft_version) {
@@ -260,8 +258,8 @@ static struct peer *peer_xfer_conn(struct peer *from_peer)
 		peer->soft_version = NULL;
 	}
 	if (from_peer->soft_version) {
-		peer->soft_version = from_peer->soft_version;
-		from_peer->soft_version = NULL;
+		peer->soft_version = XSTRDUP(MTYPE_BGP_SOFT_VERSION,
+					     from_peer->soft_version);
 	}
 
 	FOREACH_AFI_SAFI (afi, safi) {
